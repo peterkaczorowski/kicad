@@ -47,6 +47,7 @@ using namespace std::placeholders;
 #include <dialog_filter_selection.h>
 #include <view/view_controls.h>
 #include <gal/painter.h>
+#include <pcb_painter.h>
 #include <router/router_tool.h>
 #include <pcbnew_settings.h>
 #include <tool/action_menu.h>
@@ -590,7 +591,9 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             if( m_selection.GetSize() == 1 && m_selection[0]->Type() == PCB_GROUP_T )
             {
                 EnterGroup();
-                selectPoint( evt->Position() );
+
+                if( m_frame->GetDisplayOptions().m_GroupTransparency > 0.0 )
+                    selectPoint( evt->Position() );
             }
             else if( !selectChartRow( evt->Position() ) )
                 m_toolMgr->RunAction( PCB_ACTIONS::properties );
@@ -855,6 +858,13 @@ void PCB_SELECTION_TOOL::EnterGroup()
     m_enteredGroup = aGroup;
     m_enteredGroup->SetFlags( ENTERED );
 
+    // No transparency set, so fall back to selecting the members.
+    if( m_frame->GetDisplayOptions().m_GroupTransparency <= 0.0 )
+    {
+        for( EDA_ITEM* member : m_enteredGroup->GetItems() )
+            select( member );
+    }
+
     m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
 
     // Processing the selection event can re-enter the tool and ExitGroup(), which clears
@@ -866,6 +876,20 @@ void PCB_SELECTION_TOOL::EnterGroup()
     view()->Hide( m_enteredGroup, true );
     m_enteredGroupOverlay.Add( m_enteredGroup );
     view()->Update( &m_enteredGroupOverlay );
+
+    SetGroupEditModeActive( true );
+}
+
+
+void PCB_SELECTION_TOOL::SetGroupEditModeActive( bool aActive )
+{
+    auto* settings = static_cast<KIGFX::PCB_PAINTER*>( view()->GetPainter() )->GetSettings();
+
+    if( settings->IsGroupEditModeActive() == aActive )
+        return;
+
+    settings->SetGroupEditModeActive( aActive );
+    view()->UpdateAllItems( KIGFX::COLOR );
 }
 
 
@@ -888,6 +912,8 @@ void PCB_SELECTION_TOOL::ExitGroup( bool aSelectGroup )
     m_enteredGroupOverlay.Clear();
     m_enteredGroup = nullptr;
     view()->Update( &m_enteredGroupOverlay );
+
+    SetGroupEditModeActive( false );
 }
 
 
@@ -4061,6 +4087,8 @@ void PCB_SELECTION_TOOL::RebuildSelection()
     {
         m_enteredGroupOverlay.Clear();
         m_enteredGroup = nullptr;
+
+        SetGroupEditModeActive( false );
     }
 }
 

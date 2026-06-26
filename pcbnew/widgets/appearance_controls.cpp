@@ -693,6 +693,37 @@ void APPEARANCE_CONTROLS::createControls()
     m_cbFlipBoard->SetFont( infoFont );
     layerDisplayOptionsSizer->Add( m_cbFlipBoard, 0, wxTOP | wxBOTTOM, 3 );
 
+    wxStaticLine* groupTransparencySep =
+            new wxStaticLine( layerDisplayPane, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_HORIZONTAL );
+    layerDisplayOptionsSizer->Add( groupTransparencySep, 0, wxEXPAND | wxTOP, 4 );
+
+    m_groupTransparencyLabel = new wxStaticText( layerDisplayPane, wxID_ANY, _( "Group editing transparency:" ) );
+    m_groupTransparencyLabel->SetFont( infoFont );
+    layerDisplayOptionsSizer->Add( m_groupTransparencyLabel, 0, wxEXPAND | wxTOP, 2 );
+
+    m_sliderGroupTransparency = new wxSlider( layerDisplayPane, wxID_ANY, 75, 0, 100 );
+    m_sliderGroupTransparency->SetToolTip(
+            _( "Transparency of items outside the entered group (0% = opaque, 100% = invisible)" ) );
+    layerDisplayOptionsSizer->Add( m_sliderGroupTransparency, 0, wxEXPAND | wxBOTTOM, 3 );
+
+    auto groupTransparencySliderHandler = [&]( wxCommandEvent& aEvent )
+    {
+        wxSlider* ctrl = static_cast<wxSlider*>( aEvent.GetEventObject() );
+        double    factor = ctrl->GetValue() / 100.0;
+
+        PCB_DISPLAY_OPTIONS options = m_frame->GetDisplayOptions();
+        options.m_GroupTransparency = factor;
+        m_frame->SetDisplayOptions( options );
+
+        KIGFX::VIEW* view = m_frame->GetCanvas()->GetView();
+        auto*        settings = static_cast<KIGFX::PCB_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
+
+        if( settings->IsGroupEditModeActive() )
+            view->UpdateAllItems( KIGFX::COLOR );
+    };
+
+    m_sliderGroupTransparency->Bind( wxEVT_SCROLL_CHANGED, groupTransparencySliderHandler );
+
     layerDisplayPane->SetSizer( layerDisplayOptionsSizer );
     layerDisplayPane->Layout();
     layerDisplayOptionsSizer->Fit( layerDisplayPane );
@@ -1524,6 +1555,7 @@ void APPEARANCE_CONTROLS::UpdateDisplayOptions()
     }
 
     m_cbFlipBoard->SetValue( m_frame->GetDisplayOptions().m_FlipBoardView );
+    m_sliderGroupTransparency->SetValue( static_cast<int>( ( options.m_GroupTransparency ) * 100 + 0.5 ) );
 
     if( !m_isFpEditor )
     {

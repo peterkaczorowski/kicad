@@ -473,6 +473,8 @@ private:
     wxRadioButton*       m_rbHighContrastOff;
     wxStaticLine*        m_layerDisplaySeparator;
     wxCheckBox*          m_cbFlipBoard;
+    wxSlider*            m_sliderGroupTransparency;
+    wxStaticText*        m_groupTransparencyLabel;
 
     // Net display options controls
     WX_COLLAPSIBLE_PANE* m_paneNetDisplayOptions;
