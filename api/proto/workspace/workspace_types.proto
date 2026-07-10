@@ -1,0 +1,337 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * workspace_types.proto
+ *
+ * Shared Managed Design Workspace (MDW) vocabulary. These messages are the
+ * public contract between KiCad and any backend. Backend channel messages
+ * (kiapi.mdw) and the client-facing workspace.* command messages both build
+ * on this vocabulary, so the workspace.* IPC handler is mostly passthrough.
+ *
+ * This file is an API commitment at first release. Fields are additive-only
+ * within a protocol major version; renumbering or removing a field requires a
+ * major bump.
+ */
+
+syntax = "proto3";
+
+package kiapi.workspace;
+
+/**
+ * Semantic version triple used for backend and protocol versions.
+ */
+message Version
+{
+  uint32 major = 1;
+  uint32 minor = 2;
+  uint32 patch = 3;
+  string full = 4; // Optional free-form identifier (build metadata, git hash)
+}
+
+/**
+ * Identifying metadata a backend advertises during the handshake.
+ */
+message BackendInfo
+{
+  string  backend_id   = 1; // Globally unique identifier, e.g. "org.kicad.mdw.git"
+  string  display_name = 2; // Human-readable name for UI
+  string  description  = 3;
+  string  vendor       = 4;
+  string  vendor_url   = 5;
+  string  support_url  = 6;
+  string  icon_name    = 7;
+  Version version      = 8; // Backend version
+}
+
+/**
+ * Optional capability groups a backend may advertise. Mandatory checkout is
+ * not a group; every backend implements it. The framework consults this set
+ * before exposing any UI or dispatching any sub-interface call. A request for
+ * an unadvertised group returns WE_NOT_SUPPORTED.
+ */
+enum CapabilityGroup
+{
+  CG_UNKNOWN          = 0;
+  CG_LOCKING          = 1;
+  CG_REVISIONS        = 2;
+  CG_ATTRIBUTES       = 3;
+  CG_LIFECYCLE        = 4;
+  CG_EVENTS           = 5;
+  CG_SEARCH           = 6;
+  CG_DIFF             = 7;
+  CG_FORGE            = 8;
+  CG_SHARED_LIBRARIES = 9;
+  CG_BOM              = 10;
+  CG_ECO              = 11;
+  CG_REVIEW           = 12;
+  CG_PARTS            = 13;
+  CG_PERMISSIONS      = 14;
+}
+
+/**
+ * Four universal lifecycle categories every backend maps its native states
+ * onto. PENDING_REVIEW and RESTRICTED block writes; EDITABLE allows writes
+ * without warning; RELEASED allows writes but warns on save. RESTRICTED names
+ * a policy-imposed read-only state and is independent of per-user locks
+ * (see LockInfo). The numbering matches MDW_LIFECYCLE_CATEGORY.
+ */
+enum LifecycleCategory
+{
+  LC_EDITABLE       = 0;
+  LC_PENDING_REVIEW = 1;
+  LC_RESTRICTED     = 2;
+  LC_RELEASED       = 3;
+}
+
+/**
+ * A backend-supplied display state layered on top of a category. The standard
+ * UI shows display_name; the framework consults only category.
+ */
+message CustomState
+{
+  string            state_id     = 1;
+  string            display_name = 2;
+  string            description  = 3;
+  LifecycleCategory category     = 4;
+  string            icon_name    = 5;
+  int32             sort_order   = 6;
+}
+
+/**
+ * The capability advertisement returned by the handshake.
+ */
+message Capabilities
+{
+  repeated CapabilityGroup groups        = 1;
+  bool                     supports_offline = 2; // Reserved; offline queue is deferred
+  repeated CustomState     custom_states = 3;
+}
+
+/**
+ * Attribute value types the schema-driven property editor renders.
+ */
+enum AttrType
+{
+  AT_STRING         = 0;
+  AT_INTEGER        = 1;
+  AT_FLOAT          = 2;
+  AT_DATE           = 3;
+  AT_DATETIME       = 4;
+  AT_BOOLEAN        = 5;
+  AT_ENUM           = 6;
+  AT_USER_REFERENCE = 7;
+}
+
+/**
+ * One attribute definition. The framework treats the schema as opaque and
+ * emits one widget per definition.
+ */
+message AttributeSchema
+{
+  string            attr_id           = 1;
+  string            display_name      = 2;
+  string            description       = 3;
+  AttrType          type              = 4;
+  bool              required          = 5;
+  bool              editable_in_kicad = 6;
+  repeated string   enum_values       = 7; // AT_ENUM only
+  string            default_value     = 8;
+  int32             display_order     = 9;
+}
+
+/**
+ * The backend-declared item attribute schema. Vendor vocabularies for optional
+ * capabilities are scoped to their own sub-interface schema accessors.
+ */
+message Schema
+{
+  string                   schema_version = 1;
+  repeated AttributeSchema attributes     = 2;
+}
+
+/**
+ * One attribute value. The value is carried as text and typed by the schema.
+ */
+message AttributeValue
+{
+  string attr_id = 1;
+  string value   = 2;
+}
+
+message AttributeSet
+{
+  repeated AttributeValue values = 1;
+}
+
+/**
+ * A managed file or folder. is_folder distinguishes them; revision_id is empty
+ * for folders. category and lock fields carry the last-known state so a listing
+ * needs no follow-up calls to render the browser.
+ */
+message ItemInfo
+{
+  string            item_id         = 1;
+  string            display_name    = 2;
+  string            folder_id       = 3;
+  bool              is_folder       = 4;
+  int64             modified_unix   = 5; // Seconds since epoch, UTC
+  string            revision_id     = 6; // Empty for folders
+  LifecycleCategory category        = 7;
+  string            custom_state_id = 8;
+  bool              is_locked       = 9;
+  string            lock_owner      = 10;
+}
+
+/**
+ * A navigable folder in the workspace tree.
+ */
+message Folder
+{
+  string folder_id        = 1;
+  string display_name     = 2;
+  string parent_folder_id = 3;
+  bool   has_children     = 4;
+}
+
+/**
+ * A point-in-time snapshot of an item. parent_revision_ids is empty at a root
+ * and carries more than one entry for a merge.
+ */
+message Revision
+{
+  string          revision_id         = 1;
+  repeated string parent_revision_ids = 2;
+  string          author              = 3;
+  int64           timestamp_unix      = 4;
+  string          comment             = 5;
+}
+
+/**
+ * Per-user exclusive lock state. Independent of LifecycleCategory: an item can
+ * be EDITABLE and locked by a teammate, or RESTRICTED and unlocked.
+ */
+message LockInfo
+{
+  bool   is_locked           = 1;
+  string lock_owner          = 2;
+  int64  lock_timestamp_unix = 3;
+  bool   locked_by_me        = 4;
+}
+
+/**
+ * A managed part record (CG_PARTS). Minimal identity surface; vendor detail is
+ * carried through the parts sub-interface schema.
+ */
+message Part
+{
+  string            part_id      = 1;
+  string            part_number  = 2;
+  string            description  = 3;
+  string            revision     = 4;
+  LifecycleCategory category     = 5;
+  string            custom_state_id = 6;
+}
+
+/**
+ * Effective per-item permissions (CG_PERMISSIONS). The framework hides actions
+ * the current user may not perform.
+ */
+message Permissions
+{
+  bool can_checkout         = 1;
+  bool can_checkin          = 2;
+  bool can_lock             = 3;
+  bool can_transition       = 4;
+  bool can_edit_attributes  = 5;
+  bool can_manage           = 6;
+}
+
+/**
+ * Pared error vocabulary. Backend-workflow error families (ECO/BOM/routing/
+ * release/CI/audit) present in the retired PLM contract are intentionally gone;
+ * those workflows live in the backend or an IPC client, not the framework.
+ */
+enum WorkspaceErrorCode
+{
+  WE_OK                       = 0;
+  WE_NOT_SUPPORTED            = 1;  // Capability group not advertised
+  WE_NOT_AUTHENTICATED        = 2;
+  WE_AUTH_FAILED              = 3;
+  WE_PERMISSION_DENIED        = 4;
+  WE_NETWORK                  = 5;
+  WE_TIMEOUT                  = 6;
+  WE_LOCK_CONFLICT            = 7;
+  WE_NOT_LOCK_OWNER           = 8;
+  WE_ITEM_NOT_FOUND           = 9;
+  WE_REVISION_NOT_FOUND       = 10;
+  WE_VERSION_CONFLICT         = 11;
+  WE_INVALID_STATE_TRANSITION = 12;
+  WE_NO_CHANGES               = 13;
+  WE_CANCELLED                = 14;
+  WE_INVALID_PARAMETER        = 15;
+  WE_BACKEND_LOST             = 16; // Backend process died mid-request
+  WE_PROTOCOL                 = 17; // Malformed envelope or version mismatch
+  WE_INTERNAL                 = 18;
+}
+
+/**
+ * A typed error carried on every response. code == WE_OK means success.
+ */
+message WorkspaceError
+{
+  WorkspaceErrorCode code    = 1;
+  string             message = 2;
+}
+
+/**
+ * Types of workspace state transitions. BACKEND_EVENT carries a
+ * backend-defined type string; the framework treats its payload as opaque.
+ */
+enum EventType
+{
+  ET_UNKNOWN                    = 0;
+  ET_WORKSPACE_BOUND            = 1;
+  ET_WORKSPACE_UNBOUND          = 2;
+  ET_WORKSPACE_RECONNECTED      = 3;
+  ET_ITEM_LOCKED                = 4;
+  ET_ITEM_UNLOCKED              = 5;
+  ET_REVISION_CHECKED_IN        = 6;
+  ET_REVISION_CHECKED_OUT       = 7;
+  ET_LIFECYCLE_CATEGORY_CHANGED = 8;
+  ET_CUSTOM_STATE_CHANGED       = 9;
+  ET_BACKEND_EVENT              = 10;
+}
+
+/**
+ * The envelope carried on the event channel and republished over the IPC PUB
+ * socket. seq is monotonic per workspace so clients detect gaps and resync via
+ * getters. client_identity names the issuer of the originating mutation.
+ */
+message EventEnvelope
+{
+  EventType type               = 1;
+  string    workspace_id       = 2;
+  string    item_id            = 3;
+  string    client_identity    = 4;
+  string    payload            = 5; // JSON; framework treats as opaque
+  uint64    seq                = 6;
+  int64     timestamp_unix     = 7;
+  string    backend_event_type = 8; // Set only for ET_BACKEND_EVENT
+}

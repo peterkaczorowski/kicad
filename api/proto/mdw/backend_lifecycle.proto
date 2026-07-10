@@ -1,0 +1,61 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * backend_lifecycle.proto  (CG_LIFECYCLE)
+ *
+ * Transition an item between backend custom states. The backend reports the
+ * resulting universal category; the framework consults only the category.
+ */
+
+syntax = "proto3";
+
+package kiapi.mdw;
+
+import "workspace/workspace_types.proto";
+
+message ValidTransition
+{
+  string                          target_state_id  = 1;
+  string                          display_name      = 2;
+  string                          description       = 3;
+  kiapi.workspace.LifecycleCategory target_category = 4;
+  bool                            requires_comment  = 5;
+}
+
+message GetAvailableTransitionsRequest { string item_id = 1; }
+
+message GetAvailableTransitionsReply
+{
+  repeated ValidTransition       transitions = 1;
+}
+
+message TransitionLifecycleRequest
+{
+  string item_id         = 1;
+  string target_state_id = 2;
+  string comment         = 3;
+  string idempotency_id  = 4;
+}
+
+message TransitionLifecycleReply
+{
+  string                            new_state_id = 1;
+  kiapi.workspace.LifecycleCategory new_category = 2;
+}

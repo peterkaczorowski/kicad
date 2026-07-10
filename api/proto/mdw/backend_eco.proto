@@ -1,0 +1,56 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * backend_eco.proto  (CG_ECO)
+ *
+ * Pared ECO surface. KiCad ships no ECO routing or approval flow; this group
+ * only lets a backend surface ECO records and its ECO vocabulary. state and
+ * eco_type are backend display strings.
+ */
+
+syntax = "proto3";
+
+package kiapi.mdw;
+
+import "workspace/workspace_types.proto";
+
+message Eco
+{
+  string          eco_id            = 1;
+  string          title             = 2;
+  string          eco_type          = 3;
+  string          state             = 4;
+  string          author            = 5;
+  repeated string affected_item_ids = 6;
+}
+
+message GetEcoSchemaRequest {}
+
+message GetEcoSchemaReply
+{
+  kiapi.workspace.Schema         schema = 1;
+}
+
+message GetEcoRequest { string eco_id = 1; }
+
+message GetEcoReply
+{
+  Eco                            eco   = 1;
+}

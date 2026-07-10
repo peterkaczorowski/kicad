@@ -1,0 +1,239 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * workspace_commands.proto
+ *
+ * The client-facing workspace.* IPC namespace. The standard dialogs and
+ * external IPC clients dispatch through the same MDW_WORKSPACE_SERVICE path, so
+ * most of these messages carry kiapi.workspace types verbatim. Mutating
+ * commands inherit KiCad's existing IPC client-authorization model.
+ */
+
+syntax = "proto3";
+
+package kiapi.workspace;
+
+import "workspace/workspace_types.proto";
+
+message BindWorkspace
+{
+  string backend_id   = 1;
+  string workspace_id = 2;
+  string binding      = 3;
+}
+
+message BindWorkspaceResponse
+{
+  BackendInfo    backend_info = 1;
+  Capabilities   capabilities = 2;
+  WorkspaceError error        = 3;
+}
+
+message UnbindWorkspace {}
+message UnbindWorkspaceResponse { WorkspaceError error = 1; }
+
+message GetWorkspaceInfo {}
+
+message GetWorkspaceInfoResponse
+{
+  bool           bound        = 1;
+  string         workspace_id = 2;
+  BackendInfo    backend_info = 3;
+  Capabilities   capabilities = 4;
+  WorkspaceError error        = 5;
+}
+
+message ListWorkspaceItems
+{
+  string folder_id  = 1;
+  string filter     = 2;
+  uint32 page_size  = 3;
+  string page_token = 4;
+}
+
+message ListWorkspaceItemsResponse
+{
+  repeated ItemInfo items           = 1;
+  string            next_page_token = 2;
+  WorkspaceError    error           = 3;
+}
+
+message GetWorkspaceItemInfo { string item_id = 1; }
+
+message GetWorkspaceItemInfoResponse
+{
+  ItemInfo       item  = 1;
+  WorkspaceError error = 2;
+}
+
+message GetItemAttributes { string item_id = 1; }
+
+message GetItemAttributesResponse
+{
+  AttributeSet   attributes = 1;
+  WorkspaceError error      = 2;
+}
+
+message SetItemAttributes
+{
+  string       item_id    = 1;
+  AttributeSet attributes = 2;
+}
+
+message SetItemAttributesResponse { WorkspaceError error = 1; }
+
+message CheckoutItem
+{
+  string item_id    = 1;
+  string local_path = 2;
+  bool   lock       = 3;
+}
+
+message CheckoutItemResponse
+{
+  ItemInfo       item       = 1;
+  string         local_path = 2;
+  WorkspaceError error      = 3;
+}
+
+message CheckinItem
+{
+  string       item_id    = 1;
+  string       local_path = 2;
+  string       comment    = 3;
+  AttributeSet attributes = 4;
+}
+
+message CheckinItemResponse
+{
+  Revision       revision = 1;
+  WorkspaceError error    = 2;
+}
+
+message CancelCheckout { string item_id = 1; }
+message CancelCheckoutResponse { WorkspaceError error = 1; }
+
+message LockItem { string item_id = 1; }
+message UnlockItem { string item_id = 1; }
+
+message LockItemResponse
+{
+  LockInfo       lock  = 1;
+  WorkspaceError error = 2;
+}
+
+message GetItemLockInfo { string item_id = 1; }
+
+message GetItemLockInfoResponse
+{
+  LockInfo       lock  = 1;
+  WorkspaceError error = 2;
+}
+
+message GetLifecycleCategory { string item_id = 1; }
+
+message GetLifecycleCategoryResponse
+{
+  LifecycleCategory category        = 1;
+  string            custom_state_id = 2;
+  WorkspaceError    error           = 3;
+}
+
+message TransitionLifecycle
+{
+  string item_id         = 1;
+  string target_state_id = 2;
+  string comment         = 3;
+}
+
+message TransitionLifecycleResponse
+{
+  LifecycleCategory new_category = 1;
+  string            new_state_id = 2;
+  WorkspaceError    error        = 3;
+}
+
+message GetRevisionHistory { string item_id = 1; }
+
+message GetRevisionHistoryResponse
+{
+  repeated Revision revisions = 1;
+  WorkspaceError    error     = 2;
+}
+
+message DownloadRevision
+{
+  string item_id     = 1;
+  string revision_id = 2;
+  string local_path  = 3;
+}
+
+message DownloadRevisionResponse { WorkspaceError error = 1; }
+
+message SearchWorkspace
+{
+  string text       = 1;
+  uint32 page_size  = 2;
+  string page_token = 3;
+}
+
+message SearchWorkspaceResponse
+{
+  repeated ItemInfo items           = 1;
+  string            next_page_token = 2;
+  WorkspaceError    error           = 3;
+}
+
+/*
+ * Opens a streaming subscription. The response names the PUB socket and topic
+ * prefix; the client resyncs via getters on connect and uses seq to detect
+ * gaps (documented at-most-once semantics).
+ */
+message SubscribeWorkspaceEvents { string channel_filter = 1; }
+
+message SubscribeWorkspaceEventsResponse
+{
+  string         event_socket_url = 1;
+  string         topic_prefix     = 2;
+  uint64         current_seq      = 3;
+  WorkspaceError error            = 4;
+}
+
+/*
+ * Context-action registration. Registration requires explicit user consent on
+ * first use of a given client identity.
+ */
+message ContextActionSpec
+{
+  string item_type_predicate = 1;
+  string label               = 2;
+  string target_method       = 3;
+}
+
+message RegisterContextAction { ContextActionSpec spec = 1; }
+
+message RegisterContextActionResponse
+{
+  string         action_id = 1;
+  WorkspaceError error     = 2;
+}
+
+message UnregisterContextAction { string action_id = 1; }
+message UnregisterContextActionResponse { WorkspaceError error = 1; }

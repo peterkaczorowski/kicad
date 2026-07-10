@@ -1,0 +1,65 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * backend_search.proto  (CG_SEARCH)
+ *
+ * Backend-declared search fields and paged item search.
+ */
+
+syntax = "proto3";
+
+package kiapi.mdw;
+
+import "workspace/workspace_types.proto";
+
+message SearchField
+{
+  string                  field_id     = 1;
+  string                  display_name = 2;
+  kiapi.workspace.AttrType type         = 3;
+  repeated string         enum_values  = 4;
+}
+
+message GetSearchSchemaRequest {}
+
+message GetSearchSchemaReply
+{
+  repeated SearchField           fields = 1;
+}
+
+message SearchFilter
+{
+  string field_id = 1;
+  string value    = 2;
+}
+
+message SearchRequest
+{
+  string                text       = 1;
+  repeated SearchFilter filters    = 2;
+  uint32                page_size  = 3;
+  string                page_token = 4;
+}
+
+message SearchReply
+{
+  repeated kiapi.workspace.ItemInfo items           = 1;
+  string                            next_page_token = 2;
+}

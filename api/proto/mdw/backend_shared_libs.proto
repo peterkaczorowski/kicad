@@ -1,0 +1,61 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * backend_shared_libs.proto  (CG_SHARED_LIBRARIES)
+ *
+ * Workspace-owned shared component libraries. The framework adds project-scoped
+ * library-table entries tagged with the binding id and removes only those on
+ * unbind.
+ */
+
+syntax = "proto3";
+
+package kiapi.mdw;
+
+enum SharedLibType
+{
+  SLT_SYMBOL   = 0;
+  SLT_FOOTPRINT = 1;
+  SLT_MODEL_3D = 2;
+}
+
+message SharedLibrary
+{
+  string        library_id   = 1;
+  string        display_name = 2;
+  SharedLibType type         = 3;
+  string        uri          = 4;
+  string        version      = 5;
+}
+
+message ListSharedLibrariesRequest {}
+
+message ListSharedLibrariesReply
+{
+  repeated SharedLibrary         libraries = 1;
+}
+
+message DownloadSharedLibraryRequest
+{
+  string library_id = 1;
+  string local_path = 2;
+}
+
+message DownloadSharedLibraryReply {}

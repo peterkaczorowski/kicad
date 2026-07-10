@@ -1,0 +1,178 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * backend_base.proto
+ *
+ * The mandatory backend surface. Every backend answers these regardless of the
+ * capability groups it advertises: handshake, identity, capability and schema
+ * declaration, authentication, folder navigation, checkout/checkin, and the
+ * liveness/lifecycle messages.
+ */
+
+syntax = "proto3";
+
+package kiapi.mdw;
+
+import "workspace/workspace_types.proto";
+
+/*
+ * Handshake. Major protocol_version must match; minors are additive-only. The
+ * reply carries identity and capabilities so the framework can gate UI before
+ * any further call.
+ */
+message Hello
+{
+  kiapi.workspace.Version protocol_version = 1;
+  string                  kicad_version    = 2;
+  string                  channel_token    = 3;
+  string                  events_url       = 4; // Where the backend dials its event REQ socket
+}
+
+message HelloReply
+{
+  kiapi.workspace.Version      protocol_version = 1;
+  kiapi.workspace.BackendInfo  backend_info     = 2;
+  kiapi.workspace.Capabilities capabilities     = 3;
+}
+
+message GetBackendInfoRequest {}
+message GetBackendInfoReply { kiapi.workspace.BackendInfo info = 1; }
+
+message GetCapabilitiesRequest {}
+message GetCapabilitiesReply { kiapi.workspace.Capabilities capabilities = 1; }
+
+message GetSchemaRequest {}
+message GetSchemaReply { kiapi.workspace.Schema schema = 1; }
+
+/*
+ * Credentials cross the local socket only inside Authenticate. Backends never
+ * touch the platform keychain; KiCad brokers it. method names the auth scheme
+ * ("password", "token", "oauth"); fields carries scheme-specific material.
+ * refresh_token is a backend-minted token KiCad persists via its credential
+ * store and replays on reconnect.
+ */
+message Credentials
+{
+  string              method        = 1;
+  map<string, string> fields        = 2;
+  string              refresh_token = 3;
+}
+
+message AuthenticateRequest { Credentials credentials = 1; }
+
+message AuthResult
+{
+  bool                          authenticated = 1;
+  string                        user_id       = 2;
+  string                        display_name  = 3;
+  string                        refresh_token = 4; // New/rotated token to persist, if any
+}
+
+message LogoutRequest {}
+message LogoutReply { bool ok = 1; }
+
+message IsAuthenticatedRequest {}
+message IsAuthenticatedReply { bool authenticated = 1; }
+
+message GetRootFoldersRequest {}
+message GetRootFoldersReply { repeated kiapi.workspace.Folder folders = 1; }
+
+message GetChildFoldersRequest { string folder_id = 1; }
+message GetChildFoldersReply { repeated kiapi.workspace.Folder folders = 1; }
+
+message ListOptions
+{
+  string filter     = 1;
+  uint32 page_size  = 2;
+  string page_token = 3;
+}
+
+message ListItemsRequest
+{
+  string      folder_id = 1;
+  ListOptions options   = 2;
+}
+
+message ListItemsReply
+{
+  repeated kiapi.workspace.ItemInfo items           = 1;
+  string                            next_page_token = 2;
+}
+
+message GetItemInfoRequest { string item_id = 1; }
+
+message GetItemInfoReply
+{
+  kiapi.workspace.ItemInfo      item  = 1;
+}
+
+/*
+ * Checkout downloads an item's working copy to local_path and optionally takes
+ * the lock. Mutating requests carry a client-generated idempotency_id so a
+ * retry after a mid-call crash does not double-apply.
+ */
+message CheckoutRequest
+{
+  string item_id        = 1;
+  string local_path     = 2;
+  bool   lock           = 3;
+  string idempotency_id = 4;
+}
+
+message CheckoutReply
+{
+  kiapi.workspace.ItemInfo       item       = 1;
+  string                         local_path = 2;
+}
+
+message CheckinRequest
+{
+  string                        item_id        = 1;
+  string                        local_path     = 2;
+  string                        comment        = 3;
+  kiapi.workspace.AttributeSet  attributes     = 4;
+  string                        idempotency_id = 5;
+}
+
+message CheckinReply
+{
+  kiapi.workspace.Revision       revision = 1;
+}
+
+message CancelCheckoutRequest
+{
+  string item_id    = 1;
+  string local_path = 2;
+}
+
+message CancelCheckoutReply {}
+
+/*
+ * Liveness and lifecycle. Ping is the idle health probe. Bye asks for a clean
+ * shutdown. CancelRequest is a best-effort abort of an in-flight request_id.
+ */
+message PingRequest {}
+message PingReply {}
+
+message ByeRequest {}
+message ByeReply {}
+
+message CancelRequestRequest { string request_id = 1; }
+message CancelRequestReply {}
