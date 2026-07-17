@@ -371,6 +371,15 @@ set( KICOMMON_SRCS
     api/python_manager.cpp
     api/serializable.cpp
 
+    mdw/mdw_backend.cpp
+    mdw/mdw_backend_registry.cpp
+    mdw/mdw_backend_supervisor.cpp
+    mdw/mdw_credential_store.cpp
+    mdw/mdw_framework.cpp
+    mdw/mdw_nng_transport.cpp
+    mdw/mdw_loopback_transport.cpp
+    mdw/mdw_session.cpp
+
     startwizard/startwizard.cpp
     startwizard/startwizard_provider_libraries.cpp
     startwizard/startwizard_provider_privacy.cpp

@@ -55,6 +55,7 @@ class LIBRARY_MANAGER;
 
 class API_PLUGIN_MANAGER;
 class KICAD_API_SERVER;
+class MDW_FRAMEWORK;
 
 /**
  * A small class to handle the list of existing translations.
@@ -141,6 +142,11 @@ public:
     KICAD_API_SERVER& GetApiServer() { return *m_api_server; }
 
     KICAD_API_SERVER* ApiServerOrNull() const { return m_api_server.get(); }
+
+    /// The Managed Design Workspace framework, or nullptr when this process does
+    /// not host one. It owns backend processes, so it lives beside the API server
+    /// and outlives editor frame recreation.
+    MDW_FRAMEWORK* MdwFrameworkOrNull() const { return m_mdw_framework.get(); }
 
     virtual void SetTextEditor( const wxString& aFileName );
 
@@ -409,6 +415,7 @@ protected:
 
     std::unique_ptr<API_PLUGIN_MANAGER> m_plugin_manager;
     std::unique_ptr<KICAD_API_SERVER> m_api_server;
+    std::unique_ptr<MDW_FRAMEWORK>    m_mdw_framework;
 
     wxString        m_kicad_env;              ///< The KICAD system environment variable.
 

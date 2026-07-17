@@ -32,6 +32,7 @@
 #include <wx/cmdline.h>
 
 #include <api/api_server.h>
+#include <mdw/mdw_framework.h>
 #include <common.h>
 #include <env_vars.h>
 #include <file_history.h>
@@ -278,6 +279,11 @@ bool PGM_KICAD::OnPgmInit()
         m_api_server = std::make_unique<KICAD_API_SERVER>();
         m_api_common_handler = std::make_unique<API_HANDLER_COMMON>();
         m_api_server->RegisterHandler( m_api_common_handler.get() );
+
+        // The workspace framework owns backend processes, so it lives at the
+        // application level to survive editor frame recreation. It is inert until
+        // a bound project opens a session; construction only scans for manifests.
+        m_mdw_framework = std::make_unique<MDW_FRAMEWORK>();
     }
 
     if( appType == FRAME_MERGETOOL )
@@ -491,6 +497,9 @@ void PGM_KICAD::OnPgmExit()
 
     Kiway.OnKiwayEnd();
 
+    // Tear the backends down before the API server so their event channels close
+    // against a live host.
+    m_mdw_framework.reset();
     m_api_server.reset();
 
     if( m_settings_manager && m_settings_manager->IsOK() )

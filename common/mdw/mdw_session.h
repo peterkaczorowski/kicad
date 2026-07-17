@@ -1,0 +1,84 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright The KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, you may find one here:
+ * http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+ * or you may search the http://www.gnu.org website for the version 2 license,
+ * or you may write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+ */
+
+/**
+ * @file mdw_session.h
+ * @brief One bound project's workspace session.
+ *
+ * A session ties a project path to its binding and the supervisor that owns the
+ * spawned backend process. One process runs per (backend_id, project_path); a
+ * second editor opening the same project spawns its own, indistinguishable from
+ * a second user to the backend.
+ */
+
+#ifndef MDW_SESSION_H
+#define MDW_SESSION_H
+
+#include <kicommon.h>
+#include "mdw_backend_supervisor.h"
+
+#include <memory>
+
+#include <wx/string.h>
+
+/// The (workspace ...) binding stored in a project's .kicad_pro file.
+struct MDW_PROJECT_BINDING
+{
+    wxString backend_id;
+    wxString workspace_id;
+    wxString binding;                                   ///< Opaque backend reconstitution blob
+
+    bool IsBound() const { return !backend_id.IsEmpty(); }
+};
+
+
+class KICOMMON_API MDW_SESSION
+{
+public:
+    MDW_SESSION( const wxString& aProjectPath, const MDW_PROJECT_BINDING& aBinding,
+                 std::unique_ptr<MDW_BACKEND_SUPERVISOR> aSupervisor );
+
+    ~MDW_SESSION();
+
+    const wxString& ProjectPath() const { return m_projectPath; }
+
+    const MDW_PROJECT_BINDING& Binding() const { return m_binding; }
+
+    MDW_BACKEND_SUPERVISOR* Supervisor() const { return m_supervisor.get(); }
+
+    MDW_BACKEND* Backend() const;
+
+    bool Online() const;
+
+    void SetAuthenticated( bool aAuthenticated ) { m_authenticated = aAuthenticated; }
+
+    bool Authenticated() const { return m_authenticated; }
+
+private:
+    wxString                                m_projectPath;
+    MDW_PROJECT_BINDING                     m_binding;
+    std::unique_ptr<MDW_BACKEND_SUPERVISOR> m_supervisor;
+    bool                                    m_authenticated = false;
+};
+
+#endif // MDW_SESSION_H

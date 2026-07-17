@@ -42,6 +42,7 @@
 #include <api/api_plugin_manager.h>
 #include <api/api_server.h>
 #include <api/python_manager.h>
+#include <mdw/mdw_framework.h>
 #include <app_monitor.h>
 #include <background_jobs_monitor.h>
 #include <bitmaps.h>

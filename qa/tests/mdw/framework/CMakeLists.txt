@@ -17,19 +17,24 @@
 
 find_package( wxWidgets 3.0.0 COMPONENTS base REQUIRED )
 
-# The MDW contract types are header-only wxString value structs. This target
-# verifies they compile and that their enum numbering agrees with the generated
-# kiapi.workspace protobuf enums, so the proxy's proto<->struct mapping stays a
-# plain cast.
+# In-process framework tests: enum-numbering agreement with the protobuf enums,
+# the restart backoff policy, the backend proxy over a loopback transport, the
+# manifest registry, and a live spawn/handshake against the mock backend.
 add_executable( qa_mdw_framework
     test_module.cpp
     test_mdw_types.cpp
+    test_mdw_restart_policy.cpp
+    test_mdw_backend_proxy.cpp
+    test_mdw_supervisor.cpp
     )
 
-add_dependencies( qa_mdw_framework kiapi )
+add_dependencies( qa_mdw_framework kiapi kicad-mdw-mock )
 
 target_link_libraries( qa_mdw_framework
+    kicommon
     kiapi
+    kinng
+    ${NNG_LIBRARY}
     ${wxWidgets_LIBRARIES}
     Boost::headers
     Boost::unit_test_framework
@@ -39,6 +44,10 @@ target_include_directories( qa_mdw_framework PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+target_compile_definitions( qa_mdw_framework PRIVATE
+    MDW_MOCK_EXECUTABLE="$<TARGET_FILE:kicad-mdw-mock>"
     )
 
 kicad_add_boost_test( qa_mdw_framework qa_mdw_framework )
