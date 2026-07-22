@@ -218,6 +218,12 @@ public:
         bool enable_server;
     };
 
+    struct WORKSPACE
+    {
+        bool     enable_integration;
+        wxString default_backend_id;
+    };
+
     COMMON_SETTINGS();
 
     virtual ~COMMON_SETTINGS();
@@ -280,6 +286,7 @@ public:
     PACKAGE_MANAGER     m_PackageManager;
     GIT                 m_Git;
     API                 m_Api;
+    WORKSPACE           m_Workspace;
 
     /// Global field name templates shared by all project editors.
     TEMPLATES           m_FieldNameTemplates;

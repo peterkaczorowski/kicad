@@ -444,4 +444,55 @@ BOOST_AUTO_TEST_CASE( NoRewriteWhenUnchanged )
 }
 
 
+/**
+ * The Managed Design Workspace binding must load and survive a save/reload even
+ * though the framework is disabled by default, so binding a project on one
+ * machine is never silently dropped by a machine that has the feature off.
+ */
+BOOST_AUTO_TEST_CASE( WorkspaceBindingRoundTrips )
+{
+    fs::path projectDir = m_tempDir / "bound_project";
+    fs::create_directories( projectDir );
+
+    std::string proContent = R"({
+        "meta": {
+            "filename": "bound_project.kicad_pro",
+            "version": 3
+        },
+        "workspace": {
+            "backend": "org.kicad.mdw.git",
+            "workspace_id": "github.com/example/widget",
+            "binding": "branch=main"
+        }
+    })";
+
+    fs::path proPath = projectDir / "bound_project.kicad_pro";
+
+    {
+        std::ofstream proFile( proPath );
+        proFile << proContent;
+    }
+
+    SETTINGS_MANAGER settingsManager;
+    BOOST_REQUIRE( settingsManager.LoadProject( wxString( proPath.string() ) ) );
+
+    PROJECT_FILE& projectFile = settingsManager.Prj().GetProjectFile();
+
+    BOOST_CHECK_EQUAL( projectFile.m_WorkspaceBackend, wxS( "org.kicad.mdw.git" ) );
+    BOOST_CHECK_EQUAL( projectFile.m_WorkspaceId, wxS( "github.com/example/widget" ) );
+    BOOST_CHECK_EQUAL( projectFile.m_WorkspaceBinding, wxS( "branch=main" ) );
+
+    BOOST_REQUIRE( settingsManager.SaveProject() );
+
+    std::ifstream     in( proPath );
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    std::string saved = buffer.str();
+
+    BOOST_CHECK( saved.find( "org.kicad.mdw.git" ) != std::string::npos );
+    BOOST_CHECK( saved.find( "github.com/example/widget" ) != std::string::npos );
+    BOOST_CHECK( saved.find( "branch=main" ) != std::string::npos );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

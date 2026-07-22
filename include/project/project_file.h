@@ -216,6 +216,13 @@ public:
     /// Drawing sheet file
     wxString m_BoardDrawingSheetFile;
 
+    /// The Managed Design Workspace binding, if this project is bound. These are
+    /// parsed and round-tripped even when the framework is disabled, so the
+    /// (workspace ...) section is never dropped from .kicad_pro.
+    wxString m_WorkspaceBackend;
+    wxString m_WorkspaceId;
+    wxString m_WorkspaceBinding;
+
     /// Recent queries for Find by Properties dialog
     std::vector<wxString> m_FindByPropertiesQueries;
 

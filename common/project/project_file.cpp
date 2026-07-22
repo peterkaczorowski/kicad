@@ -55,6 +55,12 @@ PROJECT_FILE::PROJECT_FILE( const wxString& aFullPath ) :
 
     m_params.emplace_back( new PARAM_LIST<FILE_INFO_PAIR>( "sheets", &m_sheets, {} ) );
 
+    // Registered unconditionally so the workspace binding round-trips whether or
+    // not the framework is enabled; KiCad only acts on it when the user opts in.
+    m_params.emplace_back( new PARAM<wxString>( "workspace.backend", &m_WorkspaceBackend, wxS( "" ) ) );
+    m_params.emplace_back( new PARAM<wxString>( "workspace.workspace_id", &m_WorkspaceId, wxS( "" ) ) );
+    m_params.emplace_back( new PARAM<wxString>( "workspace.binding", &m_WorkspaceBinding, wxS( "" ) ) );
+
     m_params.emplace_back( new PARAM_LIST<TOP_LEVEL_SHEET_INFO>( "schematic.top_level_sheets",
             &m_topLevelSheets, {} ) );
 

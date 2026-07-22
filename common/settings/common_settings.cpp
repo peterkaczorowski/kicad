@@ -510,6 +510,14 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "api.enable_server",
             &m_Api.enable_server, false ) );
 
+    // The Managed Design Workspace is opt-in and off by default; until the user
+    // enables it no backend loads and no workspace UI appears anywhere.
+    m_params.emplace_back( new PARAM<bool>( "workspace.enable_integration",
+            &m_Workspace.enable_integration, false ) );
+
+    m_params.emplace_back( new PARAM<wxString>( "workspace.default_backend_id",
+            &m_Workspace.default_backend_id, wxS( "" ) ) );
+
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "dialog.controls",
             [&]() -> nlohmann::json
             {
