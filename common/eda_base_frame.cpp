@@ -33,6 +33,7 @@
 #include <dialogs/dialog_autosave_recovery.h>
 #include <dialogs/git/panel_git_repos.h>
 #include <dialogs/panel_common_settings.h>
+#include <dialogs/panel_workspace_settings.h>
 #include <dialogs/panel_mouse_settings.h>
 #include <dialogs/panel_spacemouse.h>
 #include <dialogs/panel_data_collection.h>
@@ -1569,6 +1570,12 @@ void EDA_BASE_FRAME::ShowPreferences( const wxString& aStartPage, const wxString
                 {
                     return new PANEL_GIT_REPOS( aParent );
                 }, _( "Version Control" ) );
+
+        book->AddLazyPage(
+                []( wxWindow* aParent ) -> wxWindow*
+                {
+                    return new PANEL_WORKSPACE_SETTINGS( aParent );
+                }, _( "Design Workspace" ) );
 
 #ifdef KICAD_USE_SENTRY
         book->AddLazyPage(
