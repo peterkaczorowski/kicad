@@ -375,10 +375,15 @@ set( KICOMMON_SRCS
     mdw/mdw_backend_registry.cpp
     mdw/mdw_backend_supervisor.cpp
     mdw/mdw_credential_store.cpp
+    mdw/mdw_dirty_tracker.cpp
+    mdw/mdw_event_bus.cpp
     mdw/mdw_framework.cpp
+    mdw/mdw_lock_tracker.cpp
     mdw/mdw_nng_transport.cpp
     mdw/mdw_loopback_transport.cpp
     mdw/mdw_session.cpp
+    mdw/mdw_state_mapper.cpp
+    mdw/mdw_workspace_service.cpp
 
     startwizard/startwizard.cpp
     startwizard/startwizard_provider_libraries.cpp

@@ -26,6 +26,7 @@ add_executable( qa_mdw_framework
     test_mdw_restart_policy.cpp
     test_mdw_backend_proxy.cpp
     test_mdw_supervisor.cpp
+    test_mdw_runtime.cpp
     )
 
 add_dependencies( qa_mdw_framework kiapi kicad-mdw-mock )
