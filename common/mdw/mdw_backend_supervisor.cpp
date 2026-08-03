@@ -34,6 +34,10 @@
 #include <chrono>
 #include <thread>
 
+#if defined( __unix__ ) || defined( __APPLE__ )
+#include <sys/wait.h>
+#endif
+
 static const wxChar* const MDW_TRACE = wxT( "KICAD_MDW" );
 
 
@@ -164,6 +168,13 @@ void MDW_BACKEND_SUPERVISOR::terminateProcess()
         if( wxProcess::Exists( m_pid ) )
             wxKill( m_pid, wxSIGKILL );
     }
+
+#if defined( __unix__ ) || defined( __APPLE__ )
+    // Reap the child so it does not linger as a zombie; we spawned it without a
+    // wxProcess, so nothing else waits on it.
+    int status = 0;
+    waitpid( static_cast<pid_t>( m_pid ), &status, 0 );
+#endif
 
     m_pid = 0;
 }

@@ -18,3 +18,4 @@
 add_subdirectory( framework )
 add_subdirectory( sdk )
 add_subdirectory( mock )
+add_subdirectory( conformance )
