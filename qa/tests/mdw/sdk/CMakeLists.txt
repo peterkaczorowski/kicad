@@ -20,6 +20,7 @@ find_package( wxWidgets 3.0.0 COMPONENTS base REQUIRED )
 add_executable( qa_mdw_sdk
     test_module.cpp
     test_mdw_sdk_dispatch.cpp
+    test_mdw_subprocess.cpp
     )
 
 target_link_libraries( qa_mdw_sdk
