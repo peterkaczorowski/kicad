@@ -26,6 +26,7 @@
 #include "pcbnew_utils/board_expectations.h"
 
 #include <optional>
+#include <span>
 #include <sstream>
 
 #include <core/profile.h>
@@ -1264,7 +1265,7 @@ BOARD_EXPECTATION_TEST::ExtractExpectationTestsFromJson( const nlohmann::json& a
             }
         }
 
-        tests.emplace_back( name, tags, expectationEntry );
+        tests.push_back( DESCRIPTOR{ name, tags, expectationEntry } );
 
         ++index;
     }

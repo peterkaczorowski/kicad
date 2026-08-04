@@ -1003,7 +1003,7 @@ void PANEL_SETUP_NETCLASSES::UpdateDelayProfileNames( const std::vector<wxString
 {
     wxArrayString profileNames;
     profileNames.push_back( wxEmptyString );
-    std::ranges::for_each( aNames,
+    std::for_each( aNames.begin(), aNames.end(),
                            [&]( const wxString& aName )
                            {
                                profileNames.push_back( aName );

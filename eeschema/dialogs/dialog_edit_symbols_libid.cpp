@@ -28,6 +28,7 @@
  */
 
 
+#include <algorithm>
 #include <confirm.h>
 #include <sch_commit.h>
 #include <sch_edit_frame.h>
@@ -612,7 +613,7 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
                 continue;
 
             // Find a symbol name in symbols inside this library:
-            if( auto it = std::ranges::find( aliasNames, symbolName ); it != aliasNames.end() )
+            if( auto it = std::find( aliasNames.begin(), aliasNames.end(), symbolName ); it != aliasNames.end() )
             {
                 // a candidate is found!
                 libIdCandidateCount++;

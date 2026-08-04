@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <algorithm>
 #include <board_design_settings.h>
 #include <project/net_settings.h>
 #include <drc/drc_engine.h>
@@ -555,7 +556,8 @@ void DRC_TEST_PROVIDER_MISC::testMissingTuningProfiles()
             m_board->GetProject()->GetProjectFile().TuningProfileParameters();
 
     std::set<wxString> profileNames;
-    std::ranges::for_each( tuningProfiles->GetTuningProfiles(),
+    const auto& __rng = tuningProfiles->GetTuningProfiles();
+    std::for_each( __rng.begin(), __rng.end(),
                            [&profileNames]( const TUNING_PROFILE& tuningProfile )
                            {
                                if( const wxString name = tuningProfile.m_ProfileName; name != wxEmptyString )

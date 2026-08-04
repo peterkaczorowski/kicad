@@ -394,8 +394,8 @@ void PROPERTY_MANAGER::CLASS_DESC::collectPropsRecur( std::vector<PROPERTY_BASE*
     }
 
     // Iterate backwards so that replaced properties appear before base properties
-    for( std::reference_wrapper<CLASS_DESC> base : std::ranges::reverse_view( m_bases ) )
-        base.get().collectPropsRecur( aResult, aReplaced, aDisplayOrder, aMasked );
+    for( auto it = m_bases.rbegin(); it != m_bases.rend(); ++it )
+        it->get().collectPropsRecur( aResult, aReplaced, aDisplayOrder, aMasked );
 }
 
 

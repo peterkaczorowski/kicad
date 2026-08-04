@@ -352,11 +352,13 @@ void CN_CONNECTIVITY_ALGO::searchConnections()
             while( groupEnd != deferredNetCodes.end() && groupEnd->first == cnItem )
                 ++groupEnd;
 
-            if( std::ranges::any_of( cnItem->ConnectedItems(),
-                                     []( const CN_ITEM* c )
-                                     {
-                                         return c->Parent()->Type() != PCB_ZONE_T;
-                                     } ) )
+            const auto& connectedItems = cnItem->ConnectedItems();
+
+            if( std::any_of( connectedItems.begin(), connectedItems.end(),
+                             []( const CN_ITEM* c )
+                             {
+                                 return c->Parent()->Type() != PCB_ZONE_T;
+                             } ) )
             {
                 // Connected to a track or pad, so cluster propagation owns the net.
                 it = groupEnd;
@@ -1071,8 +1073,10 @@ void CN_CONNECTIVITY_ALGO::updateJumperPads()
     {
         if( footprint->GetDuplicatePadNumbersAreJumpers() )
         {
-            for( const std::vector<CN_ITEM*>& padsList : padsMap | std::views::values )
+            for( const auto& padsEntry : padsMap )
             {
+                const std::vector<CN_ITEM*>& padsList = padsEntry.second;
+
                 for( size_t i = 0; i < padsList.size(); ++i )
                 {
                     for( size_t j = 1; j < padsList.size(); ++j )
@@ -1089,7 +1093,10 @@ void CN_CONNECTIVITY_ALGO::updateJumperPads()
             std::vector<CN_ITEM*> toConnect;
 
             for( const wxString& padNumber : group )
-                std::ranges::copy( padsMap[padNumber], std::back_inserter( toConnect ) );
+            {
+                const std::vector<CN_ITEM*>& padList = padsMap[padNumber];
+                std::copy( padList.begin(), padList.end(), std::back_inserter( toConnect ) );
+            }
 
             for( size_t i = 0; i < toConnect.size(); ++i )
             {

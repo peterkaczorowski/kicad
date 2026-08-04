@@ -705,8 +705,12 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
                         }
                         else
                         {
-                            for( const VECTOR2I& pt : std::ranges::reverse_view( graphic->GetBezierPoints() ) )
+                            const std::vector<VECTOR2I>& bezierPts = graphic->GetBezierPoints();
+
+                            for( auto it = bezierPts.rbegin(); it != bezierPts.rend(); ++it )
                             {
+                                const VECTOR2I& pt = *it;
+
                                 if( aDirection )
                                     outline.Append( pt );
                                 else

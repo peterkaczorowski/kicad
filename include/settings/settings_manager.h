@@ -22,8 +22,11 @@
 #define _SETTINGS_MANAGER_H
 
 #include <algorithm>
+#include <map>
 #include <mutex>
 #include <typeinfo>
+#include <unordered_map>
+#include <vector>
 #include <core/wx_stl_compat.h> // for wxString hash
 #include <settings/json_settings.h>
 #include <pgm_base.h>

@@ -322,7 +322,7 @@ struct SI_PREFIX_HANDLER
 
     static constexpr bool is_si_prefix( UnicodeCodepoint auto cp ) noexcept
     {
-        return std::ranges::any_of( prefixes,
+        return std::any_of( prefixes.begin(), prefixes.end(),
                                     [cp]( const PREFIX& p )
                                     {
                                         return p.symbol == cp;
@@ -331,7 +331,7 @@ struct SI_PREFIX_HANDLER
 
     static constexpr double get_multiplier( UnicodeCodepoint auto cp ) noexcept
     {
-        auto it = std::ranges::find_if( prefixes,
+        auto it = std::find_if( prefixes.begin(), prefixes.end(),
                                         [cp]( const PREFIX& p )
                                         {
                                             return p.symbol == cp;
@@ -1046,7 +1046,7 @@ public:
                   { U'>', TextEvalToken::GT } }
             };
 
-            if( auto it = std::ranges::find_if( single_char_tokens,
+            if( auto it = std::find_if( single_char_tokens.begin(), single_char_tokens.end(),
                                                 [current]( const auto& pair )
                                                 {
                                                     return pair.first == current;

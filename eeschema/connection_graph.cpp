@@ -1554,8 +1554,9 @@ void CONNECTION_GRAPH::buildItemSubGraphs()
 
         // Precompute sheet rank into the tuple so the comparator never re-hashes
         // the (vector-backed) SCH_SHEET_PATH keys.
-        for( const auto& [sheet, connection] : item->m_connection_map )
-            ordered.emplace_back( sheetRank( sheet ), sheet, connection );
+        for( const auto& connectionMapEntry : item->m_connection_map )
+            ordered.emplace_back( sheetRank( connectionMapEntry.first ),
+                                  connectionMapEntry.first, connectionMapEntry.second );
 
         std::sort( ordered.begin(), ordered.end(),
                    []( const auto& a, const auto& b )
@@ -1563,8 +1564,11 @@ void CONNECTION_GRAPH::buildItemSubGraphs()
                        return std::get<0>( a ) < std::get<0>( b );
                    } );
 
-        for( const auto& [rank, sheet, connection] : ordered )
+        for( const auto& orderedEntry : ordered )
         {
+            const SCH_SHEET_PATH&  sheet = std::get<1>( orderedEntry );
+            SCH_CONNECTION* const& connection = std::get<2>( orderedEntry );
+
             if( connection->SubgraphCode() == 0 )
             {
                 CONNECTION_SUBGRAPH* subgraph = new CONNECTION_SUBGRAPH( this );

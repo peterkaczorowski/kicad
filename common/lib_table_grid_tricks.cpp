@@ -20,6 +20,7 @@
 #include "lib_table_grid_tricks.h"
 #include "confirm.h"
 #include "lib_table_grid_data_model.h"
+#include <algorithm>
 #include <libraries/library_manager.h>
 #include <wx/clipbrd.h>
 #include <wx/log.h>
@@ -301,7 +302,8 @@ void LIB_TABLE_GRID_TRICKS::paste_text( const wxString& cb_text )
 
         if( LIBRARY_TABLE tempTable( true, cb_text, tbl->Table().Scope() ); tempTable.IsOk() )
         {
-            std::ranges::copy( tempTable.Rows(),
+            const auto& __rng = tempTable.Rows();
+            std::copy( __rng.begin(), __rng.end(),
                                std::inserter( tbl->Table().Rows(), tbl->Table().Rows().begin() ) );
 
             if( tbl->GetView() )

@@ -1614,8 +1614,8 @@ void DXF_PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aLineChain, FILL_T aFill, in
                 std::vector<VECTOR2I> pts = arcPts( arc.GetCenter(), arc.GetStartAngle(),
                                                     arc.GetCentralAngle(), arc.GetRadius() );
 
-                for( const VECTOR2I& pt : std::ranges::reverse_view( pts ) )
-                    cornerList.emplace_back( pt );
+                for( auto it = pts.rbegin(); it != pts.rend(); ++it )
+                    cornerList.emplace_back( *it );
             }
         }
         else

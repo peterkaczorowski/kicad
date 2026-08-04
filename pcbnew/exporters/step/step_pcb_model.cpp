@@ -2587,8 +2587,11 @@ bool STEP_PCB_MODEL::CreatePCB( SHAPE_POLY_SET& aOutline, const VECTOR2D& aOrigi
                 m_reporter->Report( wxString::Format( _( "Subtracting holes for %s" ), aWhat ),
                                     RPT_SEVERITY_DEBUG );
 
-                for( auto& [netname, vec] : aShapesMap )
+                for( auto& shapesMapEntry : aShapesMap )
                 {
+                    const wxString&            netname = shapesMapEntry.first;
+                    std::vector<TopoDS_Shape>& vec = shapesMapEntry.second;
+
                     // Cuts share the hole TShapes as tools across threads.  SetNonDestructive keeps
                     // OCC from mutating those shared inputs, so the cuts are safe to run in parallel.
                     // Bnd_BoundSortBox::Compare is not reentrant (it overwrites internal scratch and

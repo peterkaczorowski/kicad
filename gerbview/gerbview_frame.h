@@ -31,6 +31,7 @@
 #include <gbr_display_options.h>
 
 #include <memory>
+#include <unordered_map>
 
 #define NO_AVAILABLE_LAYERS UNDEFINED_LAYER
 

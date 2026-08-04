@@ -540,8 +540,11 @@ bool DRC_TEST_PROVIDER_CONNECTION_WIDTH::Run()
     returns.clear();
     returns.reserve( dataset.size() * distinctMinWidths.size() );
 
-    for( const auto& [ netLayer, itemsPoly ] : dataset )
+    for( const auto& datasetEntry : dataset )
     {
+        const NETCODE_LAYER_CACHE_KEY& netLayer = datasetEntry.first;
+        const ITEMS_POLY&              itemsPoly = datasetEntry.second;
+
         for( int minWidth : distinctMinWidths )
         {
             if( minWidth - epsilon <= 0 )

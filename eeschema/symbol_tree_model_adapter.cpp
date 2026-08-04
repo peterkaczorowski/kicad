@@ -21,6 +21,7 @@
 
 #include "symbol_tree_model_adapter.h"
 
+#include <algorithm>
 #include <wx/log.h>
 #include <wx/tokenzr.h>
 #include <wx/window.h>
@@ -84,8 +85,8 @@ void SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( SCH_BASE_FRAME* aFrame )
     PROJECT_FILE&    project = aFrame->Prj().GetProjectFile();
 
     std::unordered_set<wxString> pinned;
-    std::ranges::copy( cfg->m_Session.pinned_symbol_libs, std::inserter( pinned, pinned.begin() ) );
-    std::ranges::copy( project.m_PinnedSymbolLibs, std::inserter( pinned, pinned.begin() ) );
+    std::copy( cfg->m_Session.pinned_symbol_libs.begin(), cfg->m_Session.pinned_symbol_libs.end(), std::inserter( pinned, pinned.begin() ) );
+    std::copy( project.m_PinnedSymbolLibs.begin(), project.m_PinnedSymbolLibs.end(), std::inserter( pinned, pinned.begin() ) );
 
     auto addFunc =
             [&]( const wxString& aLibName, const std::vector<LIB_SYMBOL*>& aSymbolList,
@@ -107,7 +108,7 @@ void SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( SCH_BASE_FRAME* aFrame )
 
     std::vector<wxString> toLoad;
 
-    std::ranges::copy( m_pending_load_libraries, std::back_inserter( toLoad ) );
+    std::copy( m_pending_load_libraries.begin(), m_pending_load_libraries.end(), std::back_inserter( toLoad ) );
 
     bool isLazyLoad = !m_pending_load_libraries.empty();
     m_pending_load_libraries.clear();

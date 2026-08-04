@@ -34,6 +34,9 @@
 #include <drc/drc_item.h>
 #include <settings/settings_manager.h>
 
+#include <algorithm>
+#include <iterator>
+
 
 struct PCB_COMPONENT_CLASS_FIXTURE
 {
@@ -60,7 +63,8 @@ BOOST_FIXTURE_TEST_CASE( ComponentClasses, PCB_COMPONENT_CLASS_FIXTURE )
     auto testClasses = [&allClasses](const wxString& ref, const COMPONENT_CLASS* compClass, std::vector<wxString> assignedClasses)
     {
         std::vector<wxString> unassignedClasses;
-        std::ranges::set_difference(allClasses, assignedClasses, std::back_inserter(unassignedClasses));
+        std::set_difference( allClasses.begin(), allClasses.end(), assignedClasses.begin(),
+                             assignedClasses.end(), std::back_inserter( unassignedClasses ) );
 
         for( const wxString& className : assignedClasses )
         {

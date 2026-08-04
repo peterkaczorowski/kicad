@@ -31,7 +31,7 @@ void COMPONENT_CLASS::AddConstituentClass( COMPONENT_CLASS* componentClass )
 
 const COMPONENT_CLASS* COMPONENT_CLASS::GetConstituentClass( const wxString& className ) const
 {
-    const auto itr = std::ranges::find_if( m_constituentClasses,
+    const auto itr = std::find_if( m_constituentClasses.begin(), m_constituentClasses.end(),
                                            [&className]( const COMPONENT_CLASS* testClass )
                                            {
                                                return testClass->GetName() == className;

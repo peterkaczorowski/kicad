@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <algorithm>
 #include <wx/tokenzr.h>
 #include <fmt.h>
 #include <kiface_base.h>
@@ -941,7 +942,7 @@ void SCH_EDIT_FRAME::KiwayMailIn( KIWAY_MAIL_EVENT& mail )
                 manager.AbortAsyncLoads();
                 manager.LoadProjectTables( { LIBRARY_TABLE_TYPE::SYMBOL } );
 
-                std::ranges::for_each( toLoad,
+                std::for_each( toLoad.begin(), toLoad.end(),
                                        [adapter]( const wxString& aNick )
                                        {
                                            adapter->LoadOne( aNick );

@@ -19,6 +19,7 @@
  */
 
 #include <build_version.h>
+#include <algorithm>
 #include <confirm.h>
 #include <eda_base_frame.h>
 #include <kiface_base.h>
@@ -143,7 +144,7 @@ STARTWIZARD::~STARTWIZARD()
 
 STARTWIZARD_PROVIDER* STARTWIZARD::GetProvider( const wxString& aName )
 {
-    if( auto it = std::ranges::find_if( m_providers,
+    if( auto it = std::find_if( m_providers.begin(), m_providers.end(),
                                         [&]( const std::unique_ptr<STARTWIZARD_PROVIDER>& aProvider )
                                         {
                                             return aProvider->Name() == aName;
@@ -168,7 +169,8 @@ void STARTWIZARD::CheckAndRun( wxWindow* aParent )
     if( m_providers.size() == 0 )
         return;
 
-    bool wizardRequired = std::ranges::any_of( std::as_const( m_providers ),
+    const auto& __rng = std::as_const( m_providers );
+    bool wizardRequired = std::any_of( __rng.begin(), __rng.end(),
                                                []( const std::unique_ptr<STARTWIZARD_PROVIDER>& aProvider ) -> bool
                                                {
                                                    return aProvider->NeedsUserInput();

@@ -198,8 +198,10 @@ bool DIALOG_FP_EDIT_PAD_TABLE::TransferDataToWindow()
 
     int row = 0;
 
-    for( const auto pad : m_originalPads | std::views::keys )
+    for( const auto& originalPadEntry : m_originalPads )
     {
+        const auto pad = originalPadEntry.first;
+
         if( row >= m_grid->GetNumberRows() )
             continue;
 
@@ -423,8 +425,10 @@ bool DIALOG_FP_EDIT_PAD_TABLE::TransferDataFromWindow()
 
     int row = 0;
 
-    for( PAD* pad : m_originalPads | std::views::keys )
+    for( const auto& originalPadEntry : m_originalPads )
     {
+        PAD* pad = originalPadEntry.first;
+
         commit.Modify( pad );
         pad->SetNumber( m_grid->GetCellValue( row, COL_NUMBER ) );
 

@@ -225,7 +225,7 @@ void NL_PL_EDITOR_PLUGIN_IMPL::exportCommandsAndImages()
                 const wxStreamBuffer* streamBuffer = imageStream.GetOutputStreamBuffer();
                 TDx::CImage tdxImage = TDx::CImage::FromData( "", 0, name.c_str() );
                 tdxImage.AssignImage(
-                        std::string( std::bit_cast<const char*>( streamBuffer->GetBufferStart() ),
+                        std::string( reinterpret_cast<const char*>( streamBuffer->GetBufferStart() ),
                                      streamBuffer->GetBufferSize() ),
                         0 );
 

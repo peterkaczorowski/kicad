@@ -178,7 +178,7 @@ struct DB_OBJ
     DB_OBJ( uint32_t aKey, uint32_t aNextKey ) :
             m_Valid( false ),
             m_Key( aKey ),
-            m_Loc( 0, 0 ),
+            m_Loc{ 0, 0 },
             m_Next( aNextKey ? DB_REF( this, aNextKey, "m_Next" ) : DB_NULLREF )
     {
     }

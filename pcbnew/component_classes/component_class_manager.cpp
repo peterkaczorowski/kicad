@@ -20,6 +20,7 @@
 
 #include <component_classes/component_class_manager.h>
 
+#include <algorithm>
 #include <board.h>
 #include <component_classes/component_class.h>
 #include <component_classes/component_class_assignment_rule.h>
@@ -431,7 +432,7 @@ COMPONENT_CLASS_MANAGER::sortClassNames( const std::unordered_set<wxString>& cla
 {
     std::vector<wxString> sortedClassNames( classNames.begin(), classNames.end() );
 
-    std::ranges::sort( sortedClassNames,
+    std::sort( sortedClassNames.begin(), sortedClassNames.end(),
                        []( const wxString& str1, const wxString& str2 )
                        {
                            return str1.Cmp( str2 ) < 0;
@@ -510,8 +511,8 @@ std::unordered_set<wxString> COMPONENT_CLASS_MANAGER::GetClassNames() const
 {
     std::unordered_set<wxString> classNames;
 
-    for( const auto& className : m_constituentClasses | std::views::keys )
-        classNames.insert( className );
+    for( const auto& constituentClassEntry : m_constituentClasses )
+        classNames.insert( constituentClassEntry.first );
 
     return classNames;
 }

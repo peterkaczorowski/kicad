@@ -624,14 +624,14 @@ public:
                 {
                     const wxString& layerName = m_brdDb.GetString( entry.mLayerNameId );
 
-                    classLayers.emplace_back( CUSTOM_LAYER( layerName ) );
+                    classLayers.emplace_back( CUSTOM_LAYER{ layerName } );
                 }
             }
             else if( aList.m_NonRefEntries.has_value() )
             {
                 for( const BLK_0x2A_LAYER_LIST::NONREF_ENTRY& entry : aList.m_NonRefEntries.value() )
                 {
-                    classLayers.emplace_back( CUSTOM_LAYER( entry.m_Name ) );
+                    classLayers.emplace_back( CUSTOM_LAYER{ entry.m_Name } );
                 }
             }
             else
@@ -1184,7 +1184,7 @@ public:
         if( aZone.GetIsRuleArea() )
             return;
 
-        m_FillInfos.emplace_back( &aZone, aLayer, std::move( aFilledArea ) );
+        m_FillInfos.push_back( FILL_INFO{ &aZone, aLayer, std::move( aFilledArea ) } );
     }
 
 private:

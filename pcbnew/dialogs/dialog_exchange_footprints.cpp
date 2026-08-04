@@ -335,8 +335,12 @@ void DIALOG_EXCHANGE_FOOTPRINTS::processMatchingFootprints()
      * NB: the change is done from the last footprint because processFootprint() modifies the
      * last item in the list.
      */
-    for( FOOTPRINT* footprint : std::ranges::reverse_view( m_parent->GetBoard()->Footprints() ) )
+    const FOOTPRINTS& footprints = m_parent->GetBoard()->Footprints();
+
+    for( auto it = footprints.rbegin(); it != footprints.rend(); ++it )
     {
+        FOOTPRINT* footprint = *it;
+
         if( !isMatch( footprint ) )
             continue;
 

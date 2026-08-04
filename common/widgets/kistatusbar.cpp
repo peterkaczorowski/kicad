@@ -517,8 +517,8 @@ void KISTATUSBAR::updateWarningUI()
 
         messageCount = 0;
 
-        for( const std::vector<LOAD_MESSAGE>& messages : m_warningMessages | std::views::values )
-            messageCount += messages.size();
+        for( const auto& warningEntry : m_warningMessages )
+            messageCount += warningEntry.second.size();
     }
 
     wxLogTrace( traceLibraries, "  -> message count=%zu, showing button=%s",
@@ -580,8 +580,8 @@ void KISTATUSBAR::onLoadWarningsIconClick( wxCommandEvent& aEvent )
 
     STATUSBAR_WARNING_REPORTER_DIALOG dlg( GetParent(), this );
 
-    for( const std::vector<LOAD_MESSAGE>& source : std::views::values( messages ) )
-        for( const LOAD_MESSAGE& msg : source )
+    for( const auto& messageEntry : messages )
+        for( const LOAD_MESSAGE& msg : messageEntry.second )
             dlg.m_Reporter->Report( msg.message, msg.severity );
 
     dlg.m_Reporter->Flush();

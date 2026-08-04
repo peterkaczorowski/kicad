@@ -24,6 +24,7 @@
 
 #include <dialogs/panel_setup_tuning_profile_info.h>
 
+#include <algorithm>
 #include <widgets/std_bitmap_button.h>
 #include <bitmaps.h>
 #include <confirm.h>
@@ -297,7 +298,7 @@ void PANEL_SETUP_TUNING_PROFILE_INFO::UpdateLayerNames()
 {
     wxArrayString layerNames, layerNamesWithNone;
     layerNamesWithNone.push_back( "<None>" );
-    std::ranges::for_each( m_parentPanel->m_layerNames,
+    std::for_each( m_parentPanel->m_layerNames.begin(), m_parentPanel->m_layerNames.end(),
                            [&layerNames, &layerNamesWithNone]( const wxString& aLayerName )
                            {
                                layerNames.push_back( aLayerName );

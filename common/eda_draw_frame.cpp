@@ -1514,8 +1514,10 @@ std::vector<const PLUGIN_ACTION*> EDA_DRAW_FRAME::GetOrderedPluginActions( PLUGI
     for( const PLUGIN_ACTION* action : unsorted )
         actionMap[action->identifier] = action;
 
-    for( const auto& identifier : aCfg->m_Plugins.actions | std::views::keys )
+    for( const auto& pluginActionEntry : aCfg->m_Plugins.actions )
     {
+        const auto& identifier = pluginActionEntry.first;
+
         if( actionMap.contains( identifier ) )
         {
             const PLUGIN_ACTION* action = actionMap[ identifier ];
@@ -1524,8 +1526,10 @@ std::vector<const PLUGIN_ACTION*> EDA_DRAW_FRAME::GetOrderedPluginActions( PLUGI
         }
     }
 
-    for( const auto& action : actionMap | std::views::values )
+    for( const auto& actionMapEntry : actionMap )
     {
+        const PLUGIN_ACTION* action = actionMapEntry.second;
+
         if( !handled.contains( action ) )
             actions.emplace_back( action );
     }

@@ -568,8 +568,11 @@ void LIBRARY_MANAGER::LoadGlobalTables( std::initializer_list<LIBRARY_TABLE_TYPE
     {
         std::scoped_lock lock( m_adaptersMutex );
 
-        for( const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter : m_adapters | std::views::values )
+        for( const auto& adapterEntry : m_adapters )
+        {
+            const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter = adapterEntry.second;
             adapter->GlobalTablesChanged( aTablesToLoad );
+        }
     }
 
     loadTables( PATHS::GetUserSettingsPath(), LIBRARY_TABLE_SCOPE::GLOBAL, aTablesToLoad );
@@ -612,7 +615,8 @@ void LIBRARY_MANAGER::LoadGlobalTables( std::initializer_list<LIBRARY_TABLE_TYPE
                 LIBRARY_TABLE* table = Table( aType, LIBRARY_TABLE_SCOPE::GLOBAL ).value_or( nullptr );
                 wxCHECK( table, /* void */ );
 
-                auto toErase = std::ranges::remove_if( table->Rows(),
+                auto& tableRows = table->Rows();
+                auto  newEnd = std::remove_if( tableRows.begin(), tableRows.end(),
                         [&]( const LIBRARY_TABLE_ROW& aRow )
                         {
                             if( !IsPcmManagedRow( aRow ) )
@@ -622,8 +626,8 @@ void LIBRARY_MANAGER::LoadGlobalTables( std::initializer_list<LIBRARY_TABLE_TYPE
                             return !wxFileName::Exists( path );
                         } );
 
-                bool hadRemovals = !toErase.empty();
-                table->Rows().erase( toErase.begin(), toErase.end() );
+                bool hadRemovals = newEnd != tableRows.end();
+                tableRows.erase( newEnd, tableRows.end() );
 
                 if( hadRemovals )
                 {
@@ -662,8 +666,11 @@ void LIBRARY_MANAGER::ProjectChanged()
 
     std::scoped_lock lock( m_adaptersMutex );
 
-    for( const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter : m_adapters | std::views::values )
+    for( const auto& adapterEntry : m_adapters )
+    {
+        const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter = adapterEntry.second;
         adapter->ProjectChanged();
+    }
 }
 
 
@@ -671,8 +678,11 @@ void LIBRARY_MANAGER::AbortAsyncLoads()
 {
     std::scoped_lock lock( m_adaptersMutex );
 
-    for( const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter : m_adapters | std::views::values )
+    for( const auto& adapterEntry : m_adapters )
+    {
+        const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter = adapterEntry.second;
         adapter->AbortAsyncLoad();
+    }
 }
 
 
@@ -758,20 +768,21 @@ std::vector<LIBRARY_TABLE_ROW*> LIBRARY_MANAGER::Rows( LIBRARY_TABLE_TYPE aType,
     std::map<wxString, LIBRARY_TABLE_ROW*> rows;
     std::vector<wxString> rowOrder;
 
-    std::list<std::ranges::ref_view<const std::map<LIBRARY_TABLE_TYPE, std::unique_ptr<LIBRARY_TABLE>>>> tables;
+    using LIBRARY_TABLE_MAP = std::map<LIBRARY_TABLE_TYPE, std::unique_ptr<LIBRARY_TABLE>>;
+    std::vector<const LIBRARY_TABLE_MAP*> tables;
 
     switch( aScope )
     {
     case LIBRARY_TABLE_SCOPE::GLOBAL:
-        tables = { std::views::all( m_tables ) };
+        tables = { &m_tables };
         break;
 
     case LIBRARY_TABLE_SCOPE::PROJECT:
-        tables = { std::views::all( m_projectTables ) };
+        tables = { &m_projectTables };
         break;
 
     case LIBRARY_TABLE_SCOPE::BOTH:
-        tables = { std::views::all( m_tables ), std::views::all( m_projectTables ) };
+        tables = { &m_tables, &m_projectTables };
         break;
 
     case LIBRARY_TABLE_SCOPE::UNINITIALIZED:
@@ -817,10 +828,13 @@ std::vector<LIBRARY_TABLE_ROW*> LIBRARY_MANAGER::Rows( LIBRARY_TABLE_TYPE aType,
                 }
             };
 
-    for( const std::unique_ptr<LIBRARY_TABLE>& table :
-         std::views::join( tables ) | std::views::values )
+    for( const LIBRARY_TABLE_MAP* tableMap : tables )
     {
-        processTable( table, false );
+        for( const auto& tableEntry : *tableMap )
+        {
+            const std::unique_ptr<LIBRARY_TABLE>& table = tableEntry.second;
+            processTable( table, false );
+        }
     }
 
     std::vector<LIBRARY_TABLE_ROW*> ret;
@@ -899,8 +913,11 @@ void LIBRARY_MANAGER::LoadProjectTables( const wxString& aProjectPath,
     {
         std::scoped_lock lock( m_adaptersMutex );
 
-        for( const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter : m_adapters | std::views::values )
+        for( const auto& adapterEntry : m_adapters )
+        {
+            const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter = adapterEntry.second;
             adapter->ProjectTablesChanged( aTablesToLoad );
+        }
     }
 
     if( wxFileName::IsDirReadable( aProjectPath ) )
@@ -928,8 +945,11 @@ void LIBRARY_MANAGER::LoadProjectTables( const wxString& aProjectPath,
     {
         std::scoped_lock lock( m_adaptersMutex );
 
-        for( const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter : m_adapters | std::views::values )
+        for( const auto& adapterEntry : m_adapters )
+        {
+            const std::unique_ptr<LIBRARY_MANAGER_ADAPTER>& adapter = adapterEntry.second;
             adapter->ProjectTablesReloaded( aTablesToLoad );
+        }
     }
 }
 

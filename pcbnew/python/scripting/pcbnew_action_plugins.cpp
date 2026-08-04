@@ -550,8 +550,9 @@ std::vector<LEGACY_OR_API_PLUGIN> PCB_EDIT_FRAME::GetOrderedActionPlugins()
     // First add plugins that have entries in settings
     if( cfg )
     {
-        for( const auto& [path, show] : cfg->m_VisibleActionPlugins )
+        for( const auto& visiblePluginEntry : cfg->m_VisibleActionPlugins )
         {
+            const auto& path = visiblePluginEntry.first;
             auto loc = std::find_if( plugins.begin(), plugins.end(),
                     [&path] ( ACTION_PLUGIN* plugin )
                     {

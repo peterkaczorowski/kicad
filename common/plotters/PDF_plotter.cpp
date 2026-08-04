@@ -555,8 +555,8 @@ void PDF_PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aLineChain, FILL_T aFill, in
                 std::vector<VECTOR2D> arc_path = arcPath( arc.GetCenter(), arc.GetStartAngle(),
                                                           arc.GetCentralAngle(), arc.GetRadius() );
 
-                for( const VECTOR2D& pt : std::ranges::reverse_view( arc_path ) )
-                    path.emplace_back( pt );
+                for( auto rit = arc_path.rbegin(); rit != arc_path.rend(); ++rit )
+                    path.emplace_back( *rit );
             }
         }
         else

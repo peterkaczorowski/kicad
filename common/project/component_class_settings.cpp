@@ -19,6 +19,7 @@
 
 #include <json_common.h>
 
+#include <algorithm>
 #include <project/component_class_settings.h>
 #include <settings/parameters.h>
 
@@ -247,7 +248,7 @@ wxString COMPONENT_CLASS_ASSIGNMENT_DATA::GetAssignmentInDRCLanguage() const
                 if( refs.empty() )
                     return wxEmptyString;
 
-                std::ranges::transform( refs, refs.begin(),
+                std::transform( refs.begin(), refs.end(), refs.begin(),
                                         []( const wxString& aRef )
                                         {
                                             return wxString::Format( wxT( "A.Reference == '%s'" ), aRef );

@@ -2418,9 +2418,6 @@ bool FOOTPRINT::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) co
 
 bool FOOTPRINT::HitTest( const SHAPE_LINE_CHAIN& aPoly, bool aContained ) const
 {
-    using std::ranges::all_of;
-    using std::ranges::any_of;
-
     // If there are no pads, zones, or drawings, test footprint text instead.
     if( m_pads.empty() && m_zones.empty() && m_drawings.empty() )
         return KIGEOM::BoxHitTest( aPoly, GetBoundingBox( true ), aContained );
@@ -2434,10 +2431,14 @@ bool FOOTPRINT::HitTest( const SHAPE_LINE_CHAIN& aPoly, bool aContained ) const
     // Filter out text items from the drawings, since they are selectable on their own,
     // and we don't want to select the whole footprint when text is hit. TextBox items are NOT
     // selectable on their own, so they are not excluded here.
-    auto drawings = m_drawings | std::views::filter( []( const auto* aItem )
-                                                     {
-                                                         return aItem && aItem->Type() != PCB_TEXT_T;
-                                                     } );
+    std::vector<BOARD_ITEM*> drawings;
+    drawings.reserve( m_drawings.size() );
+
+    for( BOARD_ITEM* item : m_drawings )
+    {
+        if( item && item->Type() != PCB_TEXT_T )
+            drawings.push_back( item );
+    }
 
     // Test pads, zones and drawings with text excluded. PCB fields are also selectable
     // on their own, so they don't get tested. Groups are not hit-tested, only their members.
@@ -2445,16 +2446,16 @@ bool FOOTPRINT::HitTest( const SHAPE_LINE_CHAIN& aPoly, bool aContained ) const
     if( aContained )
     {
         // All items must be contained in the selection poly.
-        return all_of( drawings, hitTest )
-            && all_of( m_pads,   hitTest )
-            && all_of( m_zones,  hitTest );
+        return std::all_of( drawings.begin(), drawings.end(), hitTest )
+            && std::all_of( m_pads.begin(),   m_pads.end(),   hitTest )
+            && std::all_of( m_zones.begin(),  m_zones.end(),  hitTest );
     }
     else
     {
         // Any item intersecting the selection poly is sufficient.
-        return any_of( drawings, hitTest )
-            || any_of( m_pads,   hitTest )
-            || any_of( m_zones,  hitTest );
+        return std::any_of( drawings.begin(), drawings.end(), hitTest )
+            || std::any_of( m_pads.begin(),   m_pads.end(),   hitTest )
+            || std::any_of( m_zones.begin(),  m_zones.end(),  hitTest );
     }
 }
 

@@ -510,7 +510,9 @@ static LIBRARY_TABLE makeImportedSymbolTable( const std::vector<std::pair<wxStri
 
 static size_t countChainedKiCadRows( const LIBRARY_TABLE& aTable )
 {
-    return std::ranges::count_if( aTable.Rows(),
+    const auto& rows = aTable.Rows();
+
+    return std::count_if( rows.begin(), rows.end(),
             []( const LIBRARY_TABLE_ROW& aRow )
             {
                 return aRow.Type() == LIBRARY_TABLE_ROW::TABLE_TYPE_NAME

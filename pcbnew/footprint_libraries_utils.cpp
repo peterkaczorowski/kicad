@@ -1374,5 +1374,5 @@ void PCB_BASE_FRAME::GetLibraryItemsForListDialog( wxArrayString& aHeaders,
                    return StrNumCmp( a[0], b[0], true ) < 0;
                } );
 
-    std::ranges::copy( unpinned, std::back_inserter( aItemsToDisplay ) );
+    std::copy( unpinned.begin(), unpinned.end(), std::back_inserter( aItemsToDisplay ) );
 }

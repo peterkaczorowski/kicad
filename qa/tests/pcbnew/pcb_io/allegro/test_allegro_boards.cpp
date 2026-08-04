@@ -176,7 +176,8 @@ static std::unique_ptr<HEADER_TEST_INFO> createHeaderTestEntry( const std::strin
     // Default header location
     const std::string headerDataUri = std::string( "file://" ) + boardDir + "header.bin";
 
-    return std::make_unique<HEADER_TEST_INFO>( headerDataUri, headerTestEntry.value( "skip", false ) );
+    return std::unique_ptr<HEADER_TEST_INFO>(
+            new HEADER_TEST_INFO{ headerDataUri, headerTestEntry.value( "skip", false ) } );
 }
 
 
