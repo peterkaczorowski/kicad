@@ -28,6 +28,8 @@ pos
 start
 end
 scale
+scale_x
+scale_y
 pngdata
 data
 pts

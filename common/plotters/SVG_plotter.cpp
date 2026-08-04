@@ -670,12 +670,13 @@ void SVG_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFi
 }
 
 
-void SVG_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor )
+void SVG_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactorX,
+                             double aScaleFactorY )
 {
     VECTOR2I pix_size( aImage.GetWidth(), aImage.GetHeight() );
 
     // Requested size (in IUs)
-    VECTOR2D drawsize( aScaleFactor * pix_size.x, aScaleFactor * pix_size.y );
+    VECTOR2D drawsize( aScaleFactorX * pix_size.x, aScaleFactorY * pix_size.y );
 
     // calculate the bitmap start position
     VECTOR2I start( aPos.x - drawsize.x / 2, aPos.y - drawsize.y / 2 );
@@ -684,7 +685,7 @@ void SVG_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double
     // so use a line when happens.
     if( drawsize.x == 0.0 || drawsize.y == 0.0 )    // Draw a line
     {
-        PLOTTER::PlotImage( aImage, aPos, aScaleFactor );
+        PLOTTER::PlotImage( aImage, aPos, aScaleFactorX, aScaleFactorY );
     }
     else
     {

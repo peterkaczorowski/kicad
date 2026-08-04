@@ -1131,14 +1131,31 @@ void PCB_IO_KICAD_SEXPR::format( const PCB_REFERENCE_IMAGE* aBitmap ) const
 
     wxCHECK_RET( image != nullptr, "wxImage* is NULL" );
 
+    const VECTOR2I anchorPos = refImage.GetAnchorPosition();
+
     m_out->Print( "(image (at %s %s)",
-                  formatInternalUnits( aBitmap->GetPosition().x ).c_str(),
-                  formatInternalUnits( aBitmap->GetPosition().y ).c_str() );
+                  formatInternalUnits( anchorPos.x ).c_str(),
+                  formatInternalUnits( anchorPos.y ).c_str() );
+
+    if( refImage.GetAnchor() != ANCHOR_POINT::CENTER )
+        m_out->Print( "%s", fmt::format( "(anchor {})",
+                                         getAnchorPointString( refImage.GetAnchor() ) ).c_str() );
 
     formatLayer( aBitmap->GetLayer() );
 
-    if( refImage.GetImageScale() != 1.0 )
-        m_out->Print( "%s", fmt::format("(scale {:g})", refImage.GetImageScale()).c_str() );
+    const double sx = refImage.GetImageScaleX();
+    const double sy = refImage.GetImageScaleY();
+
+    if( sx == sy )
+    {
+        if( sx != 1.0 )
+            m_out->Print( "%s", fmt::format( "(scale {:g})", sx ).c_str() );
+    }
+    else
+    {
+        m_out->Print( "%s", fmt::format( "(scale_x {:g})", sx ).c_str() );
+        m_out->Print( "%s", fmt::format( "(scale_y {:g})", sy ).c_str() );
+    }
 
     if( aBitmap->IsLocked() )
         KICAD_FORMAT::FormatBool( m_out, "locked", true );

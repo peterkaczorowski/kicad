@@ -25,6 +25,7 @@
 
 #include <memory>
 
+#include <anchor_point.h>
 #include <base_units.h>
 #include <core/mirror.h>
 #include <math/box2.h>
@@ -80,8 +81,44 @@ public:
      */
     void SetImageScale( double aScale );
 
+    /// Per-axis scale accessors.  The uniform GetImageScale()/SetImageScale()
+    /// delegate to the X axis (and set both for the setter).
+    double   GetImageScaleX() const;
+    double   GetImageScaleY() const;
+    VECTOR2D GetImageScaleXY() const;
+
+    void SetImageScaleX( double aScale );
+    void SetImageScaleY( double aScale );
+    void SetImageScaleXY( double aScale );
+    void SetImageScaleXY( double aScaleX, double aScaleY );
+
     void SetWidth( int aWidth );
     void SetHeight( int aHeight );
+
+    /**
+     * The anchor point determines which of the nine bounding box points the
+     * stored position is pinned to.  The default is CENTER, which matches the
+     * historical behaviour.
+     */
+    ANCHOR_POINT GetAnchor() const { return m_anchor; }
+    void         SetAnchor( ANCHOR_POINT aAnchor );
+
+    /**
+     * @return the position of the chosen anchor point of the bounding box.
+     *         This is the value that is serialised as the image's (at ...).
+     */
+    VECTOR2I GetAnchorPosition() const;
+
+    /**
+     * Set the image's position so that the chosen anchor point lands on aPos.
+     */
+    void SetAnchorPosition( const VECTOR2I& aPos );
+
+    /**
+     * @return the offset from the bounding-box center to the given anchor point
+     *         for a box of the given size.
+     */
+    static VECTOR2I AnchorOffset( const VECTOR2I& aSize, ANCHOR_POINT aAnchor );
 
     void Flip( const VECTOR2I& aCentre, FLIP_DIRECTION aFlipDirection );
 
@@ -134,7 +171,7 @@ public:
     void     SetTransformOriginOffset( const VECTOR2I& aCenter );
 
 private:
-    void scaleBy( double ratio );
+    void scaleBy( double aRatioX, double aRatioY );
 
     void updatePixelSizeInIU();
 
@@ -144,6 +181,9 @@ private:
 
     /// Center of scaling, etc, relative to the image center.
     VECTOR2I m_transformOriginOffset;
+
+    /// Which bounding-box point the stored position is pinned to.
+    ANCHOR_POINT m_anchor;
 
     std::unique_ptr<BITMAP_BASE> m_bitmapBase;
 };

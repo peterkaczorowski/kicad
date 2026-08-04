@@ -1047,21 +1047,37 @@ void SCH_IO_KICAD_SEXPR::saveBitmap( const SCH_BITMAP& aBitmap )
 
     wxCHECK_RET( image != nullptr, "wxImage* is NULL" );
 
-    m_out->Print( "(image (at %s %s)",
-                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
-                                                       refImage.GetPosition().x ).c_str(),
-                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale,
-                                                       refImage.GetPosition().y ).c_str() );
+    const VECTOR2I anchorPos = refImage.GetAnchorPosition();
 
-    double scale = refImage.GetImageScale();
+    m_out->Print( "(image (at %s %s)",
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, anchorPos.x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, anchorPos.y ).c_str() );
+
+    if( refImage.GetAnchor() != ANCHOR_POINT::CENTER )
+        m_out->Print( "%s", fmt::format( "(anchor {})",
+                                         getAnchorPointString( refImage.GetAnchor() ) ).c_str() );
+
+    double scaleX = refImage.GetImageScaleX();
+    double scaleY = refImage.GetImageScaleY();
 
     // 20230121 or older file format versions assumed 300 image PPI at load/save.
     // Let's keep compatibility by changing image scale.
     if( SEXPR_SCHEMATIC_FILE_VERSION <= 20230121 )
-        scale = scale * 300.0 / bitmapBase.GetPPI();
+    {
+        scaleX = scaleX * 300.0 / bitmapBase.GetPPI();
+        scaleY = scaleY * 300.0 / bitmapBase.GetPPI();
+    }
 
-    if( scale != 1.0 )
-        m_out->Print( "%s", fmt::format("(scale {:g})", refImage.GetImageScale()).c_str() );
+    if( scaleX == scaleY )
+    {
+        if( scaleX != 1.0 )
+            m_out->Print( "%s", fmt::format( "(scale {:g})", scaleX ).c_str() );
+    }
+    else
+    {
+        m_out->Print( "%s", fmt::format( "(scale_x {:g})", scaleX ).c_str() );
+        m_out->Print( "%s", fmt::format( "(scale_y {:g})", scaleY ).c_str() );
+    }
 
     KICAD_FORMAT::FormatUuid( m_out, aBitmap.m_Uuid );
 

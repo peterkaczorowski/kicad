@@ -25,6 +25,10 @@ PANEL_IMAGE_EDITOR_BASE::PANEL_IMAGE_EDITOR_BASE( wxWindow* parent, wxWindowID i
 
 	bSizerLeft->Add( m_panelDraw, 1, wxEXPAND | wxALL, 5 );
 
+	// Right-hand column.  Exposed so an owning dialog can prepend extra controls
+	// (e.g. an "Image Size" group) above the Scale/PPI/Greyscale grid.
+	m_sideSizer = new wxBoxSizer( wxVERTICAL );
+
 	wxGridBagSizer* gbSizer1;
 	gbSizer1 = new wxGridBagSizer( 5, 5 );
 	gbSizer1->SetFlexibleDirection( wxBOTH );
@@ -51,7 +55,9 @@ PANEL_IMAGE_EDITOR_BASE::PANEL_IMAGE_EDITOR_BASE( wxWindow* parent, wxWindowID i
 
 	gbSizer1->AddGrowableCol( 1 );
 
-	bSizerLeft->Add( gbSizer1, 0, wxEXPAND|wxALL, 10 );
+	m_sideSizer->Add( gbSizer1, 0, wxEXPAND, 5 );
+
+	bSizerLeft->Add( m_sideSizer, 0, wxEXPAND|wxALL, 10 );
 
 
 	bUpperSizer->Add( bSizerLeft, 1, wxEXPAND, 5 );

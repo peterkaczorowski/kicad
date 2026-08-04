@@ -413,7 +413,18 @@ void DS_DATA_MODEL_IO::format( DS_DATA_ITEM_BITMAP* aItem ) const
     formatCoordinate( "pos", aItem->m_Pos );
     formatOptions( aItem );
 
-    m_out->Print( "(scale %s)", FormatDouble2Str( aItem->m_ImageBitmap->GetScale() ).c_str() );
+    const double scaleX = aItem->m_ImageBitmap->GetScaleX();
+    const double scaleY = aItem->m_ImageBitmap->GetScaleY();
+
+    if( scaleX == scaleY )
+    {
+        m_out->Print( "(scale %s)", FormatDouble2Str( scaleX ).c_str() );
+    }
+    else
+    {
+        m_out->Print( "(scale_x %s)", FormatDouble2Str( scaleX ).c_str() );
+        m_out->Print( "(scale_y %s)", FormatDouble2Str( scaleY ).c_str() );
+    }
 
     formatRepeatParameters( aItem );
 

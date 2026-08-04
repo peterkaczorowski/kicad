@@ -13,11 +13,16 @@ body_styles
 bold
 border
 bottom
+bottom_center
+bottom_left
+bottom_right
 bus
 bus_alias
 bus_entry
 cells
 center
+center_left
+center_right
 checksum
 circle
 clock
@@ -147,6 +152,8 @@ rows
 row_heights
 rule_area
 scale
+scale_x
+scale_y
 separators
 shape
 sheet
@@ -166,6 +173,9 @@ thickness
 title
 title_block
 top
+top_center
+top_left
+top_right
 tri_state
 type
 unit

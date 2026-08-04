@@ -41,7 +41,8 @@
 
 BITMAP_BASE::BITMAP_BASE( const VECTOR2I& pos )
 {
-    m_scale  = 1.0;                     // 1.0 = original bitmap size
+    m_scaleX = 1.0;                     // 1.0 = original bitmap size
+    m_scaleY = 1.0;
     m_imageType = wxBITMAP_TYPE_INVALID;
     m_bitmap = nullptr;
     m_bitmapDirty = false;
@@ -58,7 +59,8 @@ BITMAP_BASE::BITMAP_BASE( const VECTOR2I& pos )
 
 BITMAP_BASE::BITMAP_BASE( const BITMAP_BASE& aSchBitmap )
 {
-    m_scale = aSchBitmap.m_scale;
+    m_scaleX = aSchBitmap.m_scaleX;
+    m_scaleY = aSchBitmap.m_scaleY;
     m_ppi   = aSchBitmap.m_ppi;
     m_pixelSizeIu = aSchBitmap.m_pixelSizeIu;
     m_isMirroredX = aSchBitmap.m_isMirroredX;
@@ -130,7 +132,8 @@ void BITMAP_BASE::ImportData( BITMAP_BASE& aItem )
     *m_image = *aItem.m_image;
     *m_originalImage = *aItem.m_originalImage;
     m_imageId = aItem.m_imageId;
-    m_scale = aItem.m_scale;
+    m_scaleX = aItem.m_scaleX;
+    m_scaleY = aItem.m_scaleY;
     m_ppi = aItem.m_ppi;
     m_pixelSizeIu = aItem.m_pixelSizeIu;
     m_isMirroredX = aItem.m_isMirroredX;
@@ -336,11 +339,14 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos,
 
     wxPoint clipAreaPos;
 
+    const double scalingFactorX = GetScalingFactorX();
+    const double scalingFactorY = GetScalingFactorY();
+
     if( useTransform )
     {
         wxAffineMatrix2D matrix = aDC->GetTransformMatrix();
         matrix.Translate( pos.x, pos.y );
-        matrix.Scale( GetScalingFactor(), GetScalingFactor() );
+        matrix.Scale( scalingFactorX, scalingFactorY );
         aDC->SetTransformMatrix( matrix );
 
         // Needed on wx <= 3.1.5, and this is strange...
@@ -353,14 +359,14 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos,
     }
     else
     {
-        aDC->SetUserScale( scale * GetScalingFactor(), scale * GetScalingFactor() );
-        aDC->SetLogicalOrigin( logicalOriginX / GetScalingFactor(),
-                               logicalOriginY / GetScalingFactor() );
+        aDC->SetUserScale( scale * scalingFactorX, scale * scalingFactorY );
+        aDC->SetLogicalOrigin( logicalOriginX / scalingFactorX,
+                               logicalOriginY / scalingFactorY );
 
-        pos.x  = KiROUND( pos.x / GetScalingFactor() );
-        pos.y  = KiROUND( pos.y / GetScalingFactor() );
-        size.x = KiROUND( size.x / GetScalingFactor() );
-        size.y = KiROUND( size.y / GetScalingFactor() );
+        pos.x  = KiROUND( pos.x / scalingFactorX );
+        pos.y  = KiROUND( pos.y / scalingFactorY );
+        size.x = KiROUND( size.x / scalingFactorX );
+        size.y = KiROUND( size.y / scalingFactorY );
         clipAreaPos.x = pos.x;
         clipAreaPos.y = pos.y;
     }
@@ -419,8 +425,8 @@ VECTOR2I BITMAP_BASE::GetSize() const
 
     if( m_image )
     {
-        size.x = KiROUND( m_image->GetWidth() * GetScalingFactor() );
-        size.y = KiROUND( m_image->GetHeight() * GetScalingFactor() );
+        size.x = KiROUND( m_image->GetWidth() * GetScalingFactorX() );
+        size.y = KiROUND( m_image->GetHeight() * GetScalingFactorY() );
     }
 
     return size;
@@ -558,7 +564,7 @@ void BITMAP_BASE::PlotImage( PLOTTER*       aPlotter, const VECTOR2I& aPos,
     // and plot a rectangle instead of.
     aPlotter->SetColor( aDefaultColor );
     aPlotter->SetCurrentLineWidth( aDefaultPensize );
-    aPlotter->PlotImage( *m_image, aPos, GetScalingFactor() );
+    aPlotter->PlotImage( *m_image, aPos, GetScalingFactorX(), GetScalingFactorY() );
 }
 
 

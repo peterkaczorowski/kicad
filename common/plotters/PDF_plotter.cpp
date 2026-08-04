@@ -620,13 +620,14 @@ void PDF_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 }
 
 
-void PDF_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor )
+void PDF_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactorX,
+                             double aScaleFactorY )
 {
     wxASSERT( m_workFile );
     VECTOR2I pix_size( aImage.GetWidth(), aImage.GetHeight() );
 
     // Requested size (in IUs)
-    VECTOR2D drawsize( aScaleFactor * pix_size.x, aScaleFactor * pix_size.y );
+    VECTOR2D drawsize( aScaleFactorX * pix_size.x, aScaleFactorY * pix_size.y );
 
     // calculate the bitmap start position
     VECTOR2I start( aPos.x - drawsize.x / 2, aPos.y + drawsize.y / 2 );

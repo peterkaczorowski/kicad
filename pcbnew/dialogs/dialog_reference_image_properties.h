@@ -30,6 +30,9 @@
 class PCB_BASE_FRAME;
 class PCB_REFERENCE_IMAGE;
 class PANEL_IMAGE_EDITOR;
+class wxChoice;
+class wxRadioButton;
+class wxCheckBox;
 
 
 class DIALOG_REFERENCE_IMAGE_PROPERTIES : public DIALOG_REFERENCE_IMAGE_PROPERTIES_BASE
@@ -43,7 +46,24 @@ private:
     bool TransferDataFromWindow() override;
     void onWidthChanged( wxCommandEvent& aEvent );
     void onHeightChanged( wxCommandEvent& aEvent );
-    void onScaleChanged( wxCommandEvent& aEvent );
+    void onUnitChanged( wxCommandEvent& aEvent );
+
+    ///< True when the Width/Height fields are showing a percentage of the native size.
+    bool isPercentMode() const;
+
+    ///< Apply the unit selector choice to the Width/Height unit binders.
+    void applyUnitSelection();
+
+    ///< Refresh the Width and Height fields from the working image (in the current units).
+    void updateSizeFields();
+
+    ///< Refresh only the Width (resp. Height) field from the working image.
+    void setWidthField();
+    void setHeightField();
+
+    ///< Currently selected anchor (index into the 3x3 radio-button grid == ANCHOR_POINT).
+    int  getAnchorSelection() const;
+    void setAnchorSelection( int aIndex );
 
 private:
     PCB_BASE_FRAME*      m_frame;
@@ -55,4 +75,10 @@ private:
     UNIT_BINDER          m_posY;
     UNIT_BINDER          m_width;
     UNIT_BINDER          m_height;
+
+    wxChoice*            m_unitSelector;
+    wxCheckBox*          m_cbLockRatio;
+
+    ///< 3x3 grid of anchor radio buttons (no labels); index order matches ANCHOR_POINT.
+    wxRadioButton*       m_anchorBtns[9];
 };

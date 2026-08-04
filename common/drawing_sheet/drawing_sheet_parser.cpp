@@ -524,7 +524,17 @@ void DRAWING_SHEET_PARSER::parseBitmap( DS_DATA_ITEM_BITMAP * aItem )
             break;
 
         case T_scale:
-            aItem->m_ImageBitmap->SetScale( parseDouble() );
+            aItem->m_ImageBitmap->SetScaleXY( parseDouble() );
+            NeedRIGHT();
+            break;
+
+        case T_scale_x:
+            aItem->m_ImageBitmap->SetScaleX( parseDouble() );
+            NeedRIGHT();
+            break;
+
+        case T_scale_y:
+            aItem->m_ImageBitmap->SetScaleY( parseDouble() );
             NeedRIGHT();
             break;
 

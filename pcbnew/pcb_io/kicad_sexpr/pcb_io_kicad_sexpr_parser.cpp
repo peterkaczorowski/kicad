@@ -3664,6 +3664,13 @@ PCB_REFERENCE_IMAGE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_REFERENCE_IMAGE( BOARD_
     T token;
     std::unique_ptr<PCB_REFERENCE_IMAGE> bitmap = std::make_unique<PCB_REFERENCE_IMAGE>( aParent );
 
+    // The stored (at ...) is interpreted relative to the anchor.  Because the
+    // anchor and the scale (which both affect the bounding box) may arrive in
+    // any order relative to (at ...), capture the anchor position and apply it
+    // once after the whole image has been parsed.
+    VECTOR2I anchorPos;
+    bool     haveAnchorPos = false;
+
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
         if( token != T_LEFT )
@@ -3675,10 +3682,17 @@ PCB_REFERENCE_IMAGE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_REFERENCE_IMAGE( BOARD_
         {
         case T_at:
         {
-            VECTOR2I pos;
-            pos.x = parseBoardUnits( "X coordinate" );
-            pos.y = parseBoardUnits( "Y coordinate" );
-            bitmap->SetPosition( pos );
+            anchorPos.x = parseBoardUnits( "X coordinate" );
+            anchorPos.y = parseBoardUnits( "Y coordinate" );
+            haveAnchorPos = true;
+            NeedRIGHT();
+            break;
+        }
+
+        case T_anchor:
+        {
+            token = NextTok();
+            bitmap->GetReferenceImage().SetAnchor( anchorPointFromString( FromUTF8().ToStdString() ) );
             NeedRIGHT();
             break;
         }
@@ -3691,11 +3705,26 @@ PCB_REFERENCE_IMAGE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_REFERENCE_IMAGE( BOARD_
         case T_scale:
         {
             REFERENCE_IMAGE& refImage = bitmap->GetReferenceImage();
-            refImage.SetImageScale( parseDouble( "image scale factor" ) );
+            double s = parseDouble( "image scale factor" );
+            refImage.SetImageScaleXY( std::isnormal( s ) ? s : 1.0 );
+            NeedRIGHT();
+            break;
+        }
 
-            if( !std::isnormal( refImage.GetImageScale() ) )
-                refImage.SetImageScale( 1.0 );
+        case T_scale_x:
+        {
+            REFERENCE_IMAGE& refImage = bitmap->GetReferenceImage();
+            double sx = parseDouble( "image scale_x factor" );
+            refImage.SetImageScaleX( std::isnormal( sx ) ? sx : 1.0 );
+            NeedRIGHT();
+            break;
+        }
 
+        case T_scale_y:
+        {
+            REFERENCE_IMAGE& refImage = bitmap->GetReferenceImage();
+            double sy = parseDouble( "image scale_y factor" );
+            refImage.SetImageScaleY( std::isnormal( sy ) ? sy : 1.0 );
             NeedRIGHT();
             break;
         }
@@ -3746,9 +3775,12 @@ PCB_REFERENCE_IMAGE* PCB_IO_KICAD_SEXPR_PARSER::parsePCB_REFERENCE_IMAGE( BOARD_
         }
 
         default:
-            Expecting( "at, layer, scale, data, locked or uuid" );
+            Expecting( "at, anchor, layer, scale, scale_x, scale_y, data, locked or uuid" );
         }
     }
+
+    if( haveAnchorPos )
+        bitmap->GetReferenceImage().SetAnchorPosition( anchorPos );
 
     return bitmap.release();
 }

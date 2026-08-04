@@ -23,6 +23,7 @@
  */
 
 #include <wx/dcclient.h>
+#include <wx/gbsizer.h>
 #include <wx/msgdlg.h>
 #include <bitmap_base.h>
 #include <pcb_base_edit_frame.h>
@@ -45,7 +46,10 @@ PANEL_IMAGE_EDITOR::PANEL_IMAGE_EDITOR( UNITS_PROVIDER* aUnitsProvider, wxWindow
 
 bool PANEL_IMAGE_EDITOR::TransferDataToWindow()
 {
-    m_scale.SetDoubleValue( m_workingImage->GetScale() );
+    // Use ChangeDoubleValue (not SetDoubleValue) so loading the field does not emit
+    // wxEVT_TEXT.  The owning dialog binds that event to a handler that applies a
+    // *uniform* scale, which would clobber an independent X/Y scale on the working image.
+    m_scale.ChangeDoubleValue( m_workingImage->GetScale() );
 
     m_stPPI_Value->SetLabel( wxString::Format( wxT( "%d" ), m_workingImage->GetPPI() ) );
 
@@ -72,18 +76,19 @@ bool PANEL_IMAGE_EDITOR::CheckValues()
 
 #define MIN_SIZE 15   // Min size in pixels after scaling (50 mils)
 #define MAX_SIZE 6000 // Max size in pixels after scaling (20 inches)
-    double tmp = m_scale.GetDoubleValue();
+    const double scaleX = m_workingImage->GetScaleX();
+    const double scaleY = m_workingImage->GetScaleY();
 
     // Test number correctness
-    if( tmp < 0.0 )
+    if( scaleX <= 0.0 || scaleY <= 0.0 )
     {
         DisplayErrorMessage( host, _( "Scale must be a positive number." ) );
         return false;
     }
 
-    // Test value correctness
+    // Test value correctness (each axis is scaled independently)
     VECTOR2I psize = m_workingImage->GetSizePixels();
-    int      size_min = (int) std::min( ( psize.x * tmp ), ( psize.y * tmp ) );
+    int      size_min = (int) std::min( ( psize.x * scaleX ), ( psize.y * scaleY ) );
 
     if( size_min < MIN_SIZE ) // if the size is too small, the image will be hard to locate
     {
@@ -94,7 +99,7 @@ bool PANEL_IMAGE_EDITOR::CheckValues()
         return false;
     }
 
-    int size_max = (int) std::max( ( psize.x * tmp ), ( psize.y * tmp ) );
+    int size_max = (int) std::max( ( psize.x * scaleX ), ( psize.y * scaleY ) );
 
     if( size_max > MAX_SIZE )
     {
@@ -138,9 +143,87 @@ void PANEL_IMAGE_EDITOR::UpdateImageScale( double aScale )
 }
 
 
+double PANEL_IMAGE_EDITOR::GetScaleX() const
+{
+    return m_workingImage->GetScaleX();
+}
+
+
+double PANEL_IMAGE_EDITOR::GetScaleY() const
+{
+    return m_workingImage->GetScaleY();
+}
+
+
+void PANEL_IMAGE_EDITOR::SetScaleX( double aScale )
+{
+    m_workingImage->SetScaleX( aScale );
+
+    // Keep the uniform scale field showing the X scale for reference.
+    m_scale.ChangeDoubleValue( m_workingImage->GetScaleX() );
+    m_panelDraw->Refresh();
+}
+
+
+void PANEL_IMAGE_EDITOR::SetScaleY( double aScale )
+{
+    m_workingImage->SetScaleY( aScale );
+    m_panelDraw->Refresh();
+}
+
+
 VECTOR2I PANEL_IMAGE_EDITOR::GetImageSize() const
 {
     return m_workingImage->GetSize();
+}
+
+
+void PANEL_IMAGE_EDITOR::HideScaleControl()
+{
+    m_staticTextScale->Hide();
+    m_textCtrlScale->Hide();
+    Layout();
+}
+
+
+void PANEL_IMAGE_EDITOR::SetImageColumnProportion( int aImageProp, int aSideProp )
+{
+    // The image preview (m_panelDraw) and the right-hand control column (m_sideSizer)
+    // both live in the same horizontal sizer; adjust their proportions to control the split.
+    if( wxSizer* row = m_panelDraw->GetContainingSizer() )
+    {
+        if( wxSizerItem* imgItem = row->GetItem( m_panelDraw ) )
+            imgItem->SetProportion( aImageProp );
+
+        if( wxSizerItem* sideItem = row->GetItem( m_sideSizer ) )
+            sideItem->SetProportion( aSideProp );
+
+        Layout();
+    }
+}
+
+
+void PANEL_IMAGE_EDITOR::SetGreyscaleButtonWidthFraction( int aNum, int aDen )
+{
+    // The button sits in the right-column grid-bag sizer spanning the full width.  Detach
+    // it and re-add it wrapped in a horizontal sizer where the button takes aNum parts and
+    // a stretch spacer takes the rest, so the button occupies aNum/aDen of the column.
+    wxGridBagSizer* gb = dynamic_cast<wxGridBagSizer*>( m_buttonGrey->GetContainingSizer() );
+
+    if( !gb )
+        return;
+
+    wxGBPosition pos = gb->GetItemPosition( m_buttonGrey );
+    wxGBSpan     span = gb->GetItemSpan( m_buttonGrey );
+
+    gb->Detach( m_buttonGrey );
+
+    wxBoxSizer* wrap = new wxBoxSizer( wxHORIZONTAL );
+    wrap->Add( m_buttonGrey, aNum, wxEXPAND, 0 );
+    wrap->AddStretchSpacer( aDen - aNum );
+
+    gb->Add( wrap, pos, span, wxEXPAND, 0 );
+    Layout();
 }
 
 
@@ -149,7 +232,7 @@ void PANEL_IMAGE_EDITOR::OnRedrawPanel( wxPaintEvent& event )
     wxPaintDC dc( m_panelDraw );
     wxSize    display_size = m_panelDraw->GetClientSize();
 
-    double img_scale = 1.0 / m_workingImage->GetScalingFactor();
+    double img_scale = 1.0 / m_workingImage->GetScalingFactorX();
     VECTOR2I img_size_pixels = m_workingImage->GetSizePixels();
 
     // Adjust the display scale to use the full available display area
@@ -165,9 +248,7 @@ void PANEL_IMAGE_EDITOR::OnRedrawPanel( wxPaintEvent& event )
 
 void PANEL_IMAGE_EDITOR::TransferToImage( BITMAP_BASE& aItem )
 {
-    wxString msg = m_textCtrlScale->GetValue();
-    double   scale = 1.0;
-    msg.ToDouble( &scale );
-    m_workingImage->SetScale( scale );
+    // The working image already holds the final per-axis scales (kept in sync by the
+    // owning dialog through SetScale / SetScaleX / SetScaleY), so just copy it over.
     aItem.ImportData( *m_workingImage );
 }

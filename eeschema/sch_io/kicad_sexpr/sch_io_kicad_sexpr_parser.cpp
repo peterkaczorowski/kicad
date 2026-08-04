@@ -3606,6 +3606,11 @@ SCH_BITMAP* SCH_IO_KICAD_SEXPR_PARSER::parseImage()
     std::unique_ptr<SCH_BITMAP> bitmap = std::make_unique<SCH_BITMAP>();
     REFERENCE_IMAGE&            refImage = bitmap->GetReferenceImage();
 
+    // The stored (at ...) is interpreted relative to the anchor; apply it once
+    // after the whole image (anchor + scale + PPI compat) has been parsed.
+    VECTOR2I anchorPos;
+    bool     haveAnchorPos = false;
+
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
         if( token != T_LEFT )
@@ -3616,14 +3621,41 @@ SCH_BITMAP* SCH_IO_KICAD_SEXPR_PARSER::parseImage()
         switch( token )
         {
         case T_at:
-            bitmap->SetPosition( parseXY() );
+            anchorPos = parseXY();
+            haveAnchorPos = true;
             NeedRIGHT();
             break;
+
+        case T_anchor:
+        {
+            token = NextTok();
+            refImage.SetAnchor( anchorPointFromString( FromUTF8().ToStdString() ) );
+            NeedRIGHT();
+            break;
+        }
 
         case T_scale:
         {
             const double scale = parseDouble( "image scale factor" );
-            refImage.SetImageScale( std::isnormal( scale ) ? scale : 1.0 );
+            refImage.SetImageScaleXY( std::isnormal( scale ) ? scale : 1.0 );
+
+            NeedRIGHT();
+            break;
+        }
+
+        case T_scale_x:
+        {
+            const double sx = parseDouble( "image scale_x factor" );
+            refImage.SetImageScaleX( std::isnormal( sx ) ? sx : 1.0 );
+
+            NeedRIGHT();
+            break;
+        }
+
+        case T_scale_y:
+        {
+            const double sy = parseDouble( "image scale_y factor" );
+            refImage.SetImageScaleY( std::isnormal( sy ) ? sy : 1.0 );
 
             NeedRIGHT();
             break;
@@ -3662,7 +3694,7 @@ SCH_BITMAP* SCH_IO_KICAD_SEXPR_PARSER::parseImage()
         }
 
         default:
-            Expecting( "at, scale, uuid or data" );
+            Expecting( "at, anchor, scale, scale_x, scale_y, uuid or data" );
         }
     }
 
@@ -3672,8 +3704,13 @@ SCH_BITMAP* SCH_IO_KICAD_SEXPR_PARSER::parseImage()
     // Let's keep compatibility by changing image scale.
     if( m_requiredVersion <= 20230121 )
     {
-        refImage.SetImageScale( refImage.GetImageScale() * refImage.GetImage().GetPPI() / 300.0 );
+        const double ppiFactor = refImage.GetImage().GetPPI() / 300.0;
+        refImage.SetImageScaleXY( refImage.GetImageScaleX() * ppiFactor,
+                                  refImage.GetImageScaleY() * ppiFactor );
     }
+
+    if( haveAnchorPos )
+        refImage.SetAnchorPosition( anchorPos );
 
     return bitmap.release();
 }

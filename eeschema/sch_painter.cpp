@@ -3600,10 +3600,11 @@ void SCH_PAINTER::draw( const SCH_BITMAP* aBitmap, int aLayer )
 
     // When the image scale factor is not 1.0, we need to modify the actual as the image scale
     // factor is similar to a local zoom
-    const double img_scale = refImage.GetImageScale();
+    const double img_scale_x = refImage.GetImageScaleX();
+    const double img_scale_y = refImage.GetImageScaleY();
 
-    if( img_scale != 1.0 )
-        m_gal->Scale( VECTOR2D( img_scale, img_scale ) );
+    if( img_scale_x != 1.0 || img_scale_y != 1.0 )
+        m_gal->Scale( VECTOR2D( img_scale_x, img_scale_y ) );
 
     if( aLayer == LAYER_DRAW_BITMAPS )
     {
@@ -3626,8 +3627,8 @@ void SCH_PAINTER::draw( const SCH_BITMAP* aBitmap, int aLayer )
             // bm_size is the actual image size in UI.
             // but m_canvas scale was previously set to img_scale
             // so recalculate size relative to this image size.
-            bm_size.x /= img_scale;
-            bm_size.y /= img_scale;
+            bm_size.x /= img_scale_x;
+            bm_size.y /= img_scale_y;
             const VECTOR2D origin( -bm_size.x / 2.0, -bm_size.y / 2.0 );
             const VECTOR2D end = origin + bm_size;
 

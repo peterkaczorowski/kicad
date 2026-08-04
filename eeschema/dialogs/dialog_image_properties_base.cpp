@@ -16,46 +16,83 @@ DIALOG_IMAGE_PROPERTIES_BASE::DIALOG_IMAGE_PROPERTIES_BASE( wxWindow* parent, wx
 	wxBoxSizer* bMainSizer;
 	bMainSizer = new wxBoxSizer( wxVERTICAL );
 
+	m_Notebook = new wxNotebook( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
 
-	bMainSizer->Add( 0, 5, 0, wxEXPAND, 5 );
+	// "General" page: position and anchor.
+	m_PanelGeneral = new wxPanel( m_Notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
+	// Horizontal: position on the left, the anchor selector (added by the derived dialog)
+	// on the right.
+	m_generalSizer = new wxBoxSizer( wxHORIZONTAL );
 
-	wxFlexGridSizer* fgSizerPos;
-	fgSizerPos = new wxFlexGridSizer( 2, 3, 1, 0 );
-	fgSizerPos->AddGrowableCol( 1 );
-	fgSizerPos->AddGrowableRow( 0 );
-	fgSizerPos->SetFlexibleDirection( wxBOTH );
-	fgSizerPos->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
+	wxGridBagSizer* gbSizer1;
+	gbSizer1 = new wxGridBagSizer( 3, 5 );
+	gbSizer1->SetFlexibleDirection( wxBOTH );
+	gbSizer1->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_ALL );
+	gbSizer1->SetEmptyCellSize( wxSize( -1,5 ) );
 
-	m_XPosLabel = new wxStaticText( this, wxID_ANY, _("Position X:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_XPosLabel = new wxStaticText( m_PanelGeneral, wxID_ANY, _("Position X:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_XPosLabel->Wrap( -1 );
-	fgSizerPos->Add( m_XPosLabel, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
+	gbSizer1->Add( m_XPosLabel, wxGBPosition( 0, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
-	m_ModPositionX = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
-	fgSizerPos->Add( m_ModPositionX, 1, wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
+	m_ModPositionX = new wxTextCtrl( m_PanelGeneral, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_ModPositionX, wxGBPosition( 0, 1 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
 
-	m_XPosUnit = new wxStaticText( this, wxID_ANY, _("unit"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_XPosUnit = new wxStaticText( m_PanelGeneral, wxID_ANY, _("unit"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_XPosUnit->Wrap( -1 );
-	fgSizerPos->Add( m_XPosUnit, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
+	gbSizer1->Add( m_XPosUnit, wxGBPosition( 0, 2 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
-	m_YPosLabel = new wxStaticText( this, wxID_ANY, _("Position Y:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_YPosLabel = new wxStaticText( m_PanelGeneral, wxID_ANY, _("Position Y:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_YPosLabel->Wrap( -1 );
-	fgSizerPos->Add( m_YPosLabel, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
+	gbSizer1->Add( m_YPosLabel, wxGBPosition( 1, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
-	m_ModPositionY = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
-	fgSizerPos->Add( m_ModPositionY, 1, wxALIGN_CENTER_VERTICAL|wxEXPAND|wxTOP, 1 );
+	m_ModPositionY = new wxTextCtrl( m_PanelGeneral, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_ModPositionY, wxGBPosition( 1, 1 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
 
-	m_YPosUnit = new wxStaticText( this, wxID_ANY, _("unit"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_YPosUnit = new wxStaticText( m_PanelGeneral, wxID_ANY, _("unit"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_YPosUnit->Wrap( -1 );
-	fgSizerPos->Add( m_YPosUnit, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
+	gbSizer1->Add( m_YPosUnit, wxGBPosition( 1, 2 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
 
-	bMainSizer->Add( fgSizerPos, 0, wxEXPAND|wxALL, 8 );
+	gbSizer1->AddGrowableCol( 1 );
 
+	// Left column; the anchor box + a stretch spacer (added by the derived dialog) take the
+	// rest, leaving a wide right margin.  A vertical spacer pushes the first row down so
+	// "Position X" lines up with the top of the Anchor box on the right.
+	wxBoxSizer* leftColSizer = new wxBoxSizer( wxVERTICAL );
+	leftColSizer->AddSpacer( 12 );
+	leftColSizer->Add( gbSizer1, 0, wxEXPAND, 0 );
+	m_generalSizer->Add( leftColSizer, 4, wxALIGN_TOP|wxALL, 5 );
+
+	m_PanelGeneral->SetSizer( m_generalSizer );
+	m_PanelGeneral->Layout();
+	m_generalSizer->Fit( m_PanelGeneral );
+	m_Notebook->AddPage( m_PanelGeneral, _("General"), true );
+
+	// "Image" page: the image editor plus the Width/Height size controls
+	// (all added/positioned by the derived dialog).
+	m_PanelImage = new wxPanel( m_Notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
 	m_imageSizer = new wxBoxSizer( wxVERTICAL );
 
-	m_imageSizer->SetMinSize( wxSize( 360,-1 ) );
+	// Width is intentionally placed above Height.  These controls are created here so the
+	// derived dialog's UNIT_BINDERs can bind to them, but they are laid out by the derived ctor.
+	m_WidthLabel = new wxStaticText( m_PanelImage, wxID_ANY, _("Width:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_WidthLabel->Wrap( -1 );
+	m_ModWidth = new wxTextCtrl( m_PanelImage, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	m_WidthUnit = new wxStaticText( m_PanelImage, wxID_ANY, _("unit"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_WidthUnit->Wrap( -1 );
 
-	bMainSizer->Add( m_imageSizer, 1, wxEXPAND, 5 );
+	m_HeightLabel = new wxStaticText( m_PanelImage, wxID_ANY, _("Height:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_HeightLabel->Wrap( -1 );
+	m_ModHeight = new wxTextCtrl( m_PanelImage, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	m_HeightUnit = new wxStaticText( m_PanelImage, wxID_ANY, _("unit"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_HeightUnit->Wrap( -1 );
+
+	m_PanelImage->SetSizer( m_imageSizer );
+	m_PanelImage->Layout();
+	m_imageSizer->Fit( m_PanelImage );
+	m_Notebook->AddPage( m_PanelImage, _("Image"), false );
+
+	bMainSizer->Add( m_Notebook, 1, wxEXPAND|wxALL, 8 );
 
 	m_sdbSizerStdButtons = new wxStdDialogButtonSizer();
 	m_sdbSizerStdButtonsOK = new wxButton( this, wxID_OK );

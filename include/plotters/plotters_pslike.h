@@ -203,7 +203,7 @@ public:
      * PostScript-likes at the moment are the only plot engines supporting bitmaps.
      */
     virtual void PlotImage( const wxImage& aImage, const VECTOR2I& aPos,
-                            double aScaleFactor ) override;
+                            double aScaleFactorX, double aScaleFactorY ) override;
 
     virtual void PenTo( const VECTOR2I& pos, char plume ) override;
     virtual void Text( const VECTOR2I&        aPos,
@@ -439,7 +439,8 @@ public:
     /**
      * PDF images are handles as inline, not XObject streams...
      */
-    void PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor ) override;
+    void PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactorX,
+                    double aScaleFactorY ) override;
 
     /**
      * Generates the camera to world matrix for use with a 3D View.
@@ -672,7 +673,7 @@ public:
      * PostScript-likes at the moment are the only plot engines supporting bitmaps.
      */
     virtual void PlotImage( const wxImage& aImage, const VECTOR2I& aPos,
-                            double aScaleFactor ) override;
+                            double aScaleFactorX, double aScaleFactorY ) override;
 
     virtual void PenTo( const VECTOR2I& pos, char plume ) override;
 

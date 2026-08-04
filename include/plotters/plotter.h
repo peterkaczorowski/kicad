@@ -356,10 +356,13 @@ public:
      *
      * @param aImage is the bitmap.
      * @param aPos is position of the center of the bitmap.
-     * @param aScaleFactor is the scale factor to apply to the bitmap size
+     * @param aScaleFactorX is the X scale factor to apply to the bitmap size
+     *                      (this is not the plot scale factor).
+     * @param aScaleFactorY is the Y scale factor to apply to the bitmap size
      *                      (this is not the plot scale factor).
      */
-    virtual void PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor );
+    virtual void PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactorX,
+                            double aScaleFactorY );
 
     // Higher level primitives -- can be drawn as line, sketch or 'filled'
     virtual void ThickSegment( const VECTOR2I& start, const VECTOR2I& end, int width, void* aData );

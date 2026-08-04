@@ -666,8 +666,11 @@ public:
                 double   newHeight = std::max( newSize.y, EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 50 ) );
                 ratio = std::min( newWidth / oldSize.x, newHeight / oldSize.y );
 
-                // Also handles the origin offset
-                refImage.SetImageScale( refImage.GetImageScale() * ratio );
+                // Also handles the origin offset.  Scale each axis by the same ratio so
+                // any independent X/Y scaling set elsewhere (e.g. the properties dialog)
+                // is preserved.
+                refImage.SetImageScaleXY( refImage.GetImageScaleX() * ratio,
+                                          refImage.GetImageScaleY() * ratio );
             }
         }
     }
