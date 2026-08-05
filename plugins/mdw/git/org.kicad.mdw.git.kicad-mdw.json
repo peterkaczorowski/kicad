@@ -1,0 +1,12 @@
+{
+    "id": "org.kicad.mdw.git",
+    "name": "Git Workspace",
+    "version": "1.0.0",
+    "protocol_version": {
+        "major": 1,
+        "minor": 0
+    },
+    "executable": "kicad-mdw-git",
+    "schemes": [ "git" ],
+    "capability_hints": [ "REVISIONS" ]
+}

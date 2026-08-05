@@ -1,0 +1,472 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright (C) 2026 KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+ * kicad-mdw-git
+ *
+ * A minimal reference MDW backend that maps a git working tree onto the
+ * workspace model. Folders are directories, items are tracked files, and the
+ * revision history is the git log. It advertises CG_REVISIONS and nothing else,
+ * so the SDK auto-answers WE_NOT_SUPPORTED for every group it does not serve.
+ * Like the SDK, it links kiapi and nng only; no wxWidgets and no kicommon.
+ */
+
+#include "git_operations.h"
+
+#include <mdw_sdk/mdw_backend_server.h>
+#include <mdw_sdk/mdw_run_backend.h>
+#include <mdw_sdk/mdw_event_publisher.h>
+
+#include <api/mdw/backend_base.pb.h>
+#include <api/mdw/backend_revisions.pb.h>
+#include <api/workspace/workspace_types.pb.h>
+
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace mdw = kiapi::mdw;
+namespace ws = kiapi::workspace;
+
+namespace
+{
+
+const char FIELD_SEP = '\x1f';
+
+
+ws::WorkspaceError ok()
+{
+    ws::WorkspaceError error;
+    error.set_code( ws::WE_OK );
+    return error;
+}
+
+
+ws::WorkspaceError fail( ws::WorkspaceErrorCode aCode, const std::string& aMessage )
+{
+    ws::WorkspaceError error;
+    error.set_code( aCode );
+    error.set_message( aMessage );
+    return error;
+}
+
+
+/// The value of a git config key, or aFallback when it is unset.
+std::string configValue( const std::string& aKey, const std::string& aFallback )
+{
+    MDW_PROCESS_RESULT result = Git( { "config", aKey } );
+
+    if( !result.started || result.exit_code != 0 )
+        return aFallback;
+
+    std::string value = Trimmed( result.out );
+
+    return value.empty() ? aFallback : value;
+}
+
+
+std::string baseName( const std::string& aPath )
+{
+    std::size_t slash = aPath.find_last_of( '/' );
+
+    return slash == std::string::npos ? aPath : aPath.substr( slash + 1 );
+}
+
+
+std::string parentDir( const std::string& aPath )
+{
+    std::size_t slash = aPath.find_last_of( '/' );
+
+    return slash == std::string::npos ? std::string() : aPath.substr( 0, slash );
+}
+
+
+/// Split aRecord into exactly aCount fields on aSep, taking the remainder as the
+/// final field so a legitimately empty trailing field (an empty commit subject)
+/// is preserved. Fewer than aCount separators yields fewer fields.
+std::vector<std::string> splitFields( const std::string& aRecord, char aSep, std::size_t aCount )
+{
+    std::vector<std::string> fields;
+    std::size_t              start = 0;
+
+    for( std::size_t i = 0; i + 1 < aCount; ++i )
+    {
+        std::size_t pos = aRecord.find( aSep, start );
+
+        if( pos == std::string::npos )
+        {
+            fields.push_back( aRecord.substr( start ) );
+            return fields;
+        }
+
+        fields.push_back( aRecord.substr( start, pos - start ) );
+        start = pos + 1;
+    }
+
+    fields.push_back( aRecord.substr( start ) );
+    return fields;
+}
+
+
+/// Build the item record for a tracked path, filling revision and mtime from
+/// the last commit that touched it.
+ws::ItemInfo itemInfo( const std::string& aPath )
+{
+    ws::ItemInfo item;
+    item.set_item_id( aPath );
+    item.set_display_name( baseName( aPath ) );
+    item.set_folder_id( parentDir( aPath ) );
+    item.set_is_folder( false );
+    item.set_category( ws::LC_EDITABLE );
+
+    MDW_PROCESS_RESULT last = Git( { "log", "-1", "--format=%h%x1f%at", "--", aPath } );
+
+    if( last.started && last.exit_code == 0 )
+    {
+        std::vector<std::string> fields = Split( Trimmed( last.out ), FIELD_SEP );
+
+        if( fields.size() >= 1 && !fields[0].empty() )
+            item.set_revision_id( fields[0] );
+
+        if( fields.size() >= 2 && !fields[1].empty() )
+            item.set_modified_unix( std::strtoll( fields[1].c_str(), nullptr, 10 ) );
+    }
+
+    return item;
+}
+
+
+void registerHandlers( MDW_BACKEND_SERVER& aServer )
+{
+    aServer.RegisterHandler<mdw::AuthenticateRequest, mdw::AuthResult>(
+            []( const mdw::AuthenticateRequest&, mdw::AuthResult& aReply ) -> ws::WorkspaceError
+            {
+                aReply.set_authenticated( true );
+                aReply.set_user_id( configValue( "user.email", "local" ) );
+                aReply.set_display_name( configValue( "user.name", "local" ) );
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::LogoutRequest, mdw::LogoutReply>(
+            []( const mdw::LogoutRequest&, mdw::LogoutReply& aReply ) -> ws::WorkspaceError
+            {
+                aReply.set_ok( true );
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::IsAuthenticatedRequest, mdw::IsAuthenticatedReply>(
+            []( const mdw::IsAuthenticatedRequest&,
+                mdw::IsAuthenticatedReply& aReply ) -> ws::WorkspaceError
+            {
+                aReply.set_authenticated( true );
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::GetRootFoldersRequest, mdw::GetRootFoldersReply>(
+            []( const mdw::GetRootFoldersRequest&,
+                mdw::GetRootFoldersReply& aReply ) -> ws::WorkspaceError
+            {
+                bool                     gitOk = false;
+                std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
+
+                if( !gitOk )
+                    return fail( ws::WE_INTERNAL, "git failed" );
+
+                ws::Folder* folder = aReply.add_folders();
+                folder->set_folder_id( "" );
+                folder->set_display_name( "Root" );
+
+                for( const std::string& path : files )
+                {
+                    if( path.find( '/' ) != std::string::npos )
+                    {
+                        folder->set_has_children( true );
+                        break;
+                    }
+                }
+
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::GetChildFoldersRequest, mdw::GetChildFoldersReply>(
+            []( const mdw::GetChildFoldersRequest& aRequest,
+                mdw::GetChildFoldersReply& aReply ) -> ws::WorkspaceError
+            {
+                bool                     gitOk = false;
+                std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
+
+                if( !gitOk )
+                    return fail( ws::WE_INTERNAL, "git failed" );
+
+                const std::string        parent = aRequest.folder_id();
+                const std::string        prefix = parent.empty() ? std::string() : parent + "/";
+                std::set<std::string>    seen;
+
+                for( const std::string& path : files )
+                {
+                    if( path.compare( 0, prefix.size(), prefix ) != 0 )
+                        continue;
+
+                    std::string rest = path.substr( prefix.size() );
+                    std::size_t slash = rest.find( '/' );
+
+                    if( slash == std::string::npos )
+                        continue;
+
+                    std::string dir = prefix + rest.substr( 0, slash );
+
+                    if( !seen.insert( dir ).second )
+                        continue;
+
+                    ws::Folder* folder = aReply.add_folders();
+                    folder->set_folder_id( dir );
+                    folder->set_display_name( baseName( dir ) );
+                    folder->set_parent_folder_id( parent );
+
+                    std::string deeper = dir + "/";
+
+                    for( const std::string& child : files )
+                    {
+                        if( child.compare( 0, deeper.size(), deeper ) == 0
+                            && child.find( '/', deeper.size() ) != std::string::npos )
+                        {
+                            folder->set_has_children( true );
+                            break;
+                        }
+                    }
+                }
+
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::ListItemsRequest, mdw::ListItemsReply>(
+            []( const mdw::ListItemsRequest& aRequest,
+                mdw::ListItemsReply& aReply ) -> ws::WorkspaceError
+            {
+                bool                     gitOk = false;
+                std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
+
+                if( !gitOk )
+                    return fail( ws::WE_INTERNAL, "git failed" );
+
+                for( const std::string& path : files )
+                {
+                    if( parentDir( path ) == aRequest.folder_id() )
+                        *aReply.add_items() = itemInfo( path );
+                }
+
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::GetItemInfoRequest, mdw::GetItemInfoReply>(
+            []( const mdw::GetItemInfoRequest& aRequest,
+                mdw::GetItemInfoReply& aReply ) -> ws::WorkspaceError
+            {
+                if( !IsSafePath( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+
+                if( !GitTracked( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "no such tracked file" );
+
+                *aReply.mutable_item() = itemInfo( aRequest.item_id() );
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::CheckoutRequest, mdw::CheckoutReply>(
+            []( const mdw::CheckoutRequest& aRequest,
+                mdw::CheckoutReply& aReply ) -> ws::WorkspaceError
+            {
+                if( !IsSafePath( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+
+                if( !GitTracked( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "no such tracked file" );
+
+                *aReply.mutable_item() = itemInfo( aRequest.item_id() );
+
+                if( !aRequest.local_path().empty() )
+                    aReply.set_local_path( aRequest.local_path() );
+                else
+                    aReply.set_local_path( GitRepo() + "/" + aRequest.item_id() );
+
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::CheckinRequest, mdw::CheckinReply>(
+            []( const mdw::CheckinRequest& aRequest,
+                mdw::CheckinReply& aReply ) -> ws::WorkspaceError
+            {
+                if( !IsSafePath( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+
+                MDW_PROCESS_RESULT add = Git( { "add", "--", aRequest.item_id() } );
+
+                if( !add.started || add.exit_code != 0 )
+                    return fail( ws::WE_INTERNAL, add.err );
+
+                MDW_PROCESS_RESULT commit =
+                        Git( { "commit", "-m", aRequest.comment(), "--", aRequest.item_id() } );
+
+                if( !commit.started || commit.exit_code != 0 )
+                {
+                    std::string combined = commit.out + commit.err;
+
+                    if( combined.find( "nothing to commit" ) != std::string::npos )
+                        return fail( ws::WE_NO_CHANGES, "nothing to commit" );
+
+                    return fail( ws::WE_INTERNAL, commit.err );
+                }
+
+                MDW_PROCESS_RESULT head = Git( { "rev-parse", "--short", "HEAD" } );
+
+                ws::Revision* rev = aReply.mutable_revision();
+                rev->set_revision_id( Trimmed( head.out ) );
+                rev->set_author( configValue( "user.email", "local" ) );
+                rev->set_comment( aRequest.comment() );
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::CancelCheckoutRequest, mdw::CancelCheckoutReply>(
+            []( const mdw::CancelCheckoutRequest& aRequest,
+                mdw::CancelCheckoutReply& ) -> ws::WorkspaceError
+            {
+                if( !IsSafePath( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+
+                MDW_PROCESS_RESULT result = Git( { "checkout", "--", aRequest.item_id() } );
+
+                if( !result.started || result.exit_code != 0 )
+                    return fail( ws::WE_INTERNAL, result.err );
+
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::GetRevisionHistoryRequest, mdw::GetRevisionHistoryReply>(
+            []( const mdw::GetRevisionHistoryRequest& aRequest,
+                mdw::GetRevisionHistoryReply& aReply ) -> ws::WorkspaceError
+            {
+                if( !IsSafePath( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+
+                MDW_PROCESS_RESULT log =
+                        Git( { "-c", "core.quotePath=false", "log", "-z",
+                               "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s", "--", aRequest.item_id() } );
+
+                if( !log.started || log.exit_code != 0 )
+                    return fail( ws::WE_ITEM_NOT_FOUND, log.err );
+
+                for( const std::string& record : Split( log.out, '\0' ) )
+                {
+                    if( record.empty() )
+                        continue;
+
+                    std::vector<std::string> fields = splitFields( record, FIELD_SEP, 5 );
+
+                    if( fields.size() < 5 )
+                        continue;
+
+                    ws::Revision* rev = aReply.add_revisions();
+                    rev->set_revision_id( fields[0] );
+
+                    for( const std::string& parent : Split( fields[1], ' ' ) )
+                    {
+                        if( !parent.empty() )
+                            rev->add_parent_revision_ids( parent );
+                    }
+
+                    rev->set_author( fields[2] );
+                    rev->set_timestamp_unix( std::strtoll( fields[3].c_str(), nullptr, 10 ) );
+                    rev->set_comment( fields[4] );
+                }
+
+                return ok();
+            } );
+
+    aServer.RegisterHandler<mdw::DownloadRevisionRequest, mdw::DownloadRevisionReply>(
+            []( const mdw::DownloadRevisionRequest& aRequest,
+                mdw::DownloadRevisionReply& ) -> ws::WorkspaceError
+            {
+                if( !IsSafeRef( aRequest.revision_id() ) )
+                    return fail( ws::WE_INVALID_PARAMETER, "invalid revision id" );
+
+                if( !IsSafePath( aRequest.item_id() ) )
+                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+
+                MDW_PROCESS_RESULT show =
+                        Git( { "show", aRequest.revision_id() + ":" + aRequest.item_id() } );
+
+                if( !show.started || show.exit_code != 0 )
+                    return fail( ws::WE_REVISION_NOT_FOUND, show.err );
+
+                std::ofstream out( aRequest.local_path(), std::ios::binary | std::ios::trunc );
+
+                if( !out.is_open() )
+                    return fail( ws::WE_INTERNAL, "cannot open local path for write" );
+
+                out.write( show.out.data(), static_cast<std::streamsize>( show.out.size() ) );
+                out.flush();
+                out.close();
+
+                if( !out.good() )
+                    return fail( ws::WE_INTERNAL, "write failed" );
+
+                return ok();
+            } );
+}
+
+
+void buildDescriptor( MDW_BACKEND_DESCRIPTOR& aDescriptor )
+{
+    aDescriptor.info.set_backend_id( "org.kicad.mdw.git" );
+    aDescriptor.info.set_display_name( "Git Workspace" );
+    aDescriptor.info.mutable_version()->set_major( 1 );
+    aDescriptor.info.mutable_version()->set_minor( 0 );
+
+    aDescriptor.capabilities.add_groups( ws::CG_REVISIONS );
+
+    aDescriptor.schema.set_schema_version( "1" );
+}
+
+} // namespace
+
+
+int main( int argc, char** argv )
+{
+    // Run git in the C locale so its diagnostic messages are stable and the
+    // "nothing to commit" test in Checkin is not locale-dependent.
+#if !defined( _WIN32 )
+    setenv( "LC_ALL", "C", 1 );
+    setenv( "LANG", "C", 1 );
+#endif
+
+    MDW_BACKEND_LAUNCH launch = MDW_ParseLaunch( argc, argv );
+
+    MDW_BACKEND_DESCRIPTOR descriptor;
+    buildDescriptor( descriptor );
+
+    MDW_BACKEND_SERVER server;
+    registerHandlers( server );
+
+    MDW_EVENT_PUBLISHER publisher( launch.channel_token );
+
+    return MDW_RunBackend( launch, descriptor, server, &publisher );
+}
