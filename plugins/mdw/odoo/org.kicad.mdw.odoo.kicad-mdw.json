@@ -1,0 +1,12 @@
+{
+    "id": "org.kicad.mdw.odoo",
+    "name": "Odoo Workspace",
+    "version": "1.0.0",
+    "protocol_version": {
+        "major": 1,
+        "minor": 0
+    },
+    "executable": "kicad-mdw-odoo",
+    "schemes": [ "odoo", "https" ],
+    "capability_hints": [ "ATTRIBUTES" ]
+}
