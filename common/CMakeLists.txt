@@ -375,6 +375,7 @@ set( KICOMMON_SRCS
     mdw/mdw_backend_registry.cpp
     mdw/mdw_backend_supervisor.cpp
     mdw/mdw_credential_store.cpp
+    mdw/mdw_diff_presenter.cpp
     mdw/mdw_dirty_tracker.cpp
     mdw/mdw_event_bus.cpp
     mdw/mdw_framework.cpp
