@@ -356,3 +356,17 @@ backend does not have.
 `Capabilities.supports_offline` is reserved. The offline operation queue is
 deferred; a backend should leave the field at its default and not rely on any
 offline semantics.
+
+## 12. Reserved: offline operation
+
+The `supports_offline` capability scalar (Section 6) is reserved and not yet
+implemented. The offline operation queue it will eventually gate — buffering
+mutating requests while a backend or its store is unreachable and replaying them
+on reconnect — is deferred. There is no queue, no persistence, and no replay in
+the current framework or SDK.
+
+Until it lands, treat `supports_offline` as always false: leave it at its
+protobuf default in `HelloReply`, do not advertise offline behaviour, and do not
+implement any offline-specific semantics. When the feature is specified, it will
+be additive within protocol major version 1 (a higher minor), so a backend that
+ignores the field today stays conformant.
