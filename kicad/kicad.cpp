@@ -284,6 +284,11 @@ bool PGM_KICAD::OnPgmInit()
         // application level to survive editor frame recreation. It is inert until
         // a bound project opens a session; construction only scans for manifests.
         m_mdw_framework = std::make_unique<MDW_FRAMEWORK>();
+
+        // The workspace IPC namespace dispatches through the framework, so it is
+        // registered here beside the common handler.
+        m_api_workspace_handler = std::make_unique<API_HANDLER_WORKSPACE>();
+        m_api_server->RegisterHandler( m_api_workspace_handler.get() );
     }
 
     if( appType == FRAME_MERGETOOL )

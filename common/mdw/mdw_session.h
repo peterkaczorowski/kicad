@@ -36,6 +36,10 @@
 
 #include <kicommon.h>
 #include "mdw_backend_supervisor.h"
+#include "mdw_workspace_service.h"
+#include "mdw_event_bus.h"
+#include "mdw_lock_tracker.h"
+#include "mdw_dirty_tracker.h"
 
 #include <memory>
 
@@ -74,11 +78,30 @@ public:
 
     bool Authenticated() const { return m_authenticated; }
 
+    /**
+     * The shared dispatch path for this session's workspace operations. Created
+     * lazily the first time the backend is available and owned for the session's
+     * lifetime so it outlives any in-flight call. Returns nullptr when the
+     * backend never came up.
+     */
+    MDW_WORKSPACE_SERVICE* Service();
+
+    MDW_EVENT_BUS& EventBus() { return m_eventBus; }
+
+    MDW_LOCK_TRACKER& LockTracker() { return m_lockTracker; }
+
+    MDW_DIRTY_TRACKER& DirtyTracker() { return m_dirtyTracker; }
+
 private:
     wxString                                m_projectPath;
     MDW_PROJECT_BINDING                     m_binding;
     std::unique_ptr<MDW_BACKEND_SUPERVISOR> m_supervisor;
     bool                                    m_authenticated = false;
+
+    MDW_EVENT_BUS                           m_eventBus;
+    MDW_LOCK_TRACKER                        m_lockTracker;
+    MDW_DIRTY_TRACKER                       m_dirtyTracker;
+    std::unique_ptr<MDW_WORKSPACE_SERVICE>  m_service;
 };
 
 #endif // MDW_SESSION_H

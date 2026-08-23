@@ -363,6 +363,7 @@ set( KICOMMON_SRCS
     api/api_client.cpp
     api/api_enums.cpp
     api/api_handler.cpp
+    api/api_handler_workspace.cpp
     api/api_plugin.cpp
     api/api_plugin_manager.cpp
     api/api_server.cpp

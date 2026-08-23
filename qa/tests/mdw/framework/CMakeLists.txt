@@ -30,6 +30,7 @@ add_executable( qa_mdw_framework
     test_mdw_schema_validator.cpp
     test_mdw_diff_presenter.cpp
     test_mdw_event_bridge.cpp
+    test_mdw_ipc_handler.cpp
     )
 
 add_dependencies( qa_mdw_framework kiapi kicad-mdw-mock )

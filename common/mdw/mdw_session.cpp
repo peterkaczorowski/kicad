@@ -48,3 +48,21 @@ bool MDW_SESSION::Online() const
 {
     return m_supervisor && m_supervisor->Online();
 }
+
+
+MDW_WORKSPACE_SERVICE* MDW_SESSION::Service()
+{
+    if( !m_service )
+    {
+        MDW_BACKEND* backend = Backend();
+
+        if( !backend )
+            return nullptr;
+
+        m_service = std::make_unique<MDW_WORKSPACE_SERVICE>( backend, &m_eventBus, &m_lockTracker,
+                                                             &m_dirtyTracker, m_binding.workspace_id,
+                                                             wxS( "kicad" ) );
+    }
+
+    return m_service.get();
+}
