@@ -378,6 +378,7 @@ set( KICOMMON_SRCS
     mdw/mdw_diff_presenter.cpp
     mdw/mdw_dirty_tracker.cpp
     mdw/mdw_event_bus.cpp
+    mdw/mdw_event_pub_bridge.cpp
     mdw/mdw_framework.cpp
     mdw/mdw_lock_tracker.cpp
     mdw/mdw_nng_transport.cpp
