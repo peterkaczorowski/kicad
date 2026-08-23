@@ -37,6 +37,13 @@ common/bitmap_info.cpp      generated
 **/import_gfx/*_base.h      generated
 pcb_calculator/calculator_panels/*_base.cpp    generated
 pcb_calculator/calculator_panels/*_base.h      generated
+**/widgets/*_base.cpp       generated
+**/widgets/*_base.h         generated
+
+# ...except for these, which are hand-written despite the _base suffix
+common/widgets/panel_notebook_base.h        kicad-cpp-source
+common/widgets/progress_reporter_base.cpp   kicad-cpp-source
+include/widgets/progress_reporter_base.h    kicad-cpp-source
 
 # Lemon grammars
 common/libeval/grammar.c    generated
