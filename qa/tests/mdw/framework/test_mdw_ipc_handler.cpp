@@ -66,7 +66,10 @@ BOOST_AUTO_TEST_CASE( RegistersEveryWorkspaceCommand )
         kiapi::workspace::GetRevisionHistory().GetTypeName(),
         kiapi::workspace::DownloadRevision().GetTypeName(),
         kiapi::workspace::GetLifecycleCategory().GetTypeName(),
-        kiapi::workspace::TransitionLifecycle().GetTypeName()
+        kiapi::workspace::TransitionLifecycle().GetTypeName(),
+        kiapi::workspace::SubscribeWorkspaceEvents().GetTypeName(),
+        kiapi::workspace::RegisterContextAction().GetTypeName(),
+        kiapi::workspace::UnregisterContextAction().GetTypeName()
     };
 
     BOOST_CHECK_EQUAL( registered.size(), expected.size() );

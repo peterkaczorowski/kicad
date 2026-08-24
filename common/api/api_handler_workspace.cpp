@@ -27,7 +27,10 @@
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_session.h>
 #include <mdw/mdw_workspace_service.h>
+#include <mdw/mdw_context_action_registry.h>
 #include <mdw/mdw_backend.h>
+
+#include <cstdint>
 
 using namespace kiapi::workspace;
 
@@ -197,6 +200,12 @@ API_HANDLER_WORKSPACE::API_HANDLER_WORKSPACE() :
             &API_HANDLER_WORKSPACE::handleGetLifecycleCategory );
     registerHandler<TransitionLifecycle, TransitionLifecycleResponse>(
             &API_HANDLER_WORKSPACE::handleTransitionLifecycle );
+    registerHandler<SubscribeWorkspaceEvents, SubscribeWorkspaceEventsResponse>(
+            &API_HANDLER_WORKSPACE::handleSubscribeWorkspaceEvents );
+    registerHandler<RegisterContextAction, RegisterContextActionResponse>(
+            &API_HANDLER_WORKSPACE::handleRegisterContextAction );
+    registerHandler<UnregisterContextAction, UnregisterContextActionResponse>(
+            &API_HANDLER_WORKSPACE::handleUnregisterContextAction );
 }
 
 
@@ -624,6 +633,96 @@ HANDLER_RESULT<TransitionLifecycleResponse> API_HANDLER_WORKSPACE::handleTransit
     }
 
     setError( reply.mutable_error(), code );
+
+    return reply;
+}
+
+
+HANDLER_RESULT<SubscribeWorkspaceEventsResponse>
+API_HANDLER_WORKSPACE::handleSubscribeWorkspaceEvents(
+        const HANDLER_CONTEXT<SubscribeWorkspaceEvents>& aCtx )
+{
+    SubscribeWorkspaceEventsResponse reply;
+    MDW_FRAMEWORK*                   fw = Pgm().MdwFrameworkOrNull();
+
+    if( !fw )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::NOT_AUTHENTICATED );
+        return reply;
+    }
+
+    MDW_SESSION* session = fw->Session( activeProjectPath() );
+
+    if( !session )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::NOT_AUTHENTICATED );
+        return reply;
+    }
+
+    wxString      url;
+    wxString      topicPrefix;
+    std::uint64_t seq = 0;
+
+    if( !session->SubscribeEvents( url, topicPrefix, seq ) )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::BACKEND_LOST );
+        return reply;
+    }
+
+    reply.set_event_socket_url( std::string( url.utf8_string() ) );
+    reply.set_topic_prefix( std::string( topicPrefix.utf8_string() ) );
+    reply.set_current_seq( seq );
+
+    return reply;
+}
+
+
+HANDLER_RESULT<RegisterContextActionResponse> API_HANDLER_WORKSPACE::handleRegisterContextAction(
+        const HANDLER_CONTEXT<RegisterContextAction>& aCtx )
+{
+    RegisterContextActionResponse reply;
+    MDW_FRAMEWORK*                fw = Pgm().MdwFrameworkOrNull();
+
+    if( !fw )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::NOT_AUTHENTICATED );
+        return reply;
+    }
+
+    const ContextActionSpec& spec = aCtx.Request.spec();
+
+    MDW_CONTEXT_ACTION action;
+    action.client_identity = wxString::FromUTF8( aCtx.ClientName );
+    action.item_type_predicate = wxString::FromUTF8( spec.item_type_predicate() );
+    action.label = wxString::FromUTF8( spec.label() );
+    action.target_method = wxString::FromUTF8( spec.target_method() );
+
+    if( !fw->ContextActions().Register( action ) )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::PERMISSION_DENIED );
+        return reply;
+    }
+
+    reply.set_action_id( std::string( action.action_id.utf8_string() ) );
+
+    return reply;
+}
+
+
+HANDLER_RESULT<UnregisterContextActionResponse> API_HANDLER_WORKSPACE::handleUnregisterContextAction(
+        const HANDLER_CONTEXT<UnregisterContextAction>& aCtx )
+{
+    UnregisterContextActionResponse reply;
+    MDW_FRAMEWORK*                  fw = Pgm().MdwFrameworkOrNull();
+
+    if( !fw )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::NOT_AUTHENTICATED );
+        return reply;
+    }
+
+    if( !fw->ContextActions().Unregister( wxString::FromUTF8( aCtx.Request.action_id() ) ) )
+        setError( reply.mutable_error(), MDW_ERROR_CODE::ITEM_NOT_FOUND );
 
     return reply;
 }

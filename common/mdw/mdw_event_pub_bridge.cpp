@@ -68,8 +68,13 @@ MDW_EVENT_PUB_BRIDGE::~MDW_EVENT_PUB_BRIDGE()
 
 std::string MDW_EVENT_PUB_BRIDGE::TopicFor( const MDW_EVENT& aEvent )
 {
-    return std::string( "workspace/" ) + std::string( aEvent.workspace_id.utf8_string() ) + "/"
-           + eventTypeName( aEvent.type );
+    return TopicPrefixFor( aEvent.workspace_id ) + eventTypeName( aEvent.type );
+}
+
+
+std::string MDW_EVENT_PUB_BRIDGE::TopicPrefixFor( const wxString& aWorkspaceId )
+{
+    return std::string( "workspace/" ) + std::string( aWorkspaceId.utf8_string() ) + "/";
 }
 
 
@@ -82,7 +87,12 @@ void MDW_EVENT_PUB_BRIDGE::onEvent( const MDW_EVENT& aEvent )
     envelope.set_client_identity( std::string( aEvent.client_identity.utf8_string() ) );
     envelope.set_payload( std::string( aEvent.payload.utf8_string() ) );
     envelope.set_backend_event_type( std::string( aEvent.backend_event_type.utf8_string() ) );
-    envelope.set_seq( aEvent.seq != 0 ? aEvent.seq : ++m_seq );
+
+    // Stamp the bridge's own monotonic sequence on every envelope regardless of
+    // origin, so the PUB stream is a single sequence space a subscriber can use
+    // for gap detection. The event's own seq is a workspace-scoped backend dedup
+    // key, not a stream position, so it must not leak onto the wire here.
+    envelope.set_seq( ++m_seq );
 
     std::string wire;
     envelope.SerializeToString( &wire );

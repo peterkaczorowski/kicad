@@ -22,6 +22,11 @@
  */
 
 #include <mdw/mdw_session.h>
+#include <mdw/mdw_event_pub_bridge.h>
+
+#include <kinng.h>
+
+#include <wx/filename.h>
 
 
 MDW_SESSION::MDW_SESSION( const wxString& aProjectPath, const MDW_PROJECT_BINDING& aBinding,
@@ -65,4 +70,31 @@ MDW_WORKSPACE_SERVICE* MDW_SESSION::Service()
     }
 
     return m_service.get();
+}
+
+
+bool MDW_SESSION::SubscribeEvents( wxString& aUrl, wxString& aTopicPrefix, std::uint64_t& aSeq )
+{
+    if( !m_pubServer )
+    {
+        if( !m_supervisor || m_supervisor->RuntimeDir().IsEmpty() )
+            return false;
+
+        wxString url = wxS( "ipc://" ) + m_supervisor->RuntimeDir()
+                       + wxFileName::GetPathSeparator() + wxS( "client-events.sock" );
+
+        auto server = std::make_unique<KINNG_PUB_SERVER>( url.utf8_string() );
+
+        if( !server->Start() )
+            return false;
+
+        m_pubServer = std::move( server );
+        m_pubBridge = std::make_unique<MDW_EVENT_PUB_BRIDGE>( &m_eventBus, m_pubServer.get() );
+    }
+
+    aUrl = wxString::FromUTF8( m_pubServer->SocketPath() );
+    aTopicPrefix = wxString::FromUTF8( MDW_EVENT_PUB_BRIDGE::TopicPrefixFor( m_binding.workspace_id ) );
+    aSeq = m_pubBridge->CurrentSeq();
+
+    return true;
 }

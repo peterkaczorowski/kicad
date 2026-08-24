@@ -41,9 +41,13 @@
 #include "mdw_lock_tracker.h"
 #include "mdw_dirty_tracker.h"
 
+#include <cstdint>
 #include <memory>
 
 #include <wx/string.h>
+
+class KINNG_PUB_SERVER;
+class MDW_EVENT_PUB_BRIDGE;
 
 /// The (workspace ...) binding stored in a project's .kicad_pro file.
 struct MDW_PROJECT_BINDING
@@ -92,6 +96,19 @@ public:
 
     MDW_DIRTY_TRACKER& DirtyTracker() { return m_dirtyTracker; }
 
+    /**
+     * Expose this session's event bus to external IPC clients over a PUB socket,
+     * standing up the server and bus bridge on first use and reusing them after.
+     * On success fills the socket URL, the workspace topic prefix and the current
+     * resync sequence and returns true. Returns false when the backend runtime
+     * directory is not available or the server cannot bind.
+     *
+     * Call on the dispatch (main) thread; the first-use construction is not
+     * synchronized, matching the single-threaded access the rest of the session
+     * assumes.
+     */
+    bool SubscribeEvents( wxString& aUrl, wxString& aTopicPrefix, std::uint64_t& aSeq );
+
 private:
     wxString                                m_projectPath;
     MDW_PROJECT_BINDING                     m_binding;
@@ -101,6 +118,12 @@ private:
     MDW_EVENT_BUS                           m_eventBus;
     MDW_LOCK_TRACKER                        m_lockTracker;
     MDW_DIRTY_TRACKER                       m_dirtyTracker;
+
+    // The bridge unsubscribes from the bus and stops touching the pub server on
+    // destruction, so both must outlive it; declared before it for that reason.
+    std::unique_ptr<KINNG_PUB_SERVER>       m_pubServer;
+    std::unique_ptr<MDW_EVENT_PUB_BRIDGE>   m_pubBridge;
+
     std::unique_ptr<MDW_WORKSPACE_SERVICE>  m_service;
 };
 

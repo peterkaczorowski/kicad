@@ -104,6 +104,15 @@ private:
     HANDLER_RESULT<TransitionLifecycleResponse> handleTransitionLifecycle(
             const HANDLER_CONTEXT<TransitionLifecycle>& aCtx );
 
+    HANDLER_RESULT<SubscribeWorkspaceEventsResponse> handleSubscribeWorkspaceEvents(
+            const HANDLER_CONTEXT<SubscribeWorkspaceEvents>& aCtx );
+
+    HANDLER_RESULT<RegisterContextActionResponse> handleRegisterContextAction(
+            const HANDLER_CONTEXT<RegisterContextAction>& aCtx );
+
+    HANDLER_RESULT<UnregisterContextActionResponse> handleUnregisterContextAction(
+            const HANDLER_CONTEXT<UnregisterContextAction>& aCtx );
+
     /// The bound session's service, or nullptr with aError set to a not-bound
     /// or backend-lost code when there is no usable session.
     MDW_WORKSPACE_SERVICE* sessionService( WorkspaceError* aError );

@@ -77,6 +77,9 @@ public:
 
     const wxString& ChannelToken() const { return m_channelToken; }
 
+    /// The 0700 per-session runtime directory, empty until Launch() creates it.
+    const wxString& RuntimeDir() const { return m_runtimeDir; }
+
 private:
     bool spawnProcess();
 

@@ -35,6 +35,7 @@
 
 #include <kicommon.h>
 #include "mdw_backend_registry.h"
+#include "mdw_context_action_registry.h"
 #include "mdw_credential_store.h"
 #include "mdw_session.h"
 
@@ -55,6 +56,8 @@ public:
 
     MDW_CREDENTIAL_STORE& CredentialStore() { return m_credentialStore; }
 
+    MDW_CONTEXT_ACTION_REGISTRY& ContextActions() { return m_contextActions; }
+
     /**
      * Spawn a backend for a bound project and open its session. Blocking; must
      * run off the UI thread. Returns the session, or nullptr if the backend id
@@ -72,6 +75,7 @@ public:
 private:
     MDW_BACKEND_REGISTRY                              m_registry;
     MDW_CREDENTIAL_STORE                             m_credentialStore;
+    MDW_CONTEXT_ACTION_REGISTRY                      m_contextActions;
     std::map<wxString, std::unique_ptr<MDW_SESSION>> m_sessions;
     mutable std::mutex                               m_mutex;
 };

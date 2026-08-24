@@ -55,6 +55,14 @@ public:
     /// can be built the same way.
     static std::string TopicFor( const MDW_EVENT& aEvent );
 
+    /// The topic prefix covering every event for one workspace, so a client
+    /// subscribes to workspace/<id>/ and receives all of its notifications.
+    static std::string TopicPrefixFor( const wxString& aWorkspaceId );
+
+    /// The number of events republished so far. A subscriber takes this as its
+    /// resync baseline and detects a gap if the next envelope's seq skips ahead.
+    std::uint64_t CurrentSeq() const { return m_seq.load(); }
+
 private:
     void onEvent( const MDW_EVENT& aEvent );
 
