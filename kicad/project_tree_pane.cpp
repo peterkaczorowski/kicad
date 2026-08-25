@@ -41,13 +41,19 @@
 #include <settings/settings_manager.h>
 
 #include <settings/common_settings.h>
+#include <project/project_file.h>
 #include <advanced_config.h>
 #include <bitmaps.h>
 #include <bitmap_store.h>
 #include <confirm.h>
+#include <build_version.h>
 #include <dialogs/git/dialog_git_commit.h>
 #include <dialogs/git/dialog_git_credentials.h>
 #include <dialogs/git/dialog_git_switch.h>
+#include <dialogs/dialog_workspace_config.h>
+#include <dialogs/dialog_workspace_browser.h>
+#include <dialogs/dialog_workspace_history.h>
+#include <mdw/mdw_framework.h>
 #include <gestfich.h>
 #include <macros.h>
 #include <trace_helpers.h>
@@ -190,6 +196,10 @@ enum project_tree_ids
     ID_GIT_SWITCH_QUICK4,      // Switch the local repository to the fourth quick branch
     ID_GIT_SWITCH_QUICK5,      // Switch the local repository to the fifth quick branch
 
+    ID_MDW_CONFIGURE,          // Bind or re-configure the project's Design Workspace
+    ID_MDW_BROWSE,             // Open the Design Workspace browser
+    ID_MDW_HISTORY,            // Show the selected item's Design Workspace revision history
+
     ID_JOBS_RUN,
 };
 
@@ -222,6 +232,10 @@ BEGIN_EVENT_TABLE( PROJECT_TREE_PANE, wxSashLayoutWindow )
     EVT_MENU( ID_GIT_REMOVE_VCS, PROJECT_TREE_PANE::onGitRemoveVCS )
     EVT_MENU( ID_GIT_ADD_TO_INDEX, PROJECT_TREE_PANE::onGitAddToIndex )
     EVT_MENU( ID_GIT_REMOVE_FROM_INDEX, PROJECT_TREE_PANE::onGitRemoveFromIndex )
+
+    EVT_MENU( ID_MDW_CONFIGURE, PROJECT_TREE_PANE::onWorkspaceConfigure )
+    EVT_MENU( ID_MDW_BROWSE, PROJECT_TREE_PANE::onWorkspaceBrowse )
+    EVT_MENU( ID_MDW_HISTORY, PROJECT_TREE_PANE::onWorkspaceHistory )
 
     EVT_MENU( ID_JOBS_RUN, PROJECT_TREE_PANE::onRunSelectedJobsFile )
 
@@ -1109,6 +1123,29 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
 
         popup_menu.AppendSeparator();
         popup_menu.AppendSubMenu( vcs_submenu, _( "Version Control" ) );
+    }
+
+    if( Pgm().GetCommonSettings()->m_Workspace.enable_integration )
+    {
+        wxMenu* workspace_submenu = new wxMenu();
+
+        workspace_submenu->Append( ID_MDW_CONFIGURE, _( "Configure..." ),
+                                   _( "Bind this project to a Design Workspace" ) );
+
+        bool bound = !Prj().GetProjectFile().m_WorkspaceBackend.IsEmpty();
+
+        wxMenuItem* browseItem = workspace_submenu->Append(
+                ID_MDW_BROWSE, _( "Browse..." ),
+                _( "Browse the bound Design Workspace" ) );
+        browseItem->Enable( bound );
+
+        wxMenuItem* historyItem = workspace_submenu->Append(
+                ID_MDW_HISTORY, _( "View History..." ),
+                _( "Show the selected item's revision history" ) );
+        historyItem->Enable( bound && selection.size() == 1 );
+
+        popup_menu.AppendSeparator();
+        popup_menu.AppendSubMenu( workspace_submenu, _( "Design Workspace" ) );
     }
 
     if( popup_menu.GetMenuItemCount() > 0 )
@@ -2069,6 +2106,107 @@ void PROJECT_TREE_PANE::onGitRemoteSettings( wxCommandEvent& aEvent )
 void PROJECT_TREE_PANE::onGitCompare( wxCommandEvent& aEvent )
 {
 
+}
+
+
+// OpenSession blocks on the backend handshake. It is called here on the UI
+// thread for an explicit, user-initiated action under a busy cursor and a bound
+// timeout; moving it off the UI thread is part of the framework-wide async work
+// tracked separately from these dialogs.
+static void ensureWorkspaceSession( MDW_FRAMEWORK* aFramework, const wxString& aProjectPath,
+                                    const PROJECT_FILE& aProjectFile )
+{
+    if( aFramework->Session( aProjectPath ) )
+        return;
+
+    MDW_PROJECT_BINDING binding;
+    binding.backend_id = aProjectFile.m_WorkspaceBackend;
+    binding.workspace_id = aProjectFile.m_WorkspaceId;
+    binding.binding = aProjectFile.m_WorkspaceBinding;
+
+    wxBusyCursor busy;
+    aFramework->OpenSession( aProjectPath, binding, GetBuildVersion(), 8000 );
+}
+
+
+void PROJECT_TREE_PANE::onWorkspaceConfigure( wxCommandEvent& aEvent )
+{
+    MDW_FRAMEWORK* framework = m_Parent->MdwFramework();
+
+    if( !framework )
+        return;
+
+    wxString      projectPath = m_Parent->GetProjectFileName();
+    PROJECT_FILE& projectFile = Prj().GetProjectFile();
+
+    MDW_PROJECT_BINDING binding;
+    binding.backend_id = projectFile.m_WorkspaceBackend;
+    binding.workspace_id = projectFile.m_WorkspaceId;
+    binding.binding = projectFile.m_WorkspaceBinding;
+
+    DIALOG_WORKSPACE_CONFIG dlg( m_Parent, framework, projectPath, binding );
+
+    if( dlg.ShowModal() != wxID_OK )
+        return;
+
+    const MDW_PROJECT_BINDING& result = dlg.GetBinding();
+
+    projectFile.m_WorkspaceBackend = result.backend_id;
+    projectFile.m_WorkspaceId = result.workspace_id;
+    projectFile.m_WorkspaceBinding = result.binding;
+
+    Pgm().GetSettingsManager().SaveProject();
+
+    // Drop any session opened under the previous binding so the next Browse or
+    // History re-binds against the new settings.
+    framework->CloseSession( projectPath );
+}
+
+
+void PROJECT_TREE_PANE::onWorkspaceBrowse( wxCommandEvent& aEvent )
+{
+    MDW_FRAMEWORK* framework = m_Parent->MdwFramework();
+
+    if( !framework )
+        return;
+
+    wxString      projectPath = m_Parent->GetProjectFileName();
+    PROJECT_FILE& projectFile = Prj().GetProjectFile();
+
+    if( projectFile.m_WorkspaceBackend.IsEmpty() )
+        return;
+
+    ensureWorkspaceSession( framework, projectPath, projectFile );
+
+    DIALOG_WORKSPACE_BROWSER dlg( m_Parent, framework, projectPath );
+    dlg.ShowModal();
+}
+
+
+void PROJECT_TREE_PANE::onWorkspaceHistory( wxCommandEvent& aEvent )
+{
+    MDW_FRAMEWORK* framework = m_Parent->MdwFramework();
+
+    if( !framework )
+        return;
+
+    std::vector<PROJECT_TREE_ITEM*> tree_data = GetSelectedData();
+
+    if( tree_data.size() != 1 )
+        return;
+
+    wxString      projectPath = m_Parent->GetProjectFileName();
+    PROJECT_FILE& projectFile = Prj().GetProjectFile();
+
+    if( projectFile.m_WorkspaceBackend.IsEmpty() )
+        return;
+
+    ensureWorkspaceSession( framework, projectPath, projectFile );
+
+    wxString itemId = wxFileName( tree_data[0]->GetFileName() ).GetFullName();
+
+    DIALOG_WORKSPACE_HISTORY dlg( m_Parent, framework, projectPath, itemId );
+    dlg.ShowModal();
 }
 
 

@@ -34,6 +34,7 @@
 #ifndef MDW_CREDENTIAL_STORE_H
 #define MDW_CREDENTIAL_STORE_H
 
+#include <kicommon.h>
 #include "mdw_types.h"
 
 #include <wx/string.h>
@@ -48,7 +49,7 @@
  * Store/Load/Erase methods cover any additional credential material a backend
  * asks the framework to retain.
  */
-class MDW_CREDENTIAL_STORE
+class KICOMMON_API MDW_CREDENTIAL_STORE
 {
 public:
     MDW_CREDENTIAL_STORE() = default;

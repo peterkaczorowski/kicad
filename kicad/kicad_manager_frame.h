@@ -31,6 +31,7 @@ class PANEL_KICAD_LAUNCHER;
 class PLUGIN_CONTENT_MANAGER;
 class PROJECT_TREE;
 class PROJECT_TREE_PANE;
+class MDW_FRAMEWORK;
 class LOCAL_HISTORY_PANE;
 class UPDATE_MANAGER;
 
@@ -205,6 +206,10 @@ public:
     const wxString PcbLegacyFileName();
 
     void ReCreateTreePrj();
+
+    /// The Design Workspace runtime owned by the program, or nullptr when the
+    /// framework is unavailable.
+    MDW_FRAMEWORK* MdwFramework() const;
 
     /**
      * @param aIsExplicitUserSave is true to indicate the user ran a Save Project action explicitly

@@ -608,6 +608,9 @@ set( COMMON_DLG_SRCS
     dialogs/panel_color_settings.cpp
     dialogs/panel_common_settings.cpp
     dialogs/panel_common_settings_base.cpp
+    dialogs/dialog_workspace_browser.cpp
+    dialogs/dialog_workspace_config.cpp
+    dialogs/dialog_workspace_history.cpp
     dialogs/panel_workspace_settings.cpp
     dialogs/panel_design_block_lib_table_base.cpp
     dialogs/panel_design_block_lib_table.cpp

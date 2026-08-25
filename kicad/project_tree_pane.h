@@ -198,6 +198,21 @@ private:
     void onGitCompare( wxCommandEvent& event );
 
     /**
+     * Bind or re-configure the project's Design Workspace.
+     */
+    void onWorkspaceConfigure( wxCommandEvent& event );
+
+    /**
+     * Open the Design Workspace browser for the bound workspace.
+     */
+    void onWorkspaceBrowse( wxCommandEvent& event );
+
+    /**
+     * Show the selected item's Design Workspace revision history.
+     */
+    void onWorkspaceHistory( wxCommandEvent& event );
+
+    /**
      * Remove the git repository from the current project directory
     */
     void onGitRemoveVCS( wxCommandEvent& event );

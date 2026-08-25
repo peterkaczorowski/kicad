@@ -609,6 +609,12 @@ void KICAD_MANAGER_FRAME::ReCreateTreePrj()
 }
 
 
+MDW_FRAMEWORK* KICAD_MANAGER_FRAME::MdwFramework() const
+{
+    return Pgm().MdwFrameworkOrNull();
+}
+
+
 const SEARCH_STACK& KICAD_MANAGER_FRAME::sys_search()
 {
     return PgmTop().SysSearch();
