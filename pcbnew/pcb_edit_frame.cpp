@@ -88,6 +88,9 @@
 #include <project/project_local_settings.h>
 #include <settings/common_settings.h>
 #include <settings/settings_manager.h>
+#include <widgets/mdw_status_pill.h>
+#include <mdw/mdw_framework.h>
+#include <mdw/mdw_session.h>
 #include <local_history.h>
 #include <tool/tool_manager.h>
 #include <tool/tool_dispatcher.h>
@@ -610,6 +613,13 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                 m_eventCounterTimer->GetId() );
 
         m_eventCounterTimer->Start( 1000 );
+    }
+
+    if( GetStatusBar() )
+    {
+        m_workspacePill = new MDW_STATUS_PILL( GetStatusBar() );
+        m_workspacePill->PlaceInStatusBar( 8 );
+        UpdateWorkspacePill();
     }
 
     m_acceptedExts.emplace( FILEEXT::KiCadPcbFileExtension, &PCB_ACTIONS::ddAppendBoard );
@@ -2280,6 +2290,41 @@ void PCB_EDIT_FRAME::HardRedraw()
     std::vector<MSG_PANEL_ITEM> msg_list;
     GetBoard()->GetMsgPanelInfo( this, msg_list );
     SetMsgPanel( msg_list );
+}
+
+
+void PCB_EDIT_FRAME::UpdateWorkspacePill()
+{
+    if( !m_workspacePill )
+        return;
+
+    MDW_FRAMEWORK* framework = Pgm().MdwFrameworkOrNull();
+    bool           enabled = Pgm().GetCommonSettings()->m_Workspace.enable_integration;
+    wxString       projectPath = Prj().GetProjectFullName();
+
+    auto computeState =
+            [framework, enabled, projectPath]() -> MDW_STATUS_PILL::STATE
+            {
+                MDW_STATUS_PILL::STATE state;
+
+                if( !enabled || !framework )
+                    return state;
+
+                MDW_SESSION* session = framework->Session( projectPath );
+
+                if( !session )
+                    return state;
+
+                state.bound = true;
+                state.online = session->Online();
+
+                return state;
+            };
+
+    MDW_SESSION* session = framework ? framework->Session( projectPath ) : nullptr;
+
+    m_workspacePill->Observe( session ? &session->EventBus() : nullptr, computeState );
+    m_workspacePill->SetState( computeState() );
 }
 
 

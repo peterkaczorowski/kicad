@@ -87,5 +87,6 @@ KIGFX::COLOR4D MDW_STATE_MAPPER::CategoryColor( MDW_LIFECYCLE_CATEGORY aCategory
 bool MDW_STATE_MAPPER::CategoryBlocksWrites( MDW_LIFECYCLE_CATEGORY aCategory )
 {
     return aCategory == MDW_LIFECYCLE_CATEGORY::PENDING_REVIEW
-           || aCategory == MDW_LIFECYCLE_CATEGORY::RESTRICTED;
+           || aCategory == MDW_LIFECYCLE_CATEGORY::RESTRICTED
+           || aCategory == MDW_LIFECYCLE_CATEGORY::RELEASED;
 }

@@ -59,6 +59,9 @@
 #include <project/project_local_settings.h>
 #include <sch_file_versions.h>
 #include <settings/common_settings.h>
+#include <widgets/mdw_status_pill.h>
+#include <mdw/mdw_framework.h>
+#include <mdw/mdw_session.h>
 #include <settings/settings_manager.h>
 #include <tool/action_manager.h>
 #include <tool/action_toolbar.h>
@@ -175,11 +178,15 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     // We need here 2 fields: the extra fiels to display the project name, and another field
     // to display a info (specific to Windows) using the FIELD_OFFSET_BGJOB_TEXT id offset (=1)
     // So the extra field count is 1
-    CreateStatusBar( 2 );
+    CreateStatusBar( 3 );
     Pgm().GetBackgroundJobMonitor().RegisterStatusBar( (KISTATUSBAR*) GetStatusBar() );
     Pgm().GetNotificationsManager().RegisterStatusBar( (KISTATUSBAR*) GetStatusBar() );
     Pgm().RegisterLibraryLoadStatusBar( (KISTATUSBAR*) GetStatusBar() );
     GetStatusBar()->SetFont( KIUI::GetStatusFont( this ) );
+
+    m_workspacePill = new MDW_STATUS_PILL( GetStatusBar() );
+    m_workspacePill->PlaceInStatusBar( 2 );
+    UpdateWorkspacePill();
 
     // Give an icon
     wxIcon icon;
@@ -409,6 +416,14 @@ wxStatusBar* KICAD_MANAGER_FRAME::OnCreateStatusBar( int number, long style, wxW
         sbFieldSizes[1] = watcherWidth + margin;
     }
 
+    // Field 2 holds the Design Workspace pill; give it a compact fixed width so it
+    // does not stretch and swallow the project path's space.
+    if( sbFieldCnt > 2 )
+    {
+        int margin = KIUI::GetTextSize( wxT( "XX" ), sb ).x;
+        sbFieldSizes[2] = KIUI::GetTextSize( _( "Workspace offline" ), sb ).x + margin;
+    }
+
     sb->SetStatusWidths( sbFieldCnt, sbFieldSizes.data() );
 
     return sb;
@@ -606,12 +621,48 @@ const wxString KICAD_MANAGER_FRAME::PcbLegacyFileName()
 void KICAD_MANAGER_FRAME::ReCreateTreePrj()
 {
     m_projectTreePane->ReCreateTreePrj();
+    UpdateWorkspacePill();
 }
 
 
 MDW_FRAMEWORK* KICAD_MANAGER_FRAME::MdwFramework() const
 {
     return Pgm().MdwFrameworkOrNull();
+}
+
+
+void KICAD_MANAGER_FRAME::UpdateWorkspacePill()
+{
+    if( !m_workspacePill )
+        return;
+
+    MDW_FRAMEWORK* framework = MdwFramework();
+    bool           enabled = Pgm().GetCommonSettings()->m_Workspace.enable_integration;
+    wxString       projectPath = GetProjectFileName();
+
+    auto computeState =
+            [framework, enabled, projectPath]() -> MDW_STATUS_PILL::STATE
+            {
+                MDW_STATUS_PILL::STATE state;
+
+                if( !enabled || !framework )
+                    return state;
+
+                MDW_SESSION* session = framework->Session( projectPath );
+
+                if( !session )
+                    return state;
+
+                state.bound = true;
+                state.online = session->Online();
+
+                return state;
+            };
+
+    MDW_SESSION* session = framework ? framework->Session( projectPath ) : nullptr;
+
+    m_workspacePill->Observe( session ? &session->EventBus() : nullptr, computeState );
+    m_workspacePill->SetState( computeState() );
 }
 
 

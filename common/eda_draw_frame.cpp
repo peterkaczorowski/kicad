@@ -127,7 +127,9 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
 
     if( ( aStyle & wxFRAME_NO_TASKBAR ) == 0 )
     {
-        CreateStatusBar( 8 )->SetDoubleBuffered( true );
+        // The trailing field is reserved for the Design Workspace status pill. It stays empty
+        // (and, being flat, invisible) on frames that do not host the pill.
+        CreateStatusBar( 9 )->SetDoubleBuffered( true );
 
         GetStatusBar()->SetFont( KIUI::GetStatusFont( this ) );
 
@@ -728,7 +730,7 @@ void EDA_DRAW_FRAME::OnSize( wxSizeEvent& SizeEv )
 
 void EDA_DRAW_FRAME::updateStatusBarWidths()
 {
-    constexpr int numLocalFields = 8;
+    constexpr int numLocalFields = 9;
 
     wxStatusBar* stsbar = GetStatusBar();
     int spacer = KIUI::GetTextSize( wxT( "M" ), stsbar ).x;
@@ -762,7 +764,10 @@ void EDA_DRAW_FRAME::updateStatusBarWidths()
         -1,
 
         // constraint mode
-        KIUI::GetTextSize(  _( "Constrain to H, V, 45" ), stsbar).x + spacer
+        KIUI::GetTextSize(  _( "Constrain to H, V, 45" ), stsbar).x + spacer,
+
+        // Design Workspace status pill (empty unless a project binds to a workspace)
+        KIUI::GetTextSize( _( "Workspace offline" ), stsbar ).x + spacer
     };
 
     for( int idx = numLocalFields; idx < totalFields; ++idx )

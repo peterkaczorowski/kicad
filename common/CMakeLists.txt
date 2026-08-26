@@ -383,6 +383,7 @@ set( KICOMMON_SRCS
     mdw/mdw_event_pub_bridge.cpp
     mdw/mdw_framework.cpp
     mdw/mdw_lock_tracker.cpp
+    mdw/mdw_save_guard.cpp
     mdw/mdw_nng_transport.cpp
     mdw/mdw_loopback_transport.cpp
     mdw/mdw_schema_validator.cpp
@@ -390,6 +391,7 @@ set( KICOMMON_SRCS
     mdw/mdw_state_mapper.cpp
     mdw/mdw_workspace_service.cpp
     widgets/mdw_property_editor.cpp
+    widgets/mdw_status_pill.cpp
 
     startwizard/startwizard.cpp
     startwizard/startwizard_provider_libraries.cpp

@@ -32,6 +32,7 @@ class PLUGIN_CONTENT_MANAGER;
 class PROJECT_TREE;
 class PROJECT_TREE_PANE;
 class MDW_FRAMEWORK;
+class MDW_STATUS_PILL;
 class LOCAL_HISTORY_PANE;
 class UPDATE_MANAGER;
 
@@ -211,6 +212,10 @@ public:
     /// framework is unavailable.
     MDW_FRAMEWORK* MdwFramework() const;
 
+    /// Recompute the Design Workspace status pill from the active project's
+    /// session and re-observe its event bus. Safe to call with no binding.
+    void UpdateWorkspacePill();
+
     /**
      * @param aIsExplicitUserSave is true to indicate the user ran a Save Project action explicitly
      *        Note that this parameter should currently *always* be false, because there is no
@@ -269,6 +274,7 @@ private:
 
     PROJECT_TREE_PANE*    m_projectTreePane;
     LOCAL_HISTORY_PANE*   m_historyPane;
+    MDW_STATUS_PILL*      m_workspacePill = nullptr;
     wxAuiNotebook*        m_notebook;
     PANEL_KICAD_LAUNCHER* m_launcher;
     int                   m_lastToolbarIconSize;

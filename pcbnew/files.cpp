@@ -970,6 +970,8 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     if( KISTATUSBAR* statusBar = dynamic_cast<KISTATUSBAR*>( GetStatusBar() ) )
         statusBar->AddWarningMessages( "load", loadReporter.GetMessages() );
 
+    UpdateWorkspacePill();
+
     return true;
 }
 

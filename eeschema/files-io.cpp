@@ -841,6 +841,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     }
 
     updateTitle();
+    UpdateWorkspacePill();
     m_toolManager->GetTool<SCH_NAVIGATE_TOOL>()->ResetHistory();
 
     wxFileName fn = Prj().AbsolutePath( GetScreen()->GetFileName() );

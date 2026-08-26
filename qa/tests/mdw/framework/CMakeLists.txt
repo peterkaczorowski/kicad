@@ -32,6 +32,8 @@ add_executable( qa_mdw_framework
     test_mdw_event_bridge.cpp
     test_mdw_ipc_handler.cpp
     test_mdw_context_actions.cpp
+    test_mdw_status_pill.cpp
+    test_mdw_save_guard.cpp
     )
 
 add_dependencies( qa_mdw_framework kiapi kicad-mdw-mock )

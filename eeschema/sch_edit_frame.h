@@ -68,6 +68,7 @@ class PROGRESS_REPORTER;
 class wxSearchCtrl;
 class wxGenericTreeCtrl;
 class BITMAP_BUTTON;
+class MDW_STATUS_PILL;
 
 
 /// Schematic search type used by the socket link with Pcbnew
@@ -184,6 +185,10 @@ public:
      * data structures and GUI elements.
      */
     void OnModify() override;
+
+    /// Recompute the Design Workspace status pill from the active project's session and
+    /// re-observe its event bus. Safe to call with no binding or in standalone mode.
+    void UpdateWorkspacePill();
 
     SEVERITY GetSeverity( int aErrorCode ) const override;
 
@@ -1101,6 +1106,7 @@ private:
     DIALOG_ERC*                 m_ercDialog;
     DIALOG_BOOK_REPORTER*       m_diffSymbolDialog;
     HIERARCHY_PANE*             m_hierarchy;
+    MDW_STATUS_PILL*            m_workspacePill = nullptr;
     DIALOG_SYMBOL_FIELDS_TABLE* m_symbolFieldsTableDialog;
     DIALOG_SCHEMATIC_SETUP*     m_schematicSetupDialog;
 

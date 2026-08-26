@@ -65,6 +65,10 @@
 #include <sch_commit.h>
 #include <sch_rule_area.h>
 #include <settings/settings_manager.h>
+#include <settings/common_settings.h>
+#include <widgets/mdw_status_pill.h>
+#include <mdw/mdw_framework.h>
+#include <mdw/mdw_session.h>
 #include <advanced_config.h>
 #include <sim/simulator_frame.h>
 #include <tool/action_manager.h>
@@ -448,6 +452,13 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     updateTitle();
     m_toolManager->GetTool<SCH_NAVIGATE_TOOL>()->ResetHistory();
+
+    if( GetStatusBar() )
+    {
+        m_workspacePill = new MDW_STATUS_PILL( GetStatusBar() );
+        m_workspacePill->PlaceInStatusBar( 8 );
+        UpdateWorkspacePill();
+    }
 
     m_apiHandler = std::make_unique<API_HANDLER_SCH>( this );
     Pgm().GetApiServer().RegisterHandler( m_apiHandler.get() );
@@ -1839,6 +1850,41 @@ void SCH_EDIT_FRAME::AutoRotateItem( SCH_SCREEN* aScreen, SCH_ITEM* aItem )
             }
         }
     }
+}
+
+
+void SCH_EDIT_FRAME::UpdateWorkspacePill()
+{
+    if( !m_workspacePill )
+        return;
+
+    MDW_FRAMEWORK* framework = Pgm().MdwFrameworkOrNull();
+    bool           enabled = Pgm().GetCommonSettings()->m_Workspace.enable_integration;
+    wxString       projectPath = Prj().GetProjectFullName();
+
+    auto computeState =
+            [framework, enabled, projectPath]() -> MDW_STATUS_PILL::STATE
+            {
+                MDW_STATUS_PILL::STATE state;
+
+                if( !enabled || !framework )
+                    return state;
+
+                MDW_SESSION* session = framework->Session( projectPath );
+
+                if( !session )
+                    return state;
+
+                state.bound = true;
+                state.online = session->Online();
+
+                return state;
+            };
+
+    MDW_SESSION* session = framework ? framework->Session( projectPath ) : nullptr;
+
+    m_workspacePill->Observe( session ? &session->EventBus() : nullptr, computeState );
+    m_workspacePill->SetState( computeState() );
 }
 
 
