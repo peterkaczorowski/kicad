@@ -33,6 +33,7 @@ class PROJECT_TREE;
 class PROJECT_TREE_PANE;
 class MDW_FRAMEWORK;
 class MDW_STATUS_PILL;
+class MDW_NOTIFICATION_BRIDGE;
 class LOCAL_HISTORY_PANE;
 class UPDATE_MANAGER;
 
@@ -275,6 +276,8 @@ private:
     PROJECT_TREE_PANE*    m_projectTreePane;
     LOCAL_HISTORY_PANE*   m_historyPane;
     MDW_STATUS_PILL*      m_workspacePill = nullptr;
+
+    std::unique_ptr<MDW_NOTIFICATION_BRIDGE> m_workspaceNotifier;
     wxAuiNotebook*        m_notebook;
     PANEL_KICAD_LAUNCHER* m_launcher;
     int                   m_lastToolbarIconSize;

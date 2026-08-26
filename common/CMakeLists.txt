@@ -383,6 +383,7 @@ set( KICOMMON_SRCS
     mdw/mdw_event_pub_bridge.cpp
     mdw/mdw_framework.cpp
     mdw/mdw_lock_tracker.cpp
+    mdw/mdw_notification_bridge.cpp
     mdw/mdw_save_guard.cpp
     mdw/mdw_nng_transport.cpp
     mdw/mdw_loopback_transport.cpp

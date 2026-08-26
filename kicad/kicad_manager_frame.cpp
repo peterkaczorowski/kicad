@@ -62,6 +62,8 @@
 #include <widgets/mdw_status_pill.h>
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_session.h>
+#include <mdw/mdw_notification_bridge.h>
+#include <notifications_manager.h>
 #include <settings/settings_manager.h>
 #include <tool/action_manager.h>
 #include <tool/action_toolbar.h>
@@ -663,6 +665,20 @@ void KICAD_MANAGER_FRAME::UpdateWorkspacePill()
 
     m_workspacePill->Observe( session ? &session->EventBus() : nullptr, computeState );
     m_workspacePill->SetState( computeState() );
+
+    // Rebuild the notifier so it follows the current session, translating other
+    // users' events into desktop notifications. Dropped when no session is live.
+    m_workspaceNotifier.reset();
+
+    if( session )
+    {
+        m_workspaceNotifier = std::make_unique<MDW_NOTIFICATION_BRIDGE>(
+                &session->EventBus(), wxS( "kicad" ),
+                []( const wxString& aKey, const wxString& aTitle, const wxString& aBody )
+                {
+                    Pgm().GetNotificationsManager().CreateOrUpdate( aKey, aTitle, aBody );
+                } );
+    }
 }
 
 
