@@ -231,7 +231,7 @@ protected:
     double m_filledShapeOpacity;     ///< Opacity override for graphic shapes
 
     bool   m_groupEditModeActive; ///< True when inside an entered group
-    double m_groupTransparency;   ///< Transparency of items outside the entered group (0=opaque, 1=invisible)
+    double m_outsideGroupOpacity; ///< Opacity override for items outside the entered group
 
     bool isInEnteredGroup( const BOARD_ITEM* aItem ) const;
 

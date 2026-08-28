@@ -591,9 +591,7 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             if( m_selection.GetSize() == 1 && m_selection[0]->Type() == PCB_GROUP_T )
             {
                 EnterGroup();
-
-                if( m_frame->GetDisplayOptions().m_GroupTransparency > 0.0 )
-                    selectPoint( evt->Position() );
+                selectPoint( evt->Position() );
             }
             else if( !selectChartRow( evt->Position() ) )
                 m_toolMgr->RunAction( PCB_ACTIONS::properties );
@@ -857,13 +855,6 @@ void PCB_SELECTION_TOOL::EnterGroup()
     ClearSelection();
     m_enteredGroup = aGroup;
     m_enteredGroup->SetFlags( ENTERED );
-
-    // No transparency set, so fall back to selecting the members.
-    if( m_frame->GetDisplayOptions().m_GroupTransparency <= 0.0 )
-    {
-        for( EDA_ITEM* member : m_enteredGroup->GetItems() )
-            select( member );
-    }
 
     m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
 

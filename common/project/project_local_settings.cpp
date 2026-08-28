@@ -45,7 +45,7 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
         m_ZoneOpacity( 0.6 ),
         m_ShapeOpacity( 1.0 ),
         m_ImageOpacity( 0.6 ),
-        m_GroupTransparency( 0.75 ),
+        m_OutsideGroupOpacity( 1.0 ),
         m_PcbSelectionFilter(),
         m_GitIntegrationDisabled( false ),
         m_project( aProject ),
@@ -189,7 +189,7 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
     m_params.emplace_back( new PARAM<double>( "board.opacity.zones", &m_ZoneOpacity, 0.6 ) );
     m_params.emplace_back( new PARAM<double>( "board.opacity.images", &m_ImageOpacity, 0.6 ) );
     m_params.emplace_back( new PARAM<double>( "board.opacity.shapes", &m_ShapeOpacity, 1.0 ) );
-    m_params.emplace_back( new PARAM<double>( "board.group_transparency", &m_GroupTransparency, 0.75 ) );
+    m_params.emplace_back( new PARAM<double>( "board.opacity.outside_group", &m_OutsideGroupOpacity, 1.0 ) );
 
     m_params.emplace_back( new PARAM_LIST<wxString>( "board.hidden_nets", &m_HiddenNets, {} ) );
 
