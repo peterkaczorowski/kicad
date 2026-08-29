@@ -370,3 +370,17 @@ protobuf default in `HelloReply`, do not advertise offline behaviour, and do not
 implement any offline-specific semantics. When the feature is specified, it will
 be additive within protocol major version 1 (a higher minor), so a backend that
 ignores the field today stays conformant.
+
+## 13. Reserved: local-file to item binding
+
+The workspace commands identify items by `item_id`. KiCad's editors, by
+contrast, open a local file. Mapping an open document back to the item it was
+checked out from — needed for a per-document status pill, an editor toolbar
+action group, and a save warning on a write-blocking item — requires a
+persisted `local_path` to `item_id` binding that `Checkout` does not yet record.
+
+The current release covers the workspace-level surface that needs no such map
+(the status pill's bound and online state, the project-tree browse and history
+dialogs, and cross-user notifications). The per-document editor features are
+deferred until the binding is specified; it will be additive (checkout returns
+the pairing, the project stores it) and requires no protocol break.
