@@ -127,7 +127,11 @@ message CheckinItemResponse
   WorkspaceError error    = 2;
 }
 
-message CancelCheckout { string item_id = 1; }
+message CancelCheckout
+{
+  string item_id    = 1;
+  string local_path = 2;
+}
 message CancelCheckoutResponse { WorkspaceError error = 1; }
 
 message LockItem { string item_id = 1; }

@@ -114,12 +114,29 @@ BOOST_AUTO_TEST_CASE( UnregisterRemovesOnlyTheNamedAction )
     registry.Register( first );
     registry.Register( second );
 
-    BOOST_CHECK( registry.Unregister( first.action_id ) );
-    BOOST_CHECK( !registry.Unregister( wxS( "no-such-id" ) ) );
+    BOOST_CHECK( registry.Unregister( first.action_id, wxS( "client-a" ) ) );
+    BOOST_CHECK( !registry.Unregister( wxS( "no-such-id" ), wxS( "client-a" ) ) );
 
     std::vector<MDW_CONTEXT_ACTION> remaining = registry.Actions();
     BOOST_REQUIRE_EQUAL( remaining.size(), 1 );
     BOOST_CHECK( remaining[0].action_id == second.action_id );
+}
+
+
+BOOST_AUTO_TEST_CASE( UnregisterRejectsOtherClientsActions )
+{
+    MDW_CONTEXT_ACTION_REGISTRY registry;
+
+    registry.SetConsentHandler( []( const wxString& ) { return true; } );
+
+    MDW_CONTEXT_ACTION owned = makeAction( wxS( "client-a" ) );
+    registry.Register( owned );
+
+    BOOST_CHECK( !registry.Unregister( owned.action_id, wxS( "client-b" ) ) );
+    BOOST_CHECK_EQUAL( registry.Actions().size(), 1 );
+
+    BOOST_CHECK( registry.Unregister( owned.action_id, wxS( "client-a" ) ) );
+    BOOST_CHECK( registry.Actions().empty() );
 }
 
 

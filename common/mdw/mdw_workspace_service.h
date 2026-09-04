@@ -116,7 +116,7 @@ public:
 
     /// Abandon a checkout. Clears the lock and dirty trackers on success.
     /// Mandatory surface; not gated.
-    MDW_ERROR_CODE CancelCheckout( const wxString& aItemId );
+    MDW_ERROR_CODE CancelCheckout( const wxString& aItemId, const wxString& aLocalPath );
 
     /// Take a lock. Gated on CG_LOCKING.
     MDW_ERROR_CODE LockSync( const wxString& aItemId, MDW_LOCK_INFO& aOut );

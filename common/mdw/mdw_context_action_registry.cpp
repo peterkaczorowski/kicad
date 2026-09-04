@@ -75,11 +75,19 @@ bool MDW_CONTEXT_ACTION_REGISTRY::Register( MDW_CONTEXT_ACTION& aSpec )
 }
 
 
-bool MDW_CONTEXT_ACTION_REGISTRY::Unregister( const wxString& aActionId )
+bool MDW_CONTEXT_ACTION_REGISTRY::Unregister( const wxString& aActionId,
+                                              const wxString& aClientIdentity )
 {
     std::lock_guard<std::mutex> lock( m_mutex );
 
-    return m_actions.erase( aActionId ) > 0;
+    auto it = m_actions.find( aActionId );
+
+    if( it == m_actions.end() || it->second.client_identity != aClientIdentity )
+        return false;
+
+    m_actions.erase( it );
+
+    return true;
 }
 
 

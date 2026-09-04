@@ -393,10 +393,12 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::CheckinSync( const MDW_CHECKIN_REQUEST& aR
 }
 
 
-MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::CancelCheckout( const wxString& aItemId )
+MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::CancelCheckout( const wxString& aItemId,
+                                                      const wxString& aLocalPath )
 {
     kiapi::mdw::CancelCheckoutRequest request;
     request.set_item_id( std::string( aItemId.utf8_string() ) );
+    request.set_local_path( std::string( aLocalPath.utf8_string() ) );
 
     kiapi::mdw::CancelCheckoutReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );

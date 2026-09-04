@@ -88,6 +88,9 @@ void MDW_EVENT_PUB_BRIDGE::onEvent( const MDW_EVENT& aEvent )
     envelope.set_payload( std::string( aEvent.payload.utf8_string() ) );
     envelope.set_backend_event_type( std::string( aEvent.backend_event_type.utf8_string() ) );
 
+    if( aEvent.timestamp.IsValid() )
+        envelope.set_timestamp_unix( aEvent.timestamp.GetTicks() );
+
     // Stamp the bridge's own monotonic sequence on every envelope regardless of
     // origin, so the PUB stream is a single sequence space a subscriber can use
     // for gap detection. The event's own seq is a workspace-scoped backend dedup

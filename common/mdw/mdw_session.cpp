@@ -40,6 +40,15 @@ MDW_SESSION::MDW_SESSION( const wxString& aProjectPath, const MDW_PROJECT_BINDIN
 
 MDW_SESSION::~MDW_SESSION()
 {
+    // Stop the backend and join its transport threads before the event bus,
+    // trackers, service and PUB bridge they dispatch into are destroyed, so no
+    // in-flight completion or event touches freed session state.
+    if( m_supervisor )
+        m_supervisor->Shutdown();
+
+    m_service.reset();
+    m_pubBridge.reset();
+    m_pubServer.reset();
 }
 
 

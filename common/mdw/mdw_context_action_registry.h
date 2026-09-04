@@ -80,8 +80,10 @@ public:
      */
     bool Register( MDW_CONTEXT_ACTION& aSpec );
 
-    /// Drop an action. Returns false when the id is unknown.
-    bool Unregister( const wxString& aActionId );
+    /// Drop an action owned by the given client. Returns false when the id is
+    /// unknown or registered by a different client, so one client cannot remove
+    /// another's actions.
+    bool Unregister( const wxString& aActionId, const wxString& aClientIdentity );
 
     /// Every registered action, for the project manager to render.
     std::vector<MDW_CONTEXT_ACTION> Actions() const;

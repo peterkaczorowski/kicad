@@ -432,7 +432,8 @@ HANDLER_RESULT<CancelCheckoutResponse> API_HANDLER_WORKSPACE::handleCancelChecko
     if( !service )
         return reply;
 
-    MDW_ERROR_CODE code = service->CancelCheckout( wxString::FromUTF8( aCtx.Request.item_id() ) );
+    MDW_ERROR_CODE code = service->CancelCheckout( wxString::FromUTF8( aCtx.Request.item_id() ),
+                                                   wxString::FromUTF8( aCtx.Request.local_path() ) );
     setError( reply.mutable_error(), code );
 
     return reply;
@@ -659,6 +660,13 @@ API_HANDLER_WORKSPACE::handleSubscribeWorkspaceEvents(
         return reply;
     }
 
+    // A backend that does not advertise events has no stream to subscribe to.
+    if( !session->Backend() || !session->Backend()->Has( MDW_CAPABILITY_GROUP::EVENTS ) )
+    {
+        setError( reply.mutable_error(), MDW_ERROR_CODE::NOT_SUPPORTED );
+        return reply;
+    }
+
     wxString      url;
     wxString      topicPrefix;
     std::uint64_t seq = 0;
@@ -721,8 +729,11 @@ HANDLER_RESULT<UnregisterContextActionResponse> API_HANDLER_WORKSPACE::handleUnr
         return reply;
     }
 
-    if( !fw->ContextActions().Unregister( wxString::FromUTF8( aCtx.Request.action_id() ) ) )
+    if( !fw->ContextActions().Unregister( wxString::FromUTF8( aCtx.Request.action_id() ),
+                                          wxString::FromUTF8( aCtx.ClientName ) ) )
+    {
         setError( reply.mutable_error(), MDW_ERROR_CODE::ITEM_NOT_FOUND );
+    }
 
     return reply;
 }
