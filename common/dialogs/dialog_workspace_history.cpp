@@ -26,7 +26,8 @@
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_session.h>
 #include <mdw/mdw_workspace_service.h>
-#include <mdw/mdw_diff_presenter.h>
+
+#include <diff_merge/merge_dispatch.h>
 
 #include <wx/button.h>
 #include <wx/filename.h>
@@ -197,8 +198,8 @@ void DIALOG_WORKSPACE_HISTORY::onCompare( wxCommandEvent& aEvent )
     wxString pathA = wxFileName::CreateTempFileName( wxT( "mdw_rev_" ) );
     wxString pathB = wxFileName::CreateTempFileName( wxT( "mdw_rev_" ) );
 
-    // The diff presenter routes on file extension, so give the temp copies the
-    // item's own extension and drop the empty placeholders the temp names left.
+    // The diff routes on file extension, so give the temp copies the item's own
+    // extension and drop the empty placeholders the temp names left.
     wxString ext = wxFileName( m_itemId ).GetExt();
 
     if( !ext.IsEmpty() )
@@ -228,11 +229,19 @@ void DIALOG_WORKSPACE_HISTORY::onCompare( wxCommandEvent& aEvent )
         return;
     }
 
+    KICAD_DIFF::DOC_KIND kind = KICAD_DIFF::DocKindFromExtension( pathA );
+
+    if( kind == KICAD_DIFF::DOC_KIND::UNKNOWN )
+    {
+        wxMessageBox( wxString::Format( _( "No diff handler for '%s'." ), m_itemId ),
+                      _( "Compare Revisions" ), wxOK | wxICON_INFORMATION, this );
+        return;
+    }
+
     wxString labelA = wxString::Format( wxT( "%s @ %s" ), m_itemId, revA );
     wxString labelB = wxString::Format( wxT( "%s @ %s" ), m_itemId, revB );
 
-    MDW_DIFF_PRESENTER presenter( &Kiway(), this );
-    presenter.Compare( pathA, pathB, labelA, labelB );
+    KICAD_DIFF::DispatchOpenDiffDialog( Kiway(), kind, pathA, pathB, labelA, labelB, this );
 }
 
 

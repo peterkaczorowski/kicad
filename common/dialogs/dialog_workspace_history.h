@@ -44,7 +44,7 @@ class wxStaticText;
 /**
  * Show one item's revision history and compare two revisions. The list is filled
  * from the workspace service; Compare downloads the two selected revisions to
- * temporary files and hands them to the mainline diff through MDW_DIFF_PRESENTER.
+ * temporary files and hands them to the mainline diff.
  */
 class DIALOG_WORKSPACE_HISTORY : public DIALOG_SHIM
 {
