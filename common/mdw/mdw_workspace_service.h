@@ -31,10 +31,10 @@
  * backend proxy, and on success updates the lock and dirty trackers and emits a
  * local event so the pill and other frames react before the backend echoes it.
  *
- * Operation completions run on the transport thread, so the service is a
- * long-lived framework component (owned by the session, not a dialog) and must
- * outlive any in-flight call. The trackers are mutex-guarded; UI subscribers to
- * the event bus marshal their own work to the main thread.
+ * Every operation blocks until the backend replies, so none may run on the UI
+ * thread. The service is owned by the session rather than by a dialog so it
+ * outlives the callers that borrow it. The trackers are mutex-guarded; UI
+ * subscribers to the event bus marshal their own work to the main thread.
  *
  * The backend pointer is captured at construction and assumed stable for the
  * service's life. A backend relaunch replaces the supervisor's backend, so the
@@ -62,7 +62,6 @@
 #include "mdw_revision.h"
 #include "mdw_schema.h"
 
-#include <functional>
 #include <vector>
 
 #include <wx/string.h>
@@ -77,21 +76,11 @@ public:
     /// True when the bound backend advertises the group an operation needs.
     bool Supports( MDW_CAPABILITY_GROUP aGroup ) const;
 
-    void Lock( const wxString& aItemId,
-               std::function<void( MDW_ERROR_CODE, const MDW_LOCK_INFO& )> aOnComplete );
-
-    void Unlock( const wxString& aItemId,
-                 std::function<void( MDW_ERROR_CODE, const MDW_LOCK_INFO& )> aOnComplete );
-
-    void Checkin( const MDW_CHECKIN_REQUEST& aRequest,
-                  std::function<void( MDW_ERROR_CODE, const MDW_CHECKIN_RESULT& )> aOnComplete );
-
     /*
-     * Synchronous operations for the IPC handler and the dialogs. Each blocks on
-     * the backend proxy until the call completes, so it must run off the UI
-     * thread. Each capability-gates where noted, returns the framework error
-     * code, and on success updates the trackers and emits the local event just
-     * like the async operations above.
+     * Operations for the IPC handler and the dialogs. Each blocks on the backend
+     * proxy until the call completes, so it must run off the UI thread. Each
+     * capability-gates where noted, returns the framework error code, and on
+     * success updates the trackers and emits the local event.
      */
 
     /// List the items in a folder. Mandatory surface; not gated.

@@ -38,7 +38,6 @@
 #include <api/mdw/backend_base.pb.h>
 #include <api/mdw/backend_locking.pb.h>
 
-#include <future>
 #include <memory>
 #include <string>
 
@@ -220,14 +219,9 @@ BOOST_AUTO_TEST_CASE( ServiceLockUpdatesTrackerAndBus )
 
     MDW_WORKSPACE_SERVICE service( backend.get(), &bus, &locks, &dirty, wxS( "ws" ), wxS( "client" ) );
 
-    std::promise<MDW_ERROR_CODE> promise;
-    std::future<MDW_ERROR_CODE>  future = promise.get_future();
+    MDW_LOCK_INFO info;
 
-    service.Lock( wxS( "board" ),
-                  [&promise]( MDW_ERROR_CODE aCode, const MDW_LOCK_INFO& )
-                  { promise.set_value( aCode ); } );
-
-    BOOST_CHECK( future.get() == MDW_ERROR_CODE::SUCCESS );
+    BOOST_CHECK( service.LockSync( wxS( "board" ), info ) == MDW_ERROR_CODE::SUCCESS );
     BOOST_CHECK( locks.IsLocked( "board" ) );
     BOOST_CHECK( locks.LockedByMe( "board" ) );
     BOOST_CHECK_EQUAL( lockedEvents, 1 );
@@ -243,14 +237,9 @@ BOOST_AUTO_TEST_CASE( ServiceGatesUnadvertisedCapability )
 
     MDW_WORKSPACE_SERVICE service( backend.get(), &bus, &locks, &dirty, wxS( "ws" ), wxS( "client" ) );
 
-    std::promise<MDW_ERROR_CODE> promise;
-    std::future<MDW_ERROR_CODE>  future = promise.get_future();
+    MDW_LOCK_INFO info;
 
-    service.Lock( wxS( "board" ),
-                  [&promise]( MDW_ERROR_CODE aCode, const MDW_LOCK_INFO& )
-                  { promise.set_value( aCode ); } );
-
-    BOOST_CHECK( future.get() == MDW_ERROR_CODE::NOT_SUPPORTED );
+    BOOST_CHECK( service.LockSync( wxS( "board" ), info ) == MDW_ERROR_CODE::NOT_SUPPORTED );
     BOOST_CHECK( !locks.IsLocked( "board" ) );
 }
 
