@@ -638,33 +638,9 @@ void KICAD_MANAGER_FRAME::UpdateWorkspacePill()
     if( !m_workspacePill )
         return;
 
-    MDW_FRAMEWORK* framework = MdwFramework();
-    bool           enabled = Pgm().GetCommonSettings()->m_Workspace.enable_integration;
-    wxString       projectPath = GetProjectFileName();
-
-    auto computeState =
-            [framework, enabled, projectPath]() -> MDW_STATUS_PILL::STATE
-            {
-                MDW_STATUS_PILL::STATE state;
-
-                if( !enabled || !framework )
-                    return state;
-
-                MDW_SESSION* session = framework->Session( projectPath );
-
-                if( !session )
-                    return state;
-
-                state.bound = true;
-                state.online = session->Online();
-
-                return state;
-            };
-
-    MDW_SESSION* session = framework ? framework->Session( projectPath ) : nullptr;
-
-    m_workspacePill->Observe( session ? &session->EventBus() : nullptr, computeState );
-    m_workspacePill->SetState( computeState() );
+    MDW_SESSION* session = m_workspacePill->TrackSession(
+            MdwFramework(), GetProjectFileName(),
+            Pgm().GetCommonSettings()->m_Workspace.enable_integration );
 
     // Rebuild the notifier so it follows the current session, translating other
     // users' events into desktop notifications. Dropped when no session is live.

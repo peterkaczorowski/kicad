@@ -24,6 +24,8 @@
 #include <widgets/mdw_status_pill.h>
 
 #include <mdw/mdw_event_bus.h>
+#include <mdw/mdw_framework.h>
+#include <mdw/mdw_session.h>
 #include <mdw/mdw_state_mapper.h>
 
 #include <wx/app.h>
@@ -123,6 +125,40 @@ void MDW_STATUS_PILL::Observe( MDW_EVENT_BUS* aBus, std::function<STATE()> aRefr
                                 self->SetState( self->m_refresh() );
                         } );
             } );
+}
+
+
+MDW_SESSION* MDW_STATUS_PILL::TrackSession( MDW_FRAMEWORK* aFramework,
+                                            const wxString& aProjectPath, bool aEnabled )
+{
+    // Captured by value because the bus may call this back long after the frame
+    // has moved on, and resolved fresh each time so a reopened project picks up
+    // its new session rather than a stale pointer.
+    auto computeState =
+            [aFramework, aProjectPath, aEnabled]() -> STATE
+            {
+                STATE state;
+
+                if( !aEnabled || !aFramework )
+                    return state;
+
+                MDW_SESSION* session = aFramework->Session( aProjectPath );
+
+                if( !session )
+                    return state;
+
+                state.bound = true;
+                state.online = session->Online();
+
+                return state;
+            };
+
+    MDW_SESSION* session = aFramework ? aFramework->Session( aProjectPath ) : nullptr;
+
+    Observe( session ? &session->EventBus() : nullptr, computeState );
+    SetState( computeState() );
+
+    return session;
 }
 
 

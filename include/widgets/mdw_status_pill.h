@@ -33,8 +33,11 @@
 #include <memory>
 
 #include <wx/panel.h>
+#include <wx/string.h>
 
 class MDW_EVENT_BUS;
+class MDW_FRAMEWORK;
+class MDW_SESSION;
 struct MDW_EVENT;
 
 
@@ -77,6 +80,19 @@ public:
      * observing. The pill unsubscribes from any previous bus first.
      */
     void Observe( MDW_EVENT_BUS* aBus, std::function<STATE()> aRefresh );
+
+    /**
+     * Point the pill at whatever session currently backs a project, subscribing
+     * to that session's bus and painting its state. Every frame that hosts a
+     * pill calls this on project open and close, so the binding rule lives in
+     * one place. A disabled integration, an absent framework or an unbound
+     * project all resolve to the hidden state.
+     *
+     * Returns the session the pill is now tracking, or null, so a caller with
+     * further per-session wiring of its own can follow the same lifetime.
+     */
+    MDW_SESSION* TrackSession( MDW_FRAMEWORK* aFramework, const wxString& aProjectPath,
+                               bool aEnabled );
 
     /**
      * Track a field of the parent status bar, repositioning over it whenever the
