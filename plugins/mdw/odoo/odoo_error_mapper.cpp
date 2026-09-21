@@ -24,6 +24,8 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace ws = kiapi::workspace;
 
@@ -39,32 +41,44 @@ std::string lowered( const std::string& aText )
 }
 
 
-bool mentions( const std::string& aHaystack, const char* aNeedle )
-{
-    return aHaystack.find( aNeedle ) != std::string::npos;
-}
-
-
 /// Classify a curl transport failure. Returns WE_OK when aResult is not a curl error.
 ws::WorkspaceErrorCode fromCurl( const ODOO_RPC_RESULT& aResult )
 {
     if( aResult.curl_code == CURLE_OK )
         return ws::WE_OK;
 
-    switch( aResult.curl_code )
-    {
-    case CURLE_OPERATION_TIMEDOUT:
-        return ws::WE_TIMEOUT;
+    // Every other curl failure, resolve, connect and TLS alike, is a network
+    // problem as far as the workspace protocol is concerned.
+    return aResult.curl_code == CURLE_OPERATION_TIMEDOUT ? ws::WE_TIMEOUT : ws::WE_NETWORK;
+}
 
-    case CURLE_COULDNT_RESOLVE_HOST:
-    case CURLE_COULDNT_CONNECT:
-    case CURLE_SSL_CONNECT_ERROR:
-    case CURLE_PEER_FAILED_VERIFICATION:
-        return ws::WE_NETWORK;
 
-    default:
-        return ws::WE_NETWORK;
-    }
+/// A JSON-RPC fault classification. A fault matches on its numeric code or on
+/// any of its phrases appearing in the lowercased message and data.
+struct FAULT_RULE
+{
+    int                              json_rpc_code;   ///< 0 when only phrases apply
+    std::vector<std::string_view>    phrases;
+    ws::WorkspaceErrorCode           code;
+};
+
+
+const std::vector<FAULT_RULE>& faultRules()
+{
+    // Ordered most specific first: an "access denied" authentication failure must
+    // classify as auth rather than as a bare permission problem.
+    static const std::vector<FAULT_RULE> rules = {
+        { 401, { "session expired", "invalid session", "authentication", "access denied" },
+          ws::WE_AUTH_FAILED },
+        { 100, {}, ws::WE_AUTH_FAILED },
+        { 403, { "permission", "not allowed", "forbidden", "accesserror" },
+          ws::WE_PERMISSION_DENIED },
+        { 404, { "not found", "does not exist", "missingrecord" }, ws::WE_ITEM_NOT_FOUND },
+        { 0, { "timeout" }, ws::WE_TIMEOUT },
+        { 0, { "connection", "network", "unreachable" }, ws::WE_NETWORK },
+    };
+
+    return rules;
 }
 
 
@@ -116,31 +130,23 @@ ws::WorkspaceError OdooMapError( const ODOO_RPC_RESULT& aResult,
     {
         const std::string haystack = lowered( aResult.error_message + " " + aResult.error_data );
 
-        if( aResult.error_code == 401 || aResult.error_code == 100
-            || mentions( haystack, "session expired" ) || mentions( haystack, "invalid session" )
-            || mentions( haystack, "authentication" ) || mentions( haystack, "access denied" ) )
+        auto matches =
+                [&]( const FAULT_RULE& aRule )
+                {
+                    if( aRule.json_rpc_code != 0 && aResult.error_code == aRule.json_rpc_code )
+                        return true;
+
+                    return std::any_of( aRule.phrases.begin(), aRule.phrases.end(),
+                                        [&]( std::string_view aPhrase )
+                                        { return haystack.find( aPhrase ) != std::string::npos; } );
+                };
+
+        const std::vector<FAULT_RULE>& rules = faultRules();
+        auto hit = std::find_if( rules.begin(), rules.end(), matches );
+
+        if( hit != rules.end() )
         {
-            code = ws::WE_AUTH_FAILED;
-        }
-        else if( aResult.error_code == 403 || mentions( haystack, "permission" )
-                 || mentions( haystack, "not allowed" ) || mentions( haystack, "forbidden" )
-                 || mentions( haystack, "accesserror" ) )
-        {
-            code = ws::WE_PERMISSION_DENIED;
-        }
-        else if( aResult.error_code == 404 || mentions( haystack, "not found" )
-                 || mentions( haystack, "does not exist" ) || mentions( haystack, "missingrecord" ) )
-        {
-            code = ws::WE_ITEM_NOT_FOUND;
-        }
-        else if( mentions( haystack, "timeout" ) )
-        {
-            code = ws::WE_TIMEOUT;
-        }
-        else if( mentions( haystack, "connection" ) || mentions( haystack, "network" )
-                 || mentions( haystack, "unreachable" ) )
-        {
-            code = ws::WE_NETWORK;
+            code = hit->code;
         }
         else
         {

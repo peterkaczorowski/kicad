@@ -27,7 +27,9 @@ find_package( wxWidgets 3.0.0 COMPONENTS base REQUIRED )
 add_executable( qa_mdw_odoo
     test_module.cpp
     test_mdw_odoo.cpp
+    test_odoo_error_mapper.cpp
     mock_odoo_server.cpp
+    ${CMAKE_SOURCE_DIR}/plugins/mdw/odoo/odoo_error_mapper.cpp
     )
 
 add_dependencies( qa_mdw_odoo kiapi kicad-mdw-odoo )
@@ -38,6 +40,7 @@ target_link_libraries( qa_mdw_odoo
     kinng
     ${NNG_LIBRARY}
     ${wxWidgets_LIBRARIES}
+    ${CURL_LIBRARIES}
     Boost::headers
     Boost::unit_test_framework
     )
@@ -47,6 +50,7 @@ target_include_directories( qa_mdw_odoo PRIVATE
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_SOURCE_DIR}/thirdparty/nlohmann_json
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/plugins/mdw/odoo
     )
 
 target_compile_definitions( qa_mdw_odoo PRIVATE
