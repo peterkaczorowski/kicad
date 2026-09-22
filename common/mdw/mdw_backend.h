@@ -124,14 +124,13 @@ private:
     template <typename Resp>
     static MDW_ERROR_CODE decode( const MDW_TRANSPORT_RESULT& aResult, Resp& aResponse )
     {
-        if( aResult.timed_out )
-            return MDW_ERROR_CODE::TIMEOUT;
-
-        if( aResult.cancelled )
-            return MDW_ERROR_CODE::CANCELLED;
-
-        if( aResult.backend_lost || !aResult.ok )
-            return MDW_ERROR_CODE::BACKEND_LOST;
+        switch( aResult.status )
+        {
+        case MDW_TRANSPORT_STATUS::TIMED_OUT:    return MDW_ERROR_CODE::TIMEOUT;
+        case MDW_TRANSPORT_STATUS::CANCELLED:    return MDW_ERROR_CODE::CANCELLED;
+        case MDW_TRANSPORT_STATUS::BACKEND_LOST: return MDW_ERROR_CODE::BACKEND_LOST;
+        case MDW_TRANSPORT_STATUS::OK:           break;
+        }
 
         MDW_ERROR_CODE code = static_cast<MDW_ERROR_CODE>( aResult.response.error().code() );
 

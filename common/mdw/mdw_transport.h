@@ -39,17 +39,20 @@
 #include <cstdint>
 #include <functional>
 
-/**
- * The outcome of one transport exchange. Exactly one of the boolean states is
- * meaningful, checked in order: ok, then timed_out, cancelled, backend_lost.
- */
+/// How one transport exchange ended. These are mutually exclusive.
+enum class MDW_TRANSPORT_STATUS
+{
+    OK,           ///< A response envelope was received and parsed
+    TIMED_OUT,    ///< The request timed out
+    CANCELLED,    ///< Cancel or shutdown aborted it
+    BACKEND_LOST  ///< Transport failed, or the reply did not parse
+};
+
+
 struct MDW_TRANSPORT_RESULT
 {
-    bool                    ok = false;           ///< A response envelope was received
-    bool                    timed_out = false;    ///< The request timed out
-    bool                    cancelled = false;    ///< Cancel or shutdown aborted it
-    bool                    backend_lost = false; ///< Transport failed; backend unreachable
-    kiapi::mdw::MdwResponse response;             ///< Valid when ok is true
+    MDW_TRANSPORT_STATUS    status = MDW_TRANSPORT_STATUS::BACKEND_LOST;
+    kiapi::mdw::MdwResponse response;  ///< Valid when status is OK
 };
 
 

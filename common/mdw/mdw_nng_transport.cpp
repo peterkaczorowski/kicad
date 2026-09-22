@@ -32,22 +32,19 @@ static MDW_TRANSPORT_RESULT mapResult( const KINNG_REQUEST_CLIENT::RESULT& aRaw 
 
     if( aRaw.received )
     {
-        if( result.response.ParseFromString( aRaw.reply ) )
-            result.ok = true;
-        else
-            result.backend_lost = true;
+        // An unparseable reply is indistinguishable from a dead backend as far as
+        // the caller is concerned, so it maps the same way.
+        result.status = result.response.ParseFromString( aRaw.reply )
+                                ? MDW_TRANSPORT_STATUS::OK
+                                : MDW_TRANSPORT_STATUS::BACKEND_LOST;
     }
     else if( aRaw.timed_out )
     {
-        result.timed_out = true;
+        result.status = MDW_TRANSPORT_STATUS::TIMED_OUT;
     }
     else if( aRaw.cancelled )
     {
-        result.cancelled = true;
-    }
-    else
-    {
-        result.backend_lost = true;
+        result.status = MDW_TRANSPORT_STATUS::CANCELLED;
     }
 
     return result;

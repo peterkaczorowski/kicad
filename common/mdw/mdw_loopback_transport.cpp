@@ -109,7 +109,7 @@ MDW_TRANSPORT_RESULT MDW_LOOPBACK_TRANSPORT::SendSync( const kiapi::mdw::MdwRequ
     if( id == 0 )
     {
         MDW_TRANSPORT_RESULT result;
-        result.backend_lost = true;
+        result.status = MDW_TRANSPORT_STATUS::BACKEND_LOST;
         return result;
     }
 
@@ -160,12 +160,12 @@ void MDW_LOOPBACK_TRANSPORT::workerLoop()
 
         if( cancelled || !m_running.load() )
         {
-            result.cancelled = true;
+            result.status = MDW_TRANSPORT_STATUS::CANCELLED;
         }
         else
         {
             m_dispatch( pending.request, result.response );
-            result.ok = true;
+            result.status = MDW_TRANSPORT_STATUS::OK;
         }
 
         if( pending.callback )
