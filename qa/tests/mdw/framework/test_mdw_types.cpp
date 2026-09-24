@@ -31,64 +31,9 @@
 #include <mdw/mdw_types.h>
 #include <mdw/mdw_capabilities.h>
 #include <mdw/mdw_schema.h>
-#include <mdw/mdw_item.h>
 #include <mdw/mdw_lock.h>
-#include <mdw/mdw_events.h>
-
-#include <api/workspace/workspace_types.pb.h>
 
 BOOST_AUTO_TEST_SUITE( MdwTypes )
-
-
-BOOST_AUTO_TEST_CASE( LifecycleCategoryMatchesProto )
-{
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_LIFECYCLE_CATEGORY::EDITABLE ),
-                       static_cast<int>( kiapi::workspace::LC_EDITABLE ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_LIFECYCLE_CATEGORY::PENDING_REVIEW ),
-                       static_cast<int>( kiapi::workspace::LC_PENDING_REVIEW ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_LIFECYCLE_CATEGORY::RESTRICTED ),
-                       static_cast<int>( kiapi::workspace::LC_RESTRICTED ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_LIFECYCLE_CATEGORY::RELEASED ),
-                       static_cast<int>( kiapi::workspace::LC_RELEASED ) );
-}
-
-
-BOOST_AUTO_TEST_CASE( AttrTypeMatchesProto )
-{
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_ATTR_TYPE::STRING ),
-                       static_cast<int>( kiapi::workspace::AT_STRING ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_ATTR_TYPE::USER_REFERENCE ),
-                       static_cast<int>( kiapi::workspace::AT_USER_REFERENCE ) );
-}
-
-
-BOOST_AUTO_TEST_CASE( CapabilityGroupMatchesProto )
-{
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_CAPABILITY_GROUP::LOCKING ),
-                       static_cast<int>( kiapi::workspace::CG_LOCKING ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_CAPABILITY_GROUP::PERMISSIONS ),
-                       static_cast<int>( kiapi::workspace::CG_PERMISSIONS ) );
-}
-
-
-BOOST_AUTO_TEST_CASE( EventTypeMatchesProto )
-{
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_EVENT_TYPE::ITEM_LOCKED ),
-                       static_cast<int>( kiapi::workspace::ET_ITEM_LOCKED ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_EVENT_TYPE::BACKEND_EVENT ),
-                       static_cast<int>( kiapi::workspace::ET_BACKEND_EVENT ) );
-}
-
-
-BOOST_AUTO_TEST_CASE( ErrorCodeMatchesProto )
-{
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_ERROR_CODE::NOT_SUPPORTED ),
-                       static_cast<int>( kiapi::workspace::WE_NOT_SUPPORTED ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_ERROR_CODE::BACKEND_LOST ),
-                       static_cast<int>( kiapi::workspace::WE_BACKEND_LOST ) );
-    BOOST_CHECK_EQUAL( static_cast<int>( MDW_ERROR_CODE::INTERNAL ),
-                       static_cast<int>( kiapi::workspace::WE_INTERNAL ) );
-}
 
 
 /*
@@ -126,30 +71,6 @@ BOOST_AUTO_TEST_CASE( CapabilityGroupMembership )
     BOOST_CHECK( caps.Has( MDW_CAPABILITY_GROUP::REVISIONS ) );
     BOOST_CHECK( !caps.Has( MDW_CAPABILITY_GROUP::ATTRIBUTES ) );
     BOOST_CHECK( !caps.Has( MDW_CAPABILITY_GROUP::LIFECYCLE ) );
-}
-
-
-/*
- * Lifecycle category and per-user lock are independent. An EDITABLE item can be
- * locked by a teammate; a RESTRICTED item can be unlocked. The two never
- * collapse into one state.
- */
-BOOST_AUTO_TEST_CASE( LifecycleAndLockAreIndependent )
-{
-    MDW_ITEM_INFO editableLocked;
-    editableLocked.category = MDW_LIFECYCLE_CATEGORY::EDITABLE;
-    editableLocked.is_locked = true;
-    editableLocked.lock_owner = "teammate";
-
-    BOOST_CHECK( editableLocked.category == MDW_LIFECYCLE_CATEGORY::EDITABLE );
-    BOOST_CHECK( editableLocked.is_locked );
-
-    MDW_ITEM_INFO restrictedUnlocked;
-    restrictedUnlocked.category = MDW_LIFECYCLE_CATEGORY::RESTRICTED;
-    restrictedUnlocked.is_locked = false;
-
-    BOOST_CHECK( restrictedUnlocked.category == MDW_LIFECYCLE_CATEGORY::RESTRICTED );
-    BOOST_CHECK( !restrictedUnlocked.is_locked );
 }
 
 

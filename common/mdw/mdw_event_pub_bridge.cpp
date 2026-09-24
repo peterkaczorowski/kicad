@@ -28,6 +28,12 @@
 
 #include <api/workspace/workspace_types.pb.h>
 
+// The republished envelope carries the event type through a static_cast, so the
+// two enums must stay numbered alike. See the matching asserts in mdw_backend.h.
+static_assert( static_cast<int>( MDW_EVENT_TYPE::BACKEND_EVENT )
+                       == static_cast<int>( kiapi::workspace::ET_BACKEND_EVENT ),
+               "MDW_EVENT_TYPE has drifted from kiapi.workspace.EventType" );
+
 
 static const char* eventTypeName( MDW_EVENT_TYPE aType )
 {

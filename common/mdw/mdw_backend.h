@@ -51,6 +51,30 @@
 
 #include <wx/string.h>
 
+/*
+ * The framework enums are numbered to match their kiapi.workspace counterparts so
+ * the proxy and the service can convert with a static_cast rather than a lookup.
+ * Reordering either side would silently mistranslate every reply, so the equality
+ * is asserted here, where the casts are declared, rather than left to a comment.
+ * Checking the last enumerator of each catches an insertion anywhere before it.
+ */
+static_assert( static_cast<int>( MDW_LIFECYCLE_CATEGORY::RELEASED )
+                       == static_cast<int>( kiapi::workspace::LC_RELEASED ),
+               "MDW_LIFECYCLE_CATEGORY has drifted from kiapi.workspace.LifecycleCategory" );
+
+static_assert( static_cast<int>( MDW_ATTR_TYPE::USER_REFERENCE )
+                       == static_cast<int>( kiapi::workspace::AT_USER_REFERENCE ),
+               "MDW_ATTR_TYPE has drifted from kiapi.workspace.AttrType" );
+
+static_assert( static_cast<int>( MDW_CAPABILITY_GROUP::PERMISSIONS )
+                       == static_cast<int>( kiapi::workspace::CG_PERMISSIONS ),
+               "MDW_CAPABILITY_GROUP has drifted from kiapi.workspace.CapabilityGroup" );
+
+static_assert( static_cast<int>( MDW_ERROR_CODE::INTERNAL )
+                       == static_cast<int>( kiapi::workspace::WE_INTERNAL ),
+               "MDW_ERROR_CODE has drifted from kiapi.workspace.WorkspaceErrorCode" );
+
+
 class KICOMMON_API MDW_BACKEND
 {
 public:
