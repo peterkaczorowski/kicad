@@ -388,6 +388,7 @@ set( KICOMMON_SRCS
     mdw/mdw_loopback_transport.cpp
     mdw/mdw_schema_validator.cpp
     mdw/mdw_session.cpp
+    mdw/mdw_types.cpp
     mdw/mdw_state_mapper.cpp
     mdw/mdw_workspace_service.cpp
     widgets/mdw_property_editor.cpp

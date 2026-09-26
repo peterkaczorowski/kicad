@@ -23,6 +23,8 @@
 
 #include <dialogs/dialog_workspace_browser.h>
 
+#include <confirm.h>
+
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_session.h>
 #include <mdw/mdw_workspace_service.h>
@@ -57,25 +59,6 @@ private:
 };
 
 
-/// Human-readable one-liner for a framework error code.
-wxString describeError( MDW_ERROR_CODE aCode )
-{
-    switch( aCode )
-    {
-    case MDW_ERROR_CODE::NOT_SUPPORTED:     return _( "The backend does not support this operation." );
-    case MDW_ERROR_CODE::NOT_AUTHENTICATED: return _( "Not authenticated to the workspace." );
-    case MDW_ERROR_CODE::AUTH_FAILED:       return _( "Authentication failed." );
-    case MDW_ERROR_CODE::PERMISSION_DENIED: return _( "Permission denied." );
-    case MDW_ERROR_CODE::NETWORK:           return _( "A network error occurred." );
-    case MDW_ERROR_CODE::TIMEOUT:           return _( "The operation timed out." );
-    case MDW_ERROR_CODE::LOCK_CONFLICT:     return _( "The item is locked by another user." );
-    case MDW_ERROR_CODE::NOT_LOCK_OWNER:    return _( "You do not hold the lock on this item." );
-    case MDW_ERROR_CODE::ITEM_NOT_FOUND:    return _( "The item was not found." );
-    case MDW_ERROR_CODE::NO_CHANGES:        return _( "There are no changes to check in." );
-    case MDW_ERROR_CODE::BACKEND_LOST:      return _( "The workspace backend is not available." );
-    default:                                return _( "The workspace operation failed." );
-    }
-}
 }
 
 
@@ -419,8 +402,8 @@ void DIALOG_WORKSPACE_BROWSER::updateButtons()
 
 void DIALOG_WORKSPACE_BROWSER::reportError( MDW_ERROR_CODE aCode, const wxString& aContext )
 {
-    wxString message = aContext + wxT( "\n\n" ) + describeError( aCode );
+    wxString message = MdwErrorMessage( aCode );
 
-    m_statusText->SetLabel( describeError( aCode ) );
-    wxMessageBox( message, _( "Workspace Error" ), wxOK | wxICON_ERROR, this );
+    m_statusText->SetLabel( message );
+    DisplayErrorMessage( this, aContext, message );
 }

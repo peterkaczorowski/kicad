@@ -23,6 +23,8 @@
 
 #include <dialogs/dialog_workspace_history.h>
 
+#include <confirm.h>
+
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_session.h>
 #include <mdw/mdw_workspace_service.h>
@@ -36,27 +38,6 @@
 #include <wx/sizer.h>
 #include <wx/statline.h>
 #include <wx/stattext.h>
-
-
-namespace
-{
-/// Human-readable one-liner for a framework error code.
-wxString describeError( MDW_ERROR_CODE aCode )
-{
-    switch( aCode )
-    {
-    case MDW_ERROR_CODE::NOT_SUPPORTED:      return _( "The backend does not support revisions." );
-    case MDW_ERROR_CODE::NOT_AUTHENTICATED:  return _( "Not authenticated to the workspace." );
-    case MDW_ERROR_CODE::PERMISSION_DENIED:  return _( "Permission denied." );
-    case MDW_ERROR_CODE::NETWORK:            return _( "A network error occurred." );
-    case MDW_ERROR_CODE::TIMEOUT:            return _( "The operation timed out." );
-    case MDW_ERROR_CODE::ITEM_NOT_FOUND:     return _( "The item was not found." );
-    case MDW_ERROR_CODE::REVISION_NOT_FOUND: return _( "The revision was not found." );
-    case MDW_ERROR_CODE::BACKEND_LOST:       return _( "The workspace backend is not available." );
-    default:                                 return _( "The workspace operation failed." );
-    }
-}
-}
 
 
 DIALOG_WORKSPACE_HISTORY::DIALOG_WORKSPACE_HISTORY( wxWindow* aParent, MDW_FRAMEWORK* aFramework,
@@ -247,8 +228,8 @@ void DIALOG_WORKSPACE_HISTORY::onCompare( wxCommandEvent& aEvent )
 
 void DIALOG_WORKSPACE_HISTORY::reportError( MDW_ERROR_CODE aCode, const wxString& aContext )
 {
-    wxString message = aContext + wxT( "\n\n" ) + describeError( aCode );
+    wxString message = MdwErrorMessage( aCode );
 
-    m_statusText->SetLabel( describeError( aCode ) );
-    wxMessageBox( message, _( "Workspace Error" ), wxOK | wxICON_ERROR, this );
+    m_statusText->SetLabel( message );
+    DisplayErrorMessage( this, aContext, message );
 }

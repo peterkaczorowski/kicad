@@ -35,6 +35,8 @@
 #ifndef MDW_TYPES_H
 #define MDW_TYPES_H
 
+#include <kicommon.h>
+
 #include <wx/string.h>
 #include <functional>
 
@@ -100,6 +102,14 @@ enum class MDW_ERROR_CODE
     PROTOCOL                  = 17,
     INTERNAL                  = 18
 };
+
+
+/**
+ * A translated one-line explanation of an error code, phrased for a user rather
+ * than for a log. Callers supply their own context for what was being attempted;
+ * this says only what went wrong.
+ */
+KICOMMON_API wxString MdwErrorMessage( MDW_ERROR_CODE aCode );
 
 
 /**
