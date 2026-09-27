@@ -22,6 +22,7 @@
 set( MDW_SDK_SRCS
     src/mdw_backend_server.cpp
     src/mdw_event_publisher.cpp
+    src/mdw_folder_tree.cpp
     src/mdw_run_backend.cpp
     src/mdw_subprocess.cpp
     )

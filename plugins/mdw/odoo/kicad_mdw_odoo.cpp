@@ -33,6 +33,7 @@
 #include "odoo_error_mapper.h"
 
 #include <mdw_sdk/mdw_backend_server.h>
+#include <mdw_sdk/mdw_folder_tree.h>
 #include <mdw_sdk/mdw_run_backend.h>
 #include <mdw_sdk/mdw_event_publisher.h>
 
@@ -258,34 +259,17 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 if( !result.success )
                     return OdooMapError( result );
 
-                const std::string     parent = aRequest.folder_id();
-                const std::string     prefix = parent.empty() ? std::string() : parent + "/";
-                std::set<std::string> seen;
+                std::set<std::string> folders;
 
                 for( const nlohmann::json& record : result.result )
                 {
                     std::string folder = fieldString( record, "folder" );
 
-                    if( folder.empty() || folder.compare( 0, prefix.size(), prefix ) != 0 )
-                        continue;
-
-                    std::string rest = folder.substr( prefix.size() );
-                    std::size_t slash = rest.find( '/' );
-                    std::string child = prefix + ( slash == std::string::npos
-                                                           ? rest
-                                                           : rest.substr( 0, slash ) );
-
-                    if( child == parent || !seen.insert( child ).second )
-                        continue;
-
-                    std::size_t base = child.find_last_of( '/' );
-
-                    ws::Folder* out = aReply.add_folders();
-                    out->set_folder_id( child );
-                    out->set_display_name( base == std::string::npos ? child
-                                                                     : child.substr( base + 1 ) );
-                    out->set_parent_folder_id( parent );
+                    if( !folder.empty() )
+                        folders.insert( folder );
                 }
+
+                MdwAddChildFolders( folders, aRequest.folder_id(), aReply );
 
                 return MdwOk();
             } );

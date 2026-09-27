@@ -30,6 +30,7 @@
 #include "git_operations.h"
 
 #include <mdw_sdk/mdw_backend_server.h>
+#include <mdw_sdk/mdw_folder_tree.h>
 #include <mdw_sdk/mdw_run_backend.h>
 #include <mdw_sdk/mdw_event_publisher.h>
 
@@ -67,22 +68,6 @@ std::string configValue( const std::string& aKey, const std::string& aFallback )
 }
 
 
-std::string baseName( const std::string& aPath )
-{
-    std::size_t slash = aPath.find_last_of( '/' );
-
-    return slash == std::string::npos ? aPath : aPath.substr( slash + 1 );
-}
-
-
-std::string parentDir( const std::string& aPath )
-{
-    std::size_t slash = aPath.find_last_of( '/' );
-
-    return slash == std::string::npos ? std::string() : aPath.substr( 0, slash );
-}
-
-
 /// Split aRecord into exactly aCount fields on aSep, taking the remainder as the
 /// final field so a legitimately empty trailing field (an empty commit subject)
 /// is preserved. Fewer than aCount separators yields fewer fields.
@@ -116,8 +101,8 @@ ws::ItemInfo itemInfo( const std::string& aPath )
 {
     ws::ItemInfo item;
     item.set_item_id( aPath );
-    item.set_display_name( baseName( aPath ) );
-    item.set_folder_id( parentDir( aPath ) );
+    item.set_display_name( MdwBaseName( aPath ) );
+    item.set_folder_id( MdwParentDir( aPath ) );
     item.set_is_folder( false );
     item.set_category( ws::LC_EDITABLE );
 
@@ -200,46 +185,23 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 if( !gitOk )
                     return MdwFail( ws::WE_INTERNAL, "git failed" );
 
-                const std::string        parent = aRequest.folder_id();
-                const std::string        prefix = parent.empty() ? std::string() : parent + "/";
-                std::set<std::string>    seen;
+                // git tracks files, not directories, so the folders are the
+                // directories the tracked files sit in.
+                std::set<std::string> folders;
 
                 for( const std::string& path : files )
                 {
-                    if( path.compare( 0, prefix.size(), prefix ) != 0 )
-                        continue;
+                    std::string dir = MdwParentDir( path );
 
-                    std::string rest = path.substr( prefix.size() );
-                    std::size_t slash = rest.find( '/' );
-
-                    if( slash == std::string::npos )
-                        continue;
-
-                    std::string dir = prefix + rest.substr( 0, slash );
-
-                    if( !seen.insert( dir ).second )
-                        continue;
-
-                    ws::Folder* folder = aReply.add_folders();
-                    folder->set_folder_id( dir );
-                    folder->set_display_name( baseName( dir ) );
-                    folder->set_parent_folder_id( parent );
-
-                    std::string deeper = dir + "/";
-
-                    for( const std::string& child : files )
-                    {
-                        if( child.compare( 0, deeper.size(), deeper ) == 0
-                            && child.find( '/', deeper.size() ) != std::string::npos )
-                        {
-                            folder->set_has_children( true );
-                            break;
-                        }
-                    }
+                    if( !dir.empty() )
+                        folders.insert( dir );
                 }
+
+                MdwAddChildFolders( folders, aRequest.folder_id(), aReply );
 
                 return MdwOk();
             } );
+
 
     aServer.RegisterHandler<mdw::ListItemsRequest, mdw::ListItemsReply>(
             []( const mdw::ListItemsRequest& aRequest,
@@ -253,7 +215,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
 
                 for( const std::string& path : files )
                 {
-                    if( parentDir( path ) == aRequest.folder_id() )
+                    if( MdwParentDir( path ) == aRequest.folder_id() )
                         *aReply.add_items() = itemInfo( path );
                 }
 
