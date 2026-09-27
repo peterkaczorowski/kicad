@@ -203,18 +203,12 @@ unregistered is the correct, checked behaviour. The conformance test
 
 Every handler returns a `kiapi::workspace::WorkspaceError`. `WE_OK` (code 0)
 means success and causes the scaffold to pack your reply; any other code is
-returned with no payload. The idiom from all three backends:
+returned with no payload. Build both with the helpers in
+`mdw_sdk/mdw_backend_server.h`:
 
 ```cpp
-ws::WorkspaceError ok()
-{
-    ws::WorkspaceError e; e.set_code( ws::WE_OK ); return e;
-}
-
-ws::WorkspaceError fail( ws::WorkspaceErrorCode aCode, const std::string& aMsg )
-{
-    ws::WorkspaceError e; e.set_code( aCode ); e.set_message( aMsg ); return e;
-}
+return MdwOk();
+return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 ```
 
 The `MdwResponse.error` envelope field is the **single** error channel. Reply

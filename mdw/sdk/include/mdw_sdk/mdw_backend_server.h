@@ -46,6 +46,28 @@
 #include <memory>
 #include <string>
 
+/// The success result every handler returns when it has nothing to report.
+inline kiapi::workspace::WorkspaceError MdwOk()
+{
+    kiapi::workspace::WorkspaceError error;
+    error.set_code( kiapi::workspace::WE_OK );
+
+    return error;
+}
+
+
+/// A failure result carrying a code and a message for the user.
+inline kiapi::workspace::WorkspaceError MdwFail( kiapi::workspace::WorkspaceErrorCode aCode,
+                                                 const std::string&                   aMessage )
+{
+    kiapi::workspace::WorkspaceError error;
+    error.set_code( aCode );
+    error.set_message( aMessage );
+
+    return error;
+}
+
+
 class MDW_BACKEND_SERVER
 {
 public:

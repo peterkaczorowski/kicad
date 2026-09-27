@@ -53,23 +53,6 @@ namespace
 const char FIELD_SEP = '\x1f';
 
 
-ws::WorkspaceError ok()
-{
-    ws::WorkspaceError error;
-    error.set_code( ws::WE_OK );
-    return error;
-}
-
-
-ws::WorkspaceError fail( ws::WorkspaceErrorCode aCode, const std::string& aMessage )
-{
-    ws::WorkspaceError error;
-    error.set_code( aCode );
-    error.set_message( aMessage );
-    return error;
-}
-
-
 /// The value of a git config key, or aFallback when it is unset.
 std::string configValue( const std::string& aKey, const std::string& aFallback )
 {
@@ -163,14 +146,14 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 aReply.set_authenticated( true );
                 aReply.set_user_id( configValue( "user.email", "local" ) );
                 aReply.set_display_name( configValue( "user.name", "local" ) );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::LogoutRequest, mdw::LogoutReply>(
             []( const mdw::LogoutRequest&, mdw::LogoutReply& aReply ) -> ws::WorkspaceError
             {
                 aReply.set_ok( true );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::IsAuthenticatedRequest, mdw::IsAuthenticatedReply>(
@@ -178,7 +161,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::IsAuthenticatedReply& aReply ) -> ws::WorkspaceError
             {
                 aReply.set_authenticated( true );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetRootFoldersRequest, mdw::GetRootFoldersReply>(
@@ -189,7 +172,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
 
                 if( !gitOk )
-                    return fail( ws::WE_INTERNAL, "git failed" );
+                    return MdwFail( ws::WE_INTERNAL, "git failed" );
 
                 ws::Folder* folder = aReply.add_folders();
                 folder->set_folder_id( "" );
@@ -204,7 +187,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                     }
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetChildFoldersRequest, mdw::GetChildFoldersReply>(
@@ -215,7 +198,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
 
                 if( !gitOk )
-                    return fail( ws::WE_INTERNAL, "git failed" );
+                    return MdwFail( ws::WE_INTERNAL, "git failed" );
 
                 const std::string        parent = aRequest.folder_id();
                 const std::string        prefix = parent.empty() ? std::string() : parent + "/";
@@ -255,7 +238,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                     }
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::ListItemsRequest, mdw::ListItemsReply>(
@@ -266,7 +249,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
 
                 if( !gitOk )
-                    return fail( ws::WE_INTERNAL, "git failed" );
+                    return MdwFail( ws::WE_INTERNAL, "git failed" );
 
                 for( const std::string& path : files )
                 {
@@ -274,7 +257,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                         *aReply.add_items() = itemInfo( path );
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetItemInfoRequest, mdw::GetItemInfoReply>(
@@ -282,13 +265,13 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::GetItemInfoReply& aReply ) -> ws::WorkspaceError
             {
                 if( !IsSafePath( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
 
                 if( !GitTracked( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such tracked file" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such tracked file" );
 
                 *aReply.mutable_item() = itemInfo( aRequest.item_id() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CheckoutRequest, mdw::CheckoutReply>(
@@ -296,10 +279,10 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::CheckoutReply& aReply ) -> ws::WorkspaceError
             {
                 if( !IsSafePath( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
 
                 if( !GitTracked( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such tracked file" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such tracked file" );
 
                 *aReply.mutable_item() = itemInfo( aRequest.item_id() );
 
@@ -308,7 +291,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 else
                     aReply.set_local_path( GitRepo() + "/" + aRequest.item_id() );
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CheckinRequest, mdw::CheckinReply>(
@@ -316,12 +299,12 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::CheckinReply& aReply ) -> ws::WorkspaceError
             {
                 if( !IsSafePath( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
 
                 MDW_PROCESS_RESULT add = Git( { "add", "--", aRequest.item_id() } );
 
                 if( !add.started || add.exit_code != 0 )
-                    return fail( ws::WE_INTERNAL, add.err );
+                    return MdwFail( ws::WE_INTERNAL, add.err );
 
                 MDW_PROCESS_RESULT commit =
                         Git( { "commit", "-m", aRequest.comment(), "--", aRequest.item_id() } );
@@ -331,9 +314,9 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                     std::string combined = commit.out + commit.err;
 
                     if( combined.find( "nothing to commit" ) != std::string::npos )
-                        return fail( ws::WE_NO_CHANGES, "nothing to commit" );
+                        return MdwFail( ws::WE_NO_CHANGES, "nothing to commit" );
 
-                    return fail( ws::WE_INTERNAL, commit.err );
+                    return MdwFail( ws::WE_INTERNAL, commit.err );
                 }
 
                 MDW_PROCESS_RESULT head = Git( { "rev-parse", "--short", "HEAD" } );
@@ -342,7 +325,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 rev->set_revision_id( Trimmed( head.out ) );
                 rev->set_author( configValue( "user.email", "local" ) );
                 rev->set_comment( aRequest.comment() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CancelCheckoutRequest, mdw::CancelCheckoutReply>(
@@ -350,14 +333,14 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::CancelCheckoutReply& ) -> ws::WorkspaceError
             {
                 if( !IsSafePath( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
 
                 MDW_PROCESS_RESULT result = Git( { "checkout", "--", aRequest.item_id() } );
 
                 if( !result.started || result.exit_code != 0 )
-                    return fail( ws::WE_INTERNAL, result.err );
+                    return MdwFail( ws::WE_INTERNAL, result.err );
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetRevisionHistoryRequest, mdw::GetRevisionHistoryReply>(
@@ -365,14 +348,14 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::GetRevisionHistoryReply& aReply ) -> ws::WorkspaceError
             {
                 if( !IsSafePath( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
 
                 MDW_PROCESS_RESULT log =
                         Git( { "-c", "core.quotePath=false", "log", "-z",
                                "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s", "--", aRequest.item_id() } );
 
                 if( !log.started || log.exit_code != 0 )
-                    return fail( ws::WE_ITEM_NOT_FOUND, log.err );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, log.err );
 
                 for( const std::string& record : Split( log.out, '\0' ) )
                 {
@@ -398,7 +381,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                     rev->set_comment( fields[4] );
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::DownloadRevisionRequest, mdw::DownloadRevisionReply>(
@@ -406,30 +389,30 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::DownloadRevisionReply& ) -> ws::WorkspaceError
             {
                 if( !IsSafeRef( aRequest.revision_id() ) )
-                    return fail( ws::WE_INVALID_PARAMETER, "invalid revision id" );
+                    return MdwFail( ws::WE_INVALID_PARAMETER, "invalid revision id" );
 
                 if( !IsSafePath( aRequest.item_id() ) )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "invalid item path" );
 
                 MDW_PROCESS_RESULT show =
                         Git( { "show", aRequest.revision_id() + ":" + aRequest.item_id() } );
 
                 if( !show.started || show.exit_code != 0 )
-                    return fail( ws::WE_REVISION_NOT_FOUND, show.err );
+                    return MdwFail( ws::WE_REVISION_NOT_FOUND, show.err );
 
                 std::ofstream out( aRequest.local_path(), std::ios::binary | std::ios::trunc );
 
                 if( !out.is_open() )
-                    return fail( ws::WE_INTERNAL, "cannot open local path for write" );
+                    return MdwFail( ws::WE_INTERNAL, "cannot open local path for write" );
 
                 out.write( show.out.data(), static_cast<std::streamsize>( show.out.size() ) );
                 out.flush();
                 out.close();
 
                 if( !out.good() )
-                    return fail( ws::WE_INTERNAL, "write failed" );
+                    return MdwFail( ws::WE_INTERNAL, "write failed" );
 
-                return ok();
+                return MdwOk();
             } );
 }
 

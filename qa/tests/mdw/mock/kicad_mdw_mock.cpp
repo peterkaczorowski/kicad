@@ -122,23 +122,6 @@ bool envSet( const char* aName )
 }
 
 
-ws::WorkspaceError ok()
-{
-    ws::WorkspaceError error;
-    error.set_code( ws::WE_OK );
-    return error;
-}
-
-
-ws::WorkspaceError fail( ws::WorkspaceErrorCode aCode, const std::string& aMessage )
-{
-    ws::WorkspaceError error;
-    error.set_code( aCode );
-    error.set_message( aMessage );
-    return error;
-}
-
-
 /// Advertised capability group names, from MDW_MOCK_CAPABILITIES or the default set.
 const std::set<std::string>& advertisedGroups()
 {
@@ -265,13 +248,13 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 if( envSet( "MDW_MOCK_FAIL_AUTH" ) )
                 {
                     aReply.set_authenticated( false );
-                    return fail( ws::WE_AUTH_FAILED, "denied" );
+                    return MdwFail( ws::WE_AUTH_FAILED, "denied" );
                 }
 
                 aReply.set_authenticated( true );
                 aReply.set_user_id( USER );
                 aReply.set_display_name( "Mock User" );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::LogoutRequest, mdw::LogoutReply>(
@@ -279,7 +262,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
             {
                 injectLatency();
                 aReply.set_ok( true );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::IsAuthenticatedRequest, mdw::IsAuthenticatedReply>(
@@ -288,7 +271,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
             {
                 injectLatency();
                 aReply.set_authenticated( true );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetRootFoldersRequest, mdw::GetRootFoldersReply>(
@@ -300,7 +283,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 ws::Folder* folder = aReply.add_folders();
                 folder->set_folder_id( "root" );
                 folder->set_display_name( "Root" );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetChildFoldersRequest, mdw::GetChildFoldersReply>(
@@ -308,7 +291,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 mdw::GetChildFoldersReply& ) -> ws::WorkspaceError
             {
                 injectLatency();
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::ListItemsRequest, mdw::ListItemsReply>(
@@ -326,7 +309,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                         *aReply.add_items() = entry.second;
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetItemInfoRequest, mdw::GetItemInfoReply>(
@@ -341,10 +324,10 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 auto it = state.items.find( aRequest.item_id() );
 
                 if( it == state.items.end() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 *aReply.mutable_item() = it->second;
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CheckoutRequest, mdw::CheckoutReply>(
@@ -354,7 +337,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 injectLatency();
 
                 if( envSet( "MDW_MOCK_FAIL_CHECKOUT" ) )
-                    return fail( ws::WE_INTERNAL, "checkout failed" );
+                    return MdwFail( ws::WE_INTERNAL, "checkout failed" );
 
                 MOCK_STATE&                 state = mockState();
                 std::lock_guard<std::mutex> lock( state.mutex );
@@ -362,7 +345,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 auto it = state.items.find( aRequest.item_id() );
 
                 if( it == state.items.end() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 if( aRequest.lock() )
                 {
@@ -373,7 +356,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
 
                 *aReply.mutable_item() = it->second;
                 aReply.set_local_path( aRequest.local_path() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CheckinRequest, mdw::CheckinReply>(
@@ -383,7 +366,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 injectLatency();
 
                 if( envSet( "MDW_MOCK_FAIL_CHECKIN" ) )
-                    return fail( ws::WE_VERSION_CONFLICT, "conflict" );
+                    return MdwFail( ws::WE_VERSION_CONFLICT, "conflict" );
 
                 {
                     MOCK_STATE&                 state = mockState();
@@ -392,7 +375,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                     auto it = state.items.find( aRequest.item_id() );
 
                     if( it == state.items.end() )
-                        return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                        return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                     state.attributes[aRequest.item_id()] = aRequest.attributes();
                     state.lockedBy.erase( aRequest.item_id() );
@@ -409,7 +392,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
 
                 emitEvent( aPublisher, aSeq, aEvents, ws::ET_REVISION_CHECKED_IN,
                            aRequest.item_id() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CancelCheckoutRequest, mdw::CancelCheckoutReply>(
@@ -434,7 +417,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 }
 
                 emitEvent( aPublisher, aSeq, aEvents, ws::ET_ITEM_UNLOCKED, aRequest.item_id() );
-                return ok();
+                return MdwOk();
             } );
 }
 
@@ -455,7 +438,7 @@ void registerLockingHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* 
                     auto it = state.items.find( aRequest.item_id() );
 
                     if( it == state.items.end() )
-                        return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                        return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                     state.lockedBy[aRequest.item_id()] = USER;
                     it->second.set_is_locked( true );
@@ -469,7 +452,7 @@ void registerLockingHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* 
                 info->set_lock_timestamp_unix( std::time( nullptr ) );
 
                 emitEvent( aPublisher, aSeq, aEvents, ws::ET_ITEM_LOCKED, aRequest.item_id() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::UnlockRequest, mdw::LockReply>(
@@ -496,7 +479,7 @@ void registerLockingHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* 
                 aReply.mutable_lock()->set_is_locked( false );
 
                 emitEvent( aPublisher, aSeq, aEvents, ws::ET_ITEM_UNLOCKED, aRequest.item_id() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetLockInfoRequest, mdw::GetLockInfoReply>(
@@ -518,7 +501,7 @@ void registerLockingHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* 
                     info->set_locked_by_me( it->second == USER );
                 }
 
-                return ok();
+                return MdwOk();
             } );
 }
 
@@ -541,7 +524,7 @@ void registerRevisionHandlers( MDW_BACKEND_SERVER& aServer )
                 r2->add_parent_revision_ids( "r1" );
                 r2->set_author( USER );
                 r2->set_comment( "update" );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::DownloadRevisionRequest, mdw::DownloadRevisionReply>(
@@ -549,7 +532,7 @@ void registerRevisionHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::DownloadRevisionReply& ) -> ws::WorkspaceError
             {
                 injectLatency();
-                return ok();
+                return MdwOk();
             } );
 }
 
@@ -570,7 +553,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 if( it != state.attributes.end() )
                     *aReply.mutable_attributes() = it->second;
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::SetAttributesRequest, mdw::SetAttributesReply>(
@@ -583,7 +566,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 std::lock_guard<std::mutex> lock( state.mutex );
 
                 state.attributes[aRequest.item_id()] = aRequest.attributes();
-                return ok();
+                return MdwOk();
             } );
 }
 
@@ -601,7 +584,7 @@ void registerLifecycleHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER
                 transition->set_target_state_id( "final" );
                 transition->set_display_name( "Final" );
                 transition->set_target_category( ws::LC_RELEASED );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::TransitionLifecycleRequest, mdw::TransitionLifecycleReply>(
@@ -628,7 +611,7 @@ void registerLifecycleHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER
 
                 emitEvent( aPublisher, aSeq, aEvents, ws::ET_LIFECYCLE_CATEGORY_CHANGED,
                            aRequest.item_id() );
-                return ok();
+                return MdwOk();
             } );
 }
 

@@ -43,24 +43,6 @@ void onSignal( int )
 {
     g_terminate.store( true );
 }
-
-
-kiapi::workspace::WorkspaceError okResult()
-{
-    kiapi::workspace::WorkspaceError error;
-    error.set_code( kiapi::workspace::WE_OK );
-    return error;
-}
-
-
-kiapi::workspace::WorkspaceError failResult( kiapi::workspace::WorkspaceErrorCode aCode,
-                                             const std::string&                   aMessage )
-{
-    kiapi::workspace::WorkspaceError error;
-    error.set_code( aCode );
-    error.set_message( aMessage );
-    return error;
-}
 }
 
 
@@ -95,45 +77,45 @@ static void registerBuiltins( const MDW_BACKEND_DESCRIPTOR& aDescriptor, MDW_BAC
             [aDescriptor]( const kiapi::mdw::Hello& aReq, kiapi::mdw::HelloReply& aReply )
             {
                 if( aReq.protocol_version().major() != MDW_PROTOCOL_VERSION_MAJOR )
-                    return failResult( kiapi::workspace::WE_PROTOCOL, "protocol major mismatch" );
+                    return MdwFail( kiapi::workspace::WE_PROTOCOL, "protocol major mismatch" );
 
                 aReply.mutable_protocol_version()->set_major( MDW_PROTOCOL_VERSION_MAJOR );
                 aReply.mutable_protocol_version()->set_minor( MDW_PROTOCOL_VERSION_MINOR );
                 *aReply.mutable_backend_info() = aDescriptor.info;
                 *aReply.mutable_capabilities() = aDescriptor.capabilities;
 
-                return okResult();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<kiapi::mdw::GetBackendInfoRequest, kiapi::mdw::GetBackendInfoReply>(
             [aDescriptor]( const kiapi::mdw::GetBackendInfoRequest&, kiapi::mdw::GetBackendInfoReply& aReply )
             {
                 *aReply.mutable_info() = aDescriptor.info;
-                return okResult();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<kiapi::mdw::GetCapabilitiesRequest, kiapi::mdw::GetCapabilitiesReply>(
             [aDescriptor]( const kiapi::mdw::GetCapabilitiesRequest&, kiapi::mdw::GetCapabilitiesReply& aReply )
             {
                 *aReply.mutable_capabilities() = aDescriptor.capabilities;
-                return okResult();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<kiapi::mdw::GetSchemaRequest, kiapi::mdw::GetSchemaReply>(
             [aDescriptor]( const kiapi::mdw::GetSchemaRequest&, kiapi::mdw::GetSchemaReply& aReply )
             {
                 *aReply.mutable_schema() = aDescriptor.schema;
-                return okResult();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<kiapi::mdw::PingRequest, kiapi::mdw::PingReply>(
-            []( const kiapi::mdw::PingRequest&, kiapi::mdw::PingReply& ) { return okResult(); } );
+            []( const kiapi::mdw::PingRequest&, kiapi::mdw::PingReply& ) { return MdwOk(); } );
 
     aServer.RegisterHandler<kiapi::mdw::ByeRequest, kiapi::mdw::ByeReply>(
             [&aServer]( const kiapi::mdw::ByeRequest&, kiapi::mdw::ByeReply& )
             {
                 aServer.SignalBye();
-                return okResult();
+                return MdwOk();
             } );
 }
 

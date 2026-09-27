@@ -88,23 +88,6 @@ ODOO_STATE& odooState()
 }
 
 
-ws::WorkspaceError ok()
-{
-    ws::WorkspaceError error;
-    error.set_code( ws::WE_OK );
-    return error;
-}
-
-
-ws::WorkspaceError fail( ws::WorkspaceErrorCode aCode, const std::string& aMessage )
-{
-    ws::WorkspaceError error;
-    error.set_code( aCode );
-    error.set_message( aMessage );
-    return error;
-}
-
-
 bool isAllDigits( const std::string& aText )
 {
     if( aText.empty() )
@@ -208,7 +191,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 if( login.empty() || password.empty() )
                 {
                     aReply.set_authenticated( false );
-                    return fail( ws::WE_AUTH_FAILED, "missing username or password" );
+                    return MdwFail( ws::WE_AUTH_FAILED, "missing username or password" );
                 }
 
                 ODOO_STATE&                 state = odooState();
@@ -225,7 +208,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 aReply.set_authenticated( true );
                 aReply.set_user_id( std::to_string( state.client.Uid() ) );
                 aReply.set_display_name( login );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::LogoutRequest, mdw::LogoutReply>(
@@ -236,7 +219,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
 
                 state.client.Reset();
                 aReply.set_ok( true );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::IsAuthenticatedRequest, mdw::IsAuthenticatedReply>(
@@ -247,7 +230,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 std::lock_guard<std::mutex> lock( state.mutex );
 
                 aReply.set_authenticated( state.client.IsAuthenticated() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetRootFoldersRequest, mdw::GetRootFoldersReply>(
@@ -258,7 +241,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 folder->set_folder_id( "" );
                 folder->set_display_name( "Root" );
                 folder->set_has_children( true );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetChildFoldersRequest, mdw::GetChildFoldersReply>(
@@ -304,7 +287,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                     out->set_parent_folder_id( parent );
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::ListItemsRequest, mdw::ListItemsReply>(
@@ -328,7 +311,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 for( const nlohmann::json& record : result.result )
                     *aReply.add_items() = itemInfo( record );
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::GetItemInfoRequest, mdw::GetItemInfoReply>(
@@ -336,7 +319,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::GetItemInfoReply& aReply ) -> ws::WorkspaceError
             {
                 if( aRequest.item_id().empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
 
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
@@ -349,7 +332,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                     if( !lookup.success )
                         return OdooMapError( lookup, ws::WE_ITEM_NOT_FOUND );
 
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
                 }
 
                 ODOO_RPC_RESULT result = state.client.Read(
@@ -360,10 +343,10 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                     return OdooMapError( result, ws::WE_ITEM_NOT_FOUND );
 
                 if( !result.result.is_array() || result.result.empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 *aReply.mutable_item() = itemInfo( result.result[0] );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CheckoutRequest, mdw::CheckoutReply>(
@@ -371,7 +354,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::CheckoutReply& aReply ) -> ws::WorkspaceError
             {
                 if( aRequest.item_id().empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
 
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
@@ -380,18 +363,18 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
 
                 if( id < 0 )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 ODOO_RPC_RESULT result = state.client.Read(
                         state.model, nlohmann::json::array( { id } ),
                         nlohmann::json::array( { "id", "name", "folder", "state" } ) );
 
                 if( !result.success || !result.result.is_array() || result.result.empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 *aReply.mutable_item() = itemInfo( result.result[0] );
                 aReply.set_local_path( aRequest.local_path() );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CheckinRequest, mdw::CheckinReply>(
@@ -399,7 +382,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::CheckinReply& aReply ) -> ws::WorkspaceError
             {
                 if( aRequest.item_id().empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
 
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
@@ -408,7 +391,7 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
 
                 if( id < 0 )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 nlohmann::json values;
                 values["last_comment"] = aRequest.comment();
@@ -424,14 +407,14 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 rev->set_revision_id( std::to_string( static_cast<long long>( now ) ) );
                 rev->set_comment( aRequest.comment() );
                 rev->set_timestamp_unix( static_cast<long long>( now ) );
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::CancelCheckoutRequest, mdw::CancelCheckoutReply>(
             []( const mdw::CancelCheckoutRequest&,
                 mdw::CancelCheckoutReply& ) -> ws::WorkspaceError
             {
-                return ok();
+                return MdwOk();
             } );
 }
 
@@ -443,7 +426,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::GetAttributesReply& aReply ) -> ws::WorkspaceError
             {
                 if( aRequest.item_id().empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
 
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
@@ -452,7 +435,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
 
                 if( id < 0 )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 ODOO_RPC_RESULT result = state.client.Read(
                         state.model, nlohmann::json::array( { id } ),
@@ -464,12 +447,12 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 std::string raw = fieldString( result.result[0], "attributes" );
 
                 if( raw.empty() )
-                    return ok();
+                    return MdwOk();
 
                 nlohmann::json parsed = nlohmann::json::parse( raw, nullptr, false );
 
                 if( parsed.is_discarded() || !parsed.is_object() )
-                    return ok();
+                    return MdwOk();
 
                 ws::AttributeSet* set = aReply.mutable_attributes();
 
@@ -481,7 +464,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                                                              : it.value().dump() );
                 }
 
-                return ok();
+                return MdwOk();
             } );
 
     aServer.RegisterHandler<mdw::SetAttributesRequest, mdw::SetAttributesReply>(
@@ -489,7 +472,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 mdw::SetAttributesReply& ) -> ws::WorkspaceError
             {
                 if( aRequest.item_id().empty() )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
 
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
@@ -498,7 +481,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
 
                 if( id < 0 )
-                    return fail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 
                 nlohmann::json attributes = nlohmann::json::object();
 
@@ -514,7 +497,7 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
                 if( !result.success )
                     return OdooMapError( result );
 
-                return ok();
+                return MdwOk();
             } );
 }
 
