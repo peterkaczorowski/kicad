@@ -31,6 +31,7 @@
 #include <connectivity/connectivity_data.h>
 #include <drc/drc_engine.h>
 #include <drc/drc_item.h>
+#include <exporters/step/exporter_step.h>
 #include <footprint.h>
 #include <netclass.h>
 #include <pad.h>
@@ -39,6 +40,15 @@
 #include <settings/settings_manager.h>
 #include <zone.h>
 #include <zone_filler.h>
+
+
+struct STEP_BACKDRILL_TEST_FIXTURE
+{
+    static bool isLayerInBackdrillSpan( PCB_LAYER_ID aLayer, PCB_LAYER_ID aStartLayer, PCB_LAYER_ID aEndLayer )
+    {
+        return EXPORTER_STEP::isLayerInBackdrillSpan( aLayer, aStartLayer, aEndLayer );
+    }
+};
 
 
 struct BACKDRILL_TEST_FIXTURE
@@ -270,6 +280,14 @@ struct BACKDRILL_TEST_FIXTURE
 };
 
 
+BOOST_AUTO_TEST_CASE( StepExporterBackdrillSpanUsesCopperOrder )
+{
+    // A span from B_Cu up to In24_Cu covers In30_Cu but not In23_Cu
+    BOOST_CHECK( !STEP_BACKDRILL_TEST_FIXTURE::isLayerInBackdrillSpan( In23_Cu, B_Cu, In24_Cu ) );
+    BOOST_CHECK( STEP_BACKDRILL_TEST_FIXTURE::isLayerInBackdrillSpan( In30_Cu, B_Cu, In24_Cu ) );
+}
+
+
 /**
  * Test that IsBackdrilledOrPostMachined correctly identifies affected layers for vias
  */
@@ -325,6 +343,29 @@ BOOST_FIXTURE_TEST_CASE( ViaBottomBackdrillLayerDetection, BACKDRILL_TEST_FIXTUR
     BOOST_CHECK( via->IsBackdrilledOrPostMachined( In3_Cu ) );
     BOOST_CHECK( via->IsBackdrilledOrPostMachined( In4_Cu ) );
     BOOST_CHECK( via->IsBackdrilledOrPostMachined( B_Cu ) );
+}
+
+
+/**
+ * A bottom-side pad backdrill must follow copper stack order, not PCB_LAYER_ID arithmetic.
+ * On the six layer board B_Cu to In2_Cu removes In2, In3, In4 and B_Cu only.
+ */
+BOOST_FIXTURE_TEST_CASE( PadBottomBackdrillLayerDetection, BACKDRILL_TEST_FIXTURE )
+{
+    FOOTPRINT* footprint = CreateFootprintWithPad( VECTOR2I( 0, 0 ), GetNetCode( "TestNet" ) );
+    PAD*       pad = footprint->Pads().front();
+    int        backdrillSize = pcbIUScale.mmToIU( 1.0 );
+
+    pad->SetTertiaryDrillSize( VECTOR2I( backdrillSize, backdrillSize ) );
+    pad->SetTertiaryDrillStartLayer( B_Cu );
+    pad->SetTertiaryDrillEndLayer( In2_Cu );
+
+    BOOST_CHECK( !pad->IsBackdrilledOrPostMachined( F_Cu ) );
+    BOOST_CHECK( !pad->IsBackdrilledOrPostMachined( In1_Cu ) );
+    BOOST_CHECK( pad->IsBackdrilledOrPostMachined( In2_Cu ) );
+    BOOST_CHECK( pad->IsBackdrilledOrPostMachined( In3_Cu ) );
+    BOOST_CHECK( pad->IsBackdrilledOrPostMachined( In4_Cu ) );
+    BOOST_CHECK( pad->IsBackdrilledOrPostMachined( B_Cu ) );
 }
 
 

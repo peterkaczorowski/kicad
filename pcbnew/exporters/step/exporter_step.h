@@ -38,10 +38,13 @@ class PCB_TRACK;
 class PCB_VIA;
 class FILENAME_RESOLVER;
 class STEP_PCB_MODEL;
+struct STEP_BACKDRILL_TEST_FIXTURE;
 
 
 class EXPORTER_STEP
 {
+    friend struct STEP_BACKDRILL_TEST_FIXTURE;
+
 public:
     EXPORTER_STEP( BOARD* aBoard, const EXPORTER_STEP_PARAMS& aParams, REPORTER* aReporter );
     ~EXPORTER_STEP();
@@ -71,8 +74,7 @@ private:
      * @param aEndLayer The backdrill end layer
      * @return true if the layer is within the span (inclusive)
      */
-    bool isLayerInBackdrillSpan( PCB_LAYER_ID aLayer, PCB_LAYER_ID aStartLayer,
-                                 PCB_LAYER_ID aEndLayer ) const;
+    static bool isLayerInBackdrillSpan( PCB_LAYER_ID aLayer, PCB_LAYER_ID aStartLayer, PCB_LAYER_ID aEndLayer );
 
     bool netFilterMatches( const wxString& netname ) const;
 
