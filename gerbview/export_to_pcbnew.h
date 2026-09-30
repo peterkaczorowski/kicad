@@ -62,6 +62,18 @@ class GERBER_DRAW_ITEM;
 class GERBER_FILE_IMAGE;
 class GERBER_FILE_IMAGE_LIST;
 class wxWindow;
+struct GERBER_LAYER_MAPPING_TEST_FIXTURE;
+
+
+/// Board file version with the current layer id numbering, and the copper layer count it tops out at.
+#define GBR_EXPORT_BOARD_FILE_VERSION 20240928
+#define GBR_EXPORT_BOARD_FILE_MAX_CU 32
+
+/// First board file version that holds up to MAX_CU_LAYERS copper layers: the
+/// "Support 64 copper layers" entry in the version history kept in
+/// pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h.  GerbView writes this version for such
+/// boards and does not follow later entries in that history.
+#define GBR_EXPORT_BOARD_FILE_VERSION_64_CU 20261026
 
 
 /**
@@ -69,6 +81,8 @@ class wxWindow;
  */
 class GBR_TO_PCB_EXPORTER
 {
+    friend struct GERBER_LAYER_MAPPING_TEST_FIXTURE;
+
 public:
     GBR_TO_PCB_EXPORTER( GERBER_FILE_IMAGE_LIST* aImages, wxWindow* aParent, const wxString& aFileName );
     ~GBR_TO_PCB_EXPORTER();

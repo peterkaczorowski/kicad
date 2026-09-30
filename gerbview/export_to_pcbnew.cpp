@@ -563,8 +563,10 @@ void GBR_TO_PCB_EXPORTER::writePcbFilledCircle( const VECTOR2I& aCenterPosition,
 
 void GBR_TO_PCB_EXPORTER::writePcbHeader( const int* aLayerLookUpTable )
 {
-    // Note: the .kicad_pcb version used here is after layers_id changes
-    fprintf( m_fp, "(kicad_pcb (version 20240928)\n" );
+    int version = m_pcbCopperLayersCount > GBR_EXPORT_BOARD_FILE_MAX_CU ? GBR_EXPORT_BOARD_FILE_VERSION_64_CU
+                                                                        : GBR_EXPORT_BOARD_FILE_VERSION;
+
+    fprintf( m_fp, "(kicad_pcb (version %d)\n", version );
     fprintf( m_fp, "\t(generator \"gerbview\")\n\t(generator_version \"%s\")\n\n",
              GetMajorMinorVersion().c_str().AsChar() );
 

@@ -24,6 +24,7 @@ set( QA_GERBVIEW_SRCS
     test_coordinates.cpp
     test_dcode.cpp
     test_excellon_repeat.cpp
+    test_layer_mapping.cpp
 
     # Gerbview-specific tests
     test_step_and_repeat.cpp

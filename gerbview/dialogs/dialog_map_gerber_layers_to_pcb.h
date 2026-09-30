@@ -24,12 +24,16 @@
 #include <layer_ids.h>
 
 class GERBVIEW_FRAME;
+class X2_ATTRIBUTE_FILEFUNCTION;
+struct GERBER_LAYER_MAPPING_TEST_FIXTURE;
 
 /**
  * Show the Gerber files loaded and allow the user to choose between Gerber layers and pcb layers.
  */
 class DIALOG_MAP_GERBER_LAYERS_TO_PCB : public DIALOG_MAP_GERBER_LAYERS_TO_PCB_BASE
 {
+    friend struct GERBER_LAYER_MAPPING_TEST_FIXTURE;
+
 public: DIALOG_MAP_GERBER_LAYERS_TO_PCB( GERBVIEW_FRAME* parent );
     ~DIALOG_MAP_GERBER_LAYERS_TO_PCB() {};
 
@@ -40,6 +44,10 @@ protected:
     bool TransferDataFromWindow() override;
 
 private:
+    static PCB_LAYER_ID matchAltiumGerberExtension( const wxString& aFileName );
+    static PCB_LAYER_ID matchKiCadGerberFileName( const wxString& aFileName );
+    static PCB_LAYER_ID matchX2FileFunction( X2_ATTRIBUTE_FILEFUNCTION* aFileFunction );
+
     void initDialog();
     void normalizeBrdLayersCount();
     void OnBrdLayersCountSelection( wxCommandEvent& event ) override;
@@ -122,4 +130,3 @@ private:
     int             m_buttonTable[ int(GERBER_DRAWLAYERS_COUNT) + 1 ];
     wxStaticText*   m_layersList[ int(GERBER_DRAWLAYERS_COUNT) + 1 ];
 };
-
