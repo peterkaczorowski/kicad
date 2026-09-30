@@ -42,6 +42,12 @@
 #include <wx/filefn.h>
 #include <wx/filename.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <vector>
+
 
 struct DIPTRACE_PCB_IMPORT_FIXTURE
 {
@@ -56,7 +62,120 @@ struct DIPTRACE_PCB_IMPORT_FIXTURE
 };
 
 
+class GENERATED_DIPTRACE_FILE
+{
+public:
+    GENERATED_DIPTRACE_FILE() :
+            m_path( wxFileName::CreateTempFileName( wxS( "kicad_diptrace_generated_" ) ) )
+    {
+    }
+
+    ~GENERATED_DIPTRACE_FILE()
+    {
+        if( !m_path.IsEmpty() )
+            wxRemoveFile( m_path );
+    }
+
+    bool Write( const std::vector<uint8_t>& aData )
+    {
+        wxFFile output( m_path, wxS( "wb" ) );
+
+        return output.IsOpened() && output.Write( aData.data(), aData.size() ) == aData.size();
+    }
+
+    std::string Path() const { return m_path.ToStdString(); }
+
+private:
+    wxString m_path;
+};
+
+
+static std::vector<uint8_t> readBinaryFile( const std::string& aPath )
+{
+    std::ifstream input( aPath, std::ios::binary );
+
+    if( !input.is_open() )
+        return {};
+
+    return std::vector<uint8_t>( ( std::istreambuf_iterator<char>( input ) ), std::istreambuf_iterator<char>() );
+}
+
+
+static int readDiptraceInt3( const std::vector<uint8_t>& aData, size_t aOffset )
+{
+    int raw = ( static_cast<int>( aData.at( aOffset ) ) << 16 ) | ( static_cast<int>( aData.at( aOffset + 1 ) ) << 8 )
+              | static_cast<int>( aData.at( aOffset + 2 ) );
+
+    return raw - DIPTRACE::INT3_BIAS;
+}
+
+
+static void writeDiptraceInt3( std::vector<uint8_t>& aData, size_t aOffset, int aValue )
+{
+    uint32_t raw = static_cast<uint32_t>( aValue + DIPTRACE::INT3_BIAS );
+    aData.at( aOffset ) = static_cast<uint8_t>( raw >> 16 );
+    aData.at( aOffset + 1 ) = static_cast<uint8_t>( raw >> 8 );
+    aData.at( aOffset + 2 ) = static_cast<uint8_t>( raw );
+}
+
+
 BOOST_FIXTURE_TEST_SUITE( DipTracePcbImport, DIPTRACE_PCB_IMPORT_FIXTURE )
+
+
+/// A via inferred between In1.Cu and B.Cu on the four layer re-arm_pub.dip must stay blind.
+BOOST_AUTO_TEST_CASE( InferredBottomViaKeepsBlindSpanOnFourLayerBoard )
+{
+    static constexpr size_t  LAYER_COUNT_OFFSET = 0x176;
+    static constexpr size_t  CHAIN_OFFSET = 0x26A44;
+    static constexpr size_t  PREVIOUS_NODE_OFFSET = 0x26AF4;
+    static constexpr size_t  VIA_NODE_OFFSET = 0x26B1D;
+    static constexpr size_t  NEXT_NODE_OFFSET = 0x26B46;
+    static constexpr uint8_t CHAIN_MARKER[] = { 0x00, 0x00, 0x00, 0x0F, 0x42, 0x3F };
+
+    std::vector<uint8_t> source = readBinaryFile( GetTestDataDir() + "re-arm_pub.dip" );
+    BOOST_REQUIRE_GT( source.size(), NEXT_NODE_OFFSET + 41 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, LAYER_COUNT_OFFSET ), 4 );
+    BOOST_REQUIRE( std::equal( std::begin( CHAIN_MARKER ), std::end( CHAIN_MARKER ), source.begin() + CHAIN_OFFSET ) );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, CHAIN_OFFSET + 6 ), 10 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, CHAIN_OFFSET + 9 ), 24 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, VIA_NODE_OFFSET + 27 ), 0 );
+
+    // Put the previous node on In1.Cu and the via and next node on B.Cu.  An unknown via style
+    // makes the importer take the via layers from the adjacent nodes.
+    writeDiptraceInt3( source, PREVIOUS_NODE_OFFSET + 8, 1 );
+    writeDiptraceInt3( source, VIA_NODE_OFFSET + 8, 3 );
+    writeDiptraceInt3( source, NEXT_NODE_OFFSET + 8, 3 );
+    writeDiptraceInt3( source, VIA_NODE_OFFSET + 27, 10000 );
+
+    GENERATED_DIPTRACE_FILE file;
+    BOOST_REQUIRE( file.Write( source ) );
+
+    std::unique_ptr<BOARD> board = m_plugin.LoadBoard( file.Path() );
+
+    BOOST_REQUIRE_EQUAL( board->GetCopperLayerCount(), 4 );
+
+    bool foundBlindVia = false;
+
+    for( PCB_TRACK* item : board->Tracks() )
+    {
+        if( item->Type() != PCB_VIA_T )
+            continue;
+
+        PCB_VIA* via = static_cast<PCB_VIA*>( item );
+
+        PCB_LAYER_ID top;
+        PCB_LAYER_ID bottom;
+        via->LayerPair( &top, &bottom );
+
+        if( top == In1_Cu && bottom == B_Cu )
+        {
+            BOOST_CHECK( via->GetViaType() == VIATYPE::BLIND );
+            foundBlindVia = true;
+        }
+    }
+
+    BOOST_CHECK( foundBlindVia );
+}
 
 
 /**

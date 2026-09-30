@@ -5899,14 +5899,15 @@ void PCB_PARSER::CreateTracksAndVias()
                 }
             }
 
-            via->SetLayerPair( viaLayerA, viaLayerB );
-
             if( viaLayerA == F_Cu && viaLayerB == B_Cu )
                 via->SetViaType( VIATYPE::THROUGH );
             else if( viaLayerA == F_Cu || viaLayerB == B_Cu )
                 via->SetViaType( VIATYPE::BLIND );
             else
                 via->SetViaType( VIATYPE::BURIED );
+
+            // SetLayerPair() sanitizes against the current via type, so the type must be set first.
+            via->SetLayerPair( viaLayerA, viaLayerB );
 
             if( net )
                 via->SetNet( net );
