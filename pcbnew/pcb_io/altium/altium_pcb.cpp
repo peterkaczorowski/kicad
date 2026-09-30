@@ -444,7 +444,7 @@ std::vector<PCB_LAYER_ID> ALTIUM_PCB::GetKicadLayersToIterate( ALTIUM_LAYER aAlt
 {
     if( aAltiumLayer == ALTIUM_LAYER::MULTI_LAYER || aAltiumLayer == ALTIUM_LAYER::KEEP_OUT_LAYER )
     {
-        int layerCount = m_board ? m_board->GetCopperLayerCount() : 32;
+        int                       layerCount = m_board ? m_board->GetCopperLayerCount() : MAX_CU_LAYERS;
         std::vector<PCB_LAYER_ID> layers;
         layers.reserve( layerCount );
 
@@ -1650,6 +1650,14 @@ void ALTIUM_PCB::ParseBoard6Data( const ALTIUM_PCB_COMPOUND_FILE&     aAltiumPcb
     }
 
     size_t kicadLayercount = ( layercount % 2 == 0 ) ? layercount : layercount + 1;
+
+    if( kicadLayercount > MAX_CU_LAYERS )
+    {
+        THROW_IO_ERRORF( _( "The Altium file defines %d copper layers, but KiCad supports "
+                            "a maximum of %d." ),
+                         static_cast<int>( layercount ), MAX_CU_LAYERS );
+    }
+
     m_board->SetCopperLayerCount( kicadLayercount );
 
     BOARD_DESIGN_SETTINGS& designSettings = m_board->GetDesignSettings();
@@ -1665,7 +1673,8 @@ void ALTIUM_PCB::ParseBoard6Data( const ALTIUM_PCB_COMPOUND_FILE&     aAltiumPcb
     for( ; it != stackup.GetList().end() && ( *it )->GetType() != BS_ITEM_TYPE_COPPER; ++it )
         ;
 
-    auto cuLayer = LAYER_RANGE( F_Cu, B_Cu, 32 ).begin();
+    LAYER_RANGE cuRange( F_Cu, B_Cu, static_cast<int>( kicadLayercount ) );
+    auto        cuLayer = cuRange.begin();
 
     for( size_t altiumLayerId = static_cast<size_t>( ALTIUM_LAYER::TOP_LAYER );
             altiumLayerId < elem.stackup.size() && altiumLayerId != 0;
