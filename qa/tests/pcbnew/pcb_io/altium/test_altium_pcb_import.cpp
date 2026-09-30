@@ -24,6 +24,7 @@
 
 #include <pcbnew_utils/board_test_utils.h>
 #include <pcbnew_utils/board_file_utils.h>
+#include <qa_utils/file_utils.h>
 #include <qa_utils/wx_utils/unit_test_utils.h>
 
 #include <pcbnew/pcb_io/altium/pcb_io_altium_designer.h>
@@ -45,6 +46,7 @@
 #include <eda_text.h>
 #include <embedded_files.h>
 #include <ki_exception.h>
+#include <lset.h>
 #include <netinfo.h>
 #include <netclass.h>
 #include <pad.h>
@@ -319,6 +321,193 @@ BOOST_AUTO_TEST_CASE( ConnectedFullCircleArcPreservesRingGeometry )
     BOOST_CHECK( arcs[0]->GetStart() == arcs[1]->GetEnd() );
     BOOST_CHECK( arcs[0]->GetEnd() == arcs[1]->GetStart() );
     BOOST_CHECK( board.Drawings().empty() );
+}
+
+
+/**
+ * A 48 copper layer board (32 signal + 16 internal planes) imports with
+ * the plane layers mapped to inner copper layers in physical stack order.
+ */
+BOOST_AUTO_TEST_CASE( FortyEightLayersWithPlanes )
+{
+    std::string dataPath = KI_TEST::GetPcbnewTestDataDir() + "plugins/altium/issue7232/planes_48_layers.PcbDoc";
+
+    std::unique_ptr<BOARD> board = m_altiumPlugin.LoadBoard( dataPath );
+    BOOST_REQUIRE_EQUAL( board->GetCopperLayerCount(), 48 );
+    BOOST_CHECK_EQUAL( board->GetLayerName( F_Cu ), wxT( "Top Layer" ) );
+    BOOST_CHECK_EQUAL( board->GetLayerName( B_Cu ), wxT( "Bottom Layer" ) );
+    BOOST_CHECK_EQUAL( board->GetLayerName( In46_Cu ), wxT( "Layer 46" ) );
+
+    const LSET expectedPlanes{ In1_Cu,  In3_Cu,  In5_Cu,  In7_Cu,  In9_Cu,  In11_Cu, In13_Cu, In15_Cu,
+                               In32_Cu, In34_Cu, In36_Cu, In38_Cu, In40_Cu, In42_Cu, In44_Cu, In46_Cu };
+
+    LSET powerLayers;
+
+    for( PCB_LAYER_ID layer : LSET::AllCuMask( board->GetCopperLayerCount() ) )
+    {
+        if( board->GetLayerType( layer ) == LT_POWER )
+            powerLayers.set( layer );
+    }
+
+    BOOST_CHECK( powerLayers == expectedPlanes );
+
+    // In1_Cu has both VDD and VSS regions
+    LSET vddPlaneLayers;
+    LSET vssPlaneLayers;
+    bool foundDeepPour = false;
+    bool foundFullStackKeepout = false;
+
+    for( ZONE* zone : board->Zones() )
+    {
+        if( zone->GetIsRuleArea() )
+        {
+            if( ( zone->GetLayerSet() & LSET::AllCuMask() ).count() == 48 )
+                foundFullStackKeepout = true;
+
+            continue;
+        }
+
+        if( zone->GetLayerSet().count() != 1 )
+            continue;
+
+        PCB_LAYER_ID layer = zone->GetLayerSet().Seq().front();
+
+        if( expectedPlanes.Contains( layer ) )
+        {
+            if( zone->GetNetname() == wxT( "VDD" ) )
+                vddPlaneLayers.set( layer );
+            else if( zone->GetNetname() == wxT( "VSS" ) )
+                vssPlaneLayers.set( layer );
+        }
+
+        // A polygon pour with a net on a signal layer below the 32nd copper layer
+        if( layer == In41_Cu && zone->GetNetname() == wxT( "VDD" ) )
+            foundDeepPour = true;
+    }
+
+    BOOST_CHECK( vddPlaneLayers == LSET( { In1_Cu, In5_Cu, In9_Cu, In13_Cu, In32_Cu, In36_Cu, In44_Cu } ) );
+    BOOST_CHECK( vssPlaneLayers == LSET( { In1_Cu, In3_Cu, In7_Cu, In11_Cu, In15_Cu, In34_Cu, In38_Cu, In46_Cu } ) );
+    BOOST_CHECK( foundDeepPour );
+    BOOST_CHECK( foundFullStackKeepout );
+
+    // Vias: two plain through vias, a blind via from the first plane to the bottom,
+    // a buried In10-In46 via, one front/inner/back stack and two full stacks
+    bool           foundBuriedVia = false;
+    bool           foundBlindVia = false;
+    int            customVias = 0;
+    int            frontInnerBackVias = 0;
+    const PCB_VIA* varyingVia = nullptr;
+
+    // The importer moves the auxiliary origin when it centers the board on the page.
+    const VECTOR2I varyingViaPosition =
+            board->GetDesignSettings().GetAuxOrigin() + VECTOR2I( pcbIUScale.mmToIU( 4 ), pcbIUScale.mmToIU( -15 ) );
+
+    for( PCB_TRACK* track : board->Tracks() )
+    {
+        if( track->Type() != PCB_VIA_T )
+            continue;
+
+        PCB_VIA*     via = static_cast<PCB_VIA*>( track );
+        PCB_LAYER_ID top, bottom;
+        via->LayerPair( &top, &bottom );
+
+        if( via->GetPosition() == varyingViaPosition )
+            varyingVia = via;
+
+        if( top == In10_Cu && bottom == In46_Cu )
+            foundBuriedVia = true;
+
+        if( top == In1_Cu && bottom == B_Cu )
+            foundBlindVia = true;
+
+        if( via->Padstack().Mode() == PADSTACK::MODE::CUSTOM )
+            customVias++;
+        else if( via->Padstack().Mode() == PADSTACK::MODE::FRONT_INNER_BACK )
+            frontInnerBackVias++;
+    }
+
+    BOOST_CHECK( foundBuriedVia );
+    BOOST_CHECK( foundBlindVia );
+    BOOST_CHECK_EQUAL( customVias, 2 );
+    BOOST_CHECK_EQUAL( frontInnerBackVias, 1 );
+
+    // This via has a different diameter on each internal signal layer. The source stack
+    // places planes between signal layers, so a physical layer ordinal is not a padstack index.
+    BOOST_REQUIRE( varyingVia );
+    BOOST_REQUIRE( varyingVia->Padstack().Mode() == PADSTACK::MODE::CUSTOM );
+
+    // Values in mm from Vias6/Data, mapped with the Board6/Data layer names.
+    const std::pair<PCB_LAYER_ID, double> expectedDiameters[] = {
+        { F_Cu, 1.270 },    { In2_Cu, 1.202 },  { In4_Cu, 1.204 },  { In6_Cu, 1.206 },  { In8_Cu, 1.208 },
+        { In10_Cu, 1.210 }, { In12_Cu, 1.212 }, { In14_Cu, 1.214 }, { In16_Cu, 1.216 }, { In17_Cu, 1.217 },
+        { In18_Cu, 1.218 }, { In19_Cu, 1.219 }, { In20_Cu, 1.220 }, { In21_Cu, 1.221 }, { In22_Cu, 1.222 },
+        { In23_Cu, 1.223 }, { In24_Cu, 1.224 }, { In25_Cu, 1.225 }, { In26_Cu, 1.226 }, { In27_Cu, 1.227 },
+        { In28_Cu, 1.228 }, { In29_Cu, 1.229 }, { In30_Cu, 1.230 }, { In31_Cu, 1.231 }, { In33_Cu, 1.233 },
+        { In35_Cu, 1.235 }, { In37_Cu, 1.237 }, { In39_Cu, 1.239 }, { In41_Cu, 1.241 }, { In43_Cu, 1.243 },
+        { In45_Cu, 1.245 }, { B_Cu, 1.270 }
+    };
+
+    auto checkDiameters = [&]( const PCB_VIA& aVia )
+    {
+        for( const auto& [layer, diameter] : expectedDiameters )
+        {
+            BOOST_TEST_CONTEXT( "Signal via diameter on " << board->GetLayerName( layer ) )
+            {
+                BOOST_CHECK_EQUAL( aVia.GetWidth( layer ), pcbIUScale.mmToIU( diameter ) );
+            }
+        }
+
+        // The source diameter tables have no plane entries. The importer uses the nominal size.
+        for( PCB_LAYER_ID layer : expectedPlanes )
+        {
+            BOOST_TEST_CONTEXT( "Plane via diameter on " << board->GetLayerName( layer ) )
+            {
+                BOOST_CHECK_EQUAL( aVia.GetWidth( layer ), pcbIUScale.mmToIU( 1.270 ) );
+            }
+        }
+    };
+
+    checkDiameters( *varyingVia );
+
+    // Check the same 48 diameters through the KiCad file writer and reader.
+    KI_TEST::SCOPED_TEMP_DIR tempDir( "kicad_altium_48_layers_" );
+    const auto               savePath = tempDir.Path() / "planes_48_layers.kicad_pcb";
+    KI_TEST::DumpBoardToFile( *board, savePath );
+    std::unique_ptr<BOARD> savedBoard = KI_TEST::ReadBoardFromFileOrStream( savePath.string() );
+    BOOST_REQUIRE( savedBoard );
+    BOOST_REQUIRE_EQUAL( savedBoard->GetCopperLayerCount(), 48 );
+
+    const BOARD_ITEM* savedItem = savedBoard->ResolveItem( varyingVia->m_Uuid, true );
+    BOOST_REQUIRE( savedItem && savedItem->Type() == PCB_VIA_T );
+    checkDiameters( *static_cast<const PCB_VIA*>( savedItem ) );
+
+    // Pads: plane layers have no Altium signal layer slot, so the full stack pad falls back
+    // to the generic mid geometry there
+    bool foundFullStackPad = false;
+    bool foundFrontInnerBackPad = false;
+
+    for( FOOTPRINT* footprint : board->Footprints() )
+    {
+        for( PAD* pad : footprint->Pads() )
+        {
+            if( pad->Padstack().Mode() == PADSTACK::MODE::CUSTOM )
+            {
+                foundFullStackPad = true;
+                BOOST_CHECK( pad->GetShape( F_Cu ) == PAD_SHAPE::ROUNDRECT );
+                BOOST_CHECK( pad->GetShape( In40_Cu ) == PAD_SHAPE::CHAMFERED_RECT );
+                BOOST_CHECK_CLOSE( pad->GetRoundRectRadiusRatio( F_Cu ), 29.0 / 200.0, 0.01 );
+            }
+            else if( pad->Padstack().Mode() == PADSTACK::MODE::FRONT_INNER_BACK )
+            {
+                foundFrontInnerBackPad = true;
+                BOOST_CHECK( pad->GetShape( F_Cu ) == PAD_SHAPE::ROUNDRECT );
+                BOOST_CHECK( pad->GetShape( In20_Cu ) == PAD_SHAPE::CHAMFERED_RECT );
+            }
+        }
+    }
+
+    BOOST_CHECK( foundFullStackPad );
+    BOOST_CHECK( foundFrontInnerBackPad );
 }
 
 
