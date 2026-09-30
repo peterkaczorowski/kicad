@@ -1793,9 +1793,14 @@ int ALTIUM_PCB::HelperGetPadstackLayerIndex( PCB_LAYER_ID aLayer ) const
     // Footprint libraries carry no stackup, so Altium's mid layer N is KiCad's In N
     if( m_padstackLayerIndex.empty() )
     {
+        // B_Cu's ordinal follows KiCad's copper layer maximum, not Altium's fixed slots
+        if( aLayer == B_Cu )
+            return ALTIUM_BOTTOM_PADSTACK_IDX;
+
         size_t ordinal = CopperLayerToOrdinal( aLayer );
 
-        return ordinal < ALTIUM_PADSTACK_IDX_COUNT ? static_cast<int>( ordinal ) : -1;
+        // Mid layers stop at In30_Cu, the next slot is Altium's bottom layer
+        return ordinal < ALTIUM_BOTTOM_PADSTACK_IDX ? static_cast<int>( ordinal ) : -1;
     }
 
     auto it = m_padstackLayerIndex.find( aLayer );

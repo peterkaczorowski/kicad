@@ -164,9 +164,9 @@ public:
     void SetLayers( int aStartLayer, int aEndLayer )
     {
         // Copper layer ids do not run in stack order, so store the ordinal.  The R-tree keys
-        // on this, and an ordinal keeps a through item's span 31 wide rather than INT_MAX
-        // wide.  A span that large overflows the int64 volume the tree splits on, which
-        // wrecks the split and leaves queries walking most of the tree.
+        // on this, and an ordinal keeps a through item's span MAX_CU_LAYERS - 1 wide rather
+        // than INT_MAX wide.  A span that large overflows the int64 volume the tree splits
+        // on, which wrecks the split and leaves queries walking most of the tree.
         m_start_layer = static_cast<int>( CopperLayerToOrdinal( ToLAYER_ID( aStartLayer ) ) );
         m_end_layer = static_cast<int>( CopperLayerToOrdinal( ToLAYER_ID( aEndLayer ) ) );
     }

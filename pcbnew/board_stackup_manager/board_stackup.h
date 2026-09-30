@@ -212,9 +212,8 @@ private:
     PCB_LAYER_ID m_LayerId; ///< the layer id (F.Cu to B.Cu, F.Silk, B.silk, F.Mask, B.Mask)
                             ///< and UNDEFINED_LAYER (-1) for dielectric layers that are not
                             ///< really layers for the board editor
-    int m_DielectricLayerId;///< the "layer" id for dielectric layers,
-                            ///< from 1 (top) to 31 (bottom)
-                            ///< (only 31 dielectric layers for 32 copper layers)
+    int m_DielectricLayerId; ///< the "layer" id for dielectric layers,
+                             ///< from 1 (top) to MAX_CU_LAYERS - 1 (bottom)
 
     /// List of dielectric parameters
     /// usually only one item, but in complex (microwave) boards, one can have
@@ -295,7 +294,7 @@ public:
     /**
      * Create a default stackup, according to the current BOARD_DESIGN_SETTINGS settings.
      * @param aSettings is the current board setting.
-     * if nullptr, build a full stackup (with 32 copper layers)
+     * if nullptr, build a full stackup (with MAX_CU_LAYERS copper layers)
      * @param aActiveCopperLayersCount is used only if aSettings == nullptr is the number
      * of copper layers to use to calculate a default dielectric thickness.
      * ((<= 0 to use all copper layers)

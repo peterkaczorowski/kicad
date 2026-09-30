@@ -105,6 +105,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::init()
     m_showLegacy5ZoneWarning = true;
     m_tooRecent = false;
     m_requiredVersion = 0;
+    m_sourceCopperLayerCount = 0;
     m_layerIndices.clear();
     m_layerMasks.clear();
     m_resetKIIDMap.clear();
@@ -2198,11 +2199,11 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseBoardStackup()
 
         if( type != BS_ITEM_TYPE_UNDEFINED )
         {
-            // A 32-copper-layer board has at most 69 stackup items (32 copper +
-            // 31 dielectric + 6 mask/paste/silk).  Anything far beyond that
-            // indicates a corrupted file.  Parse the item so tokens are consumed
-            // correctly, but don't keep it.
-            static constexpr int MAX_STACKUP_ITEMS = 128;
+            // A full board has at most MAX_CU_LAYERS copper, MAX_CU_LAYERS - 1
+            // dielectric and 6 mask/paste/silk stackup items.  Anything beyond
+            // that indicates a corrupted file.  Parse the item so tokens are
+            // consumed correctly, but don't keep it.
+            static constexpr int MAX_STACKUP_ITEMS = MAX_CU_LAYERS + ( MAX_CU_LAYERS - 1 ) + 6;
 
             itemOwner = std::make_unique<BOARD_STACKUP_ITEM>( type );
             item = itemOwner.get();
@@ -2452,51 +2453,59 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseLayers()
 
     // All Cu layers are parsed, but not the non-cu layers here.
 
+    // We need at least 2 copper layers, at most MAX_CU_LAYERS, and there must be an even
+    // number of them.  Reject the file before any layer is applied to the board.
+    if( cu.size() < 2 || cu.size() > MAX_CU_LAYERS || ( cu.size() % 2 ) != 0 )
+    {
+        wxString err = wxString::Format( _( "%d is not a valid layer count" ), static_cast<int>( cu.size() ) );
+
+        THROW_PARSE_ERROR( err, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+    }
+
     // The original *.kicad_pcb file format and the inverted
     // Cu stack format both have all the Cu layers first, so use this
     // trick to handle either. The layer number in the (layers ..)
     // s-expression element are ignored.
-    if( cu.size() )
+    // Rework the layer numbers, which changed when the Cu stack
+    // was flipped.  So we instead use position in the list.
+    for( size_t i = 1; i < cu.size() - 1; i++ )
     {
-        // Rework the layer numbers, which changed when the Cu stack
-        // was flipped.  So we instead use position in the list.
-        for( size_t i = 1; i < cu.size() - 1; i++ )
-        {
-            int tmpLayer = LSET::NameToLayer( cu[i].m_name );
+        int tmpLayer = LSET::NameToLayer( cu[i].m_name );
 
-            if( tmpLayer < 0 )
-                tmpLayer = ( i + 1 ) * 2;
+        // NameToLayer derives ids past In62.Cu from the name; fall back to the stack position
+        if( !IsCopperLayer( tmpLayer ) )
+            tmpLayer = ( i + 1 ) * 2;
 
-            cu[i].m_number = tmpLayer;
-        }
-
-        cu[0].m_number = F_Cu;
-        cu[cu.size()-1].m_number = B_Cu;
-
-        for( auto& cu_layer : cu )
-        {
-            enabledLayers.set( cu_layer.m_number );
-
-            if( cu_layer.m_visible )
-                visibleLayers.set( cu_layer.m_number );
-            else
-                anyHidden = true;
-
-            if( !m_preserveDestinationStackup || !m_board->IsLayerEnabled( PCB_LAYER_ID( cu_layer.m_number ) ) )
-            {
-                m_board->SetLayerDescr( PCB_LAYER_ID( cu_layer.m_number ), cu_layer );
-            }
-
-            UTF8 name = cu_layer.m_name;
-
-            m_layerIndices[ name ] = PCB_LAYER_ID( cu_layer.m_number );
-            m_layerMasks[ name ] = LSET( { PCB_LAYER_ID( cu_layer.m_number ) } );
-
-            appendedLayers.push_back( cu_layer );
-        }
-
-        copperLayerCount = cu.size();
+        cu[i].m_number = tmpLayer;
     }
+
+    cu[0].m_number = F_Cu;
+    cu[cu.size() - 1].m_number = B_Cu;
+
+    for( auto& cu_layer : cu )
+    {
+        enabledLayers.set( cu_layer.m_number );
+
+        if( cu_layer.m_visible )
+            visibleLayers.set( cu_layer.m_number );
+        else
+            anyHidden = true;
+
+        if( !m_preserveDestinationStackup || !m_board->IsLayerEnabled( PCB_LAYER_ID( cu_layer.m_number ) ) )
+        {
+            m_board->SetLayerDescr( PCB_LAYER_ID( cu_layer.m_number ), cu_layer );
+        }
+
+        UTF8 name = cu_layer.m_name;
+
+        m_layerIndices[name] = PCB_LAYER_ID( cu_layer.m_number );
+        m_layerMasks[name] = LSET( { PCB_LAYER_ID( cu_layer.m_number ) } );
+
+        appendedLayers.push_back( cu_layer );
+    }
+
+    copperLayerCount = cu.size();
+    m_sourceCopperLayerCount = copperLayerCount;
 
     // process non-copper layers
     while( token != T_RIGHT )
@@ -2542,14 +2551,6 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseLayers()
             break;
 
         parseLayer( &layer );
-    }
-
-    // We need at least 2 copper layers and there must be an even number of them.
-    if( copperLayerCount < 2 || (copperLayerCount % 2) != 0 )
-    {
-        wxString err = wxString::Format( _( "%d is not a valid layer count" ), copperLayerCount );
-
-        THROW_PARSE_ERROR( err, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
     }
 
     if( m_preserveDestinationStackup )
@@ -2758,6 +2759,46 @@ LSET PCB_IO_KICAD_SEXPR_PARSER::parseLayersForCuItemWithSoldermask()
 }
 
 
+std::string PCB_IO_KICAD_SEXPR_PARSER::migrateDrillGroupKey( const std::string& aKey ) const
+{
+    if( m_requiredVersion > LEGACY_32_COPPER_LAYERS || m_sourceCopperLayerCount > 32 )
+        return aKey;
+
+    // The span field is "L<top>-<bottom>" in copper ordinals, and B_Cu's ordinal follows
+    // MAX_CU_LAYERS.  No inner layer had ordinal 31, so 31 can only be B_Cu.
+    static const std::string oldBottom = "31";
+    static const std::string newBottom = std::to_string( CopperLayerToOrdinal( B_Cu ) );
+
+    std::string key;
+    size_t      start = 0;
+
+    while( start <= aKey.size() )
+    {
+        size_t      end = aKey.find( '|', start );
+        std::string field = aKey.substr( start, end == std::string::npos ? std::string::npos : end - start );
+        size_t      dash = field.find( '-' );
+
+        if( field.starts_with( 'L' ) && dash != std::string::npos )
+        {
+            std::string top = field.substr( 1, dash - 1 );
+            std::string bottom = field.substr( dash + 1 );
+
+            field = "L" + ( top == oldBottom ? newBottom : top ) + "-" + ( bottom == oldBottom ? newBottom : bottom );
+        }
+
+        key += field;
+
+        if( end == std::string::npos )
+            break;
+
+        key += '|';
+        start = end + 1;
+    }
+
+    return key;
+}
+
+
 void PCB_IO_KICAD_SEXPR_PARSER::parseDrillSymbolProfile()
 {
     wxCHECK_RET( CurTok() == T_drill_symbol_profile,
@@ -2843,7 +2884,7 @@ void PCB_IO_KICAD_SEXPR_PARSER::parseDrillSymbolProfile()
                 {
                 case T_key:
                     NeedSYMBOLorNUMBER();
-                    key = CurStr();
+                    key = migrateDrillGroupKey( CurStr() );
                     NeedRIGHT();
                     break;
 
@@ -5478,7 +5519,7 @@ PCB_GENERATED_TABLE* PCB_IO_KICAD_SEXPR_PARSER::parseGeneratedTable( std::unique
                     const int row = parseInt( "row key row" );
 
                     NeedSYMBOLorNUMBER();
-                    aTable->RowKeys()[row] = curText;
+                    aTable->RowKeys()[row] = migrateDrillGroupKey( curText );
                 }
 
                 NeedRIGHT();

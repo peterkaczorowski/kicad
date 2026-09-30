@@ -544,7 +544,10 @@ void PANEL_SETUP_BOARD_STACKUP::setDefaultLayerWidths( int targetThickness )
     {
         // There's not enough room for prepreg and core layers of at least 0.1 mm, so adjust both down
         remainingWidth = targetThickness - totalWidthOfFixedItems;
-        prePregThickness = coreThickness = std::max( 0, remainingWidth / dielectricLayerCount );
+        prePregThickness = coreThickness = remainingWidth / dielectricLayerCount;
+
+        if( prePregThickness <= 0 )
+            prePregThickness = coreThickness = pcbIUScale.mmToIU( MIN_DIELECTRIC_THICKNESS_MM );
     }
 
     for( BOARD_STACKUP_ROW_UI_ITEM& ui_item : m_rowUiItemsList )
@@ -1150,7 +1153,7 @@ void PANEL_SETUP_BOARD_STACKUP::buildLayerStackPanel( bool aCreateInitialStackup
     {
         if( aCreateInitialStackup )
         {
-            // Creates a BOARD_STACKUP with 32 copper layers.
+            // Creates a BOARD_STACKUP with MAX_CU_LAYERS copper layers.
             // extra layers will be hidden later.
             // but if the number of layer is changed in the dialog, the corresponding
             // widgets will be available with their previous values.

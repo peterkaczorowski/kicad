@@ -183,6 +183,40 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     EMPLACE_COLOR_PARAM( "board.copper.in28",   In28_Cu );
     EMPLACE_COLOR_PARAM( "board.copper.in29",   In29_Cu );
     EMPLACE_COLOR_PARAM( "board.copper.in30",   In30_Cu );
+    // clang-format off
+    EMPLACE_COLOR_PARAM( "board.copper.in31",   In31_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in32",   In32_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in33",   In33_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in34",   In34_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in35",   In35_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in36",   In36_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in37",   In37_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in38",   In38_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in39",   In39_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in40",   In40_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in41",   In41_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in42",   In42_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in43",   In43_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in44",   In44_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in45",   In45_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in46",   In46_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in47",   In47_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in48",   In48_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in49",   In49_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in50",   In50_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in51",   In51_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in52",   In52_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in53",   In53_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in54",   In54_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in55",   In55_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in56",   In56_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in57",   In57_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in58",   In58_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in59",   In59_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in60",   In60_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in61",   In61_Cu );
+    EMPLACE_COLOR_PARAM( "board.copper.in62",   In62_Cu );
+    // clang-format on
     EMPLACE_COLOR_PARAM( "board.copper.b",      B_Cu    );
 
     EMPLACE_COLOR_PARAM( "board.b_adhes",       B_Adhes   );

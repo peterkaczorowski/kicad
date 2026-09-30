@@ -97,6 +97,46 @@ BOOST_AUTO_TEST_CASE( EmptyBoardIsClean )
 }
 
 
+BOOST_AUTO_TEST_CASE( CopperLayerLimitBlocksOlderExports )
+{
+    SETTINGS_MANAGER         settingsManager;
+    KI_TEST::SCOPED_TEMP_DIR tmp( "kicad_qa_copper_downgrade", "" );
+    const wxString           source = ( tmp.Path() / "source.kicad_pcb" ).wstring();
+    const wxString           output = ( tmp.Path() / "output.kicad_pcb" ).wstring();
+    PCB_IO_KICAD_SEXPR       io;
+
+    for( int count : { 32, 34, 64 } )
+    {
+        BOARD board;
+        board.SetCopperLayerCount( count );
+        board.SetEnabledLayers( LSET::AllCuMask( count ) );
+        io.SaveBoard( source, board );
+
+        for( const DOWNGRADE_TARGET& target : { kicad9, kicad10 } )
+        {
+            for( bool drop : { false, true } )
+            {
+                COMPATIBILITY_REPORT report;
+                bool                 exported =
+                        ExportBoardToOlderVersion( source, output, target, report, nullptr, wxEmptyString, drop );
+
+                BOOST_CHECK_EQUAL( exported, count == 32 );
+                BOOST_CHECK_EQUAL( report.IsBlocked(), count > 32 );
+                BOOST_CHECK_EQUAL( wxFileExists( output ), count == 32 );
+
+                if( exported )
+                {
+                    std::unique_ptr<BOARD> reloaded( io.LoadBoard( output, nullptr ) );
+                    BOOST_REQUIRE( reloaded );
+                    BOOST_CHECK_EQUAL( reloaded->GetCopperLayerCount(), count );
+                    wxRemoveFile( output );
+                }
+            }
+        }
+    }
+}
+
+
 // The ellipse primitive only exists since 20260508, so 10.0 gets an approximation.
 BOOST_AUTO_TEST_CASE( EllipseIsLoweredForKicad10 )
 {
@@ -294,6 +334,25 @@ BOOST_AUTO_TEST_CASE( CustomFootprintStackupBlocksKicad9 )
 
     BOOST_CHECK_EQUAL( ClassifyBoardForDowngrade( &board, kicad10 ).Count( DOWNGRADE_BUCKET::BLOCK ), 0 );
     BOOST_CHECK_EQUAL( ClassifyBoardForDowngrade( &board, kicad9 ).Count( DOWNGRADE_BUCKET::BLOCK ), 1 );
+}
+
+
+BOOST_AUTO_TEST_CASE( HighCopperFootprintStackupBlocksKicad10 )
+{
+    for( PCB_LAYER_ID inner : { In30_Cu, In31_Cu, In62_Cu } )
+    {
+        BOARD      board;
+        FOOTPRINT* fp = new FOOTPRINT( &board );
+        fp->SetStackupMode( FOOTPRINT_STACKUP::CUSTOM_LAYERS );
+        fp->SetStackupLayers( LSET( { F_Cu, inner, B_Cu } ) );
+        board.Add( fp );
+
+        for( bool drop : { false, true } )
+        {
+            COMPATIBILITY_REPORT report = ClassifyBoardForDowngrade( &board, kicad10, drop );
+            BOOST_CHECK_EQUAL( report.IsBlocked(), inner != In30_Cu );
+        }
+    }
 }
 
 

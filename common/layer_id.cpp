@@ -344,7 +344,7 @@ PCB_LAYER_ID Map3DLayerToPCBLayer( int aLayer )
     default:                         break;
     }
 
-    if( aLayer >= LAYER_3D_COPPER_INNER_1 && aLayer <= LAYER_3D_COPPER_INNER_30 )
+    if( aLayer >= LAYER_3D_COPPER_INNER_1 && aLayer <= LAYER_3D_COPPER_INNER_62 )
         return static_cast<PCB_LAYER_ID>( In1_Cu + ( aLayer - LAYER_3D_COPPER_INNER_1 ) * 2 );
 
     return UNDEFINED_LAYER;

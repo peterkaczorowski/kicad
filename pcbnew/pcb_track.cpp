@@ -2355,14 +2355,6 @@ bool PCB_VIA::FlashLayer( int aLayer ) const
 }
 
 
-// IsCopperLayer() accepts any even id below PCB_LAYER_ID_COUNT, but only F_Cu..In30_Cu carry a
-// distinct ordinal.  Anything above aliases B_Cu or indexes past the override array
-static bool hasLayerOrdinal( PCB_LAYER_ID aLayer )
-{
-    return IsCopperLayer( aLayer ) && aLayer <= In30_Cu;
-}
-
-
 void PCB_VIA::ClearZoneLayerOverrides()
 {
     for( std::atomic<ZONE_LAYER_OVERRIDE>& entry : m_zoneLayerOverrides )
@@ -2372,7 +2364,7 @@ void PCB_VIA::ClearZoneLayerOverrides()
 
 ZONE_LAYER_OVERRIDE PCB_VIA::GetZoneLayerOverride( PCB_LAYER_ID aLayer ) const
 {
-    if( !hasLayerOrdinal( aLayer ) )
+    if( !IsCopperLayer( aLayer ) )
         return ZLO_NONE;
 
     return m_zoneLayerOverrides[CopperLayerToOrdinal( aLayer )].load( std::memory_order_relaxed );
@@ -2381,7 +2373,7 @@ ZONE_LAYER_OVERRIDE PCB_VIA::GetZoneLayerOverride( PCB_LAYER_ID aLayer ) const
 
 void PCB_VIA::SetZoneLayerOverride( PCB_LAYER_ID aLayer, ZONE_LAYER_OVERRIDE aOverride )
 {
-    if( !hasLayerOrdinal( aLayer ) )
+    if( !IsCopperLayer( aLayer ) )
         return;
 
     m_zoneLayerOverrides[CopperLayerToOrdinal( aLayer )].store( aOverride, std::memory_order_relaxed );

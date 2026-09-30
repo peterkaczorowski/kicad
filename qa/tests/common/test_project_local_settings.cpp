@@ -93,7 +93,7 @@ BOOST_FIXTURE_TEST_SUITE( ProjectLocalSettings, PROJECT_LOCAL_SETTINGS_FIXTURE )
 
 BOOST_AUTO_TEST_CASE( HighestCopperActiveLayerRoundTripsThroughPrl )
 {
-    constexpr PCB_LAYER_ID expectedLayer = In30_Cu;
+    constexpr PCB_LAYER_ID expectedLayer = In62_Cu;
 
     const std::string projectName = "active_layer_roundtrip";
     fs::path          projectDir = m_tempDir / projectName;

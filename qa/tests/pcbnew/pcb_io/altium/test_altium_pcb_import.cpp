@@ -118,6 +118,11 @@ struct ALTIUM_PCB_IMPORT_FIXTURE
         return aImporter.GetNetCode( aId );
     }
 
+    static int getPadstackLayerIndex( ALTIUM_PCB& aImporter, PCB_LAYER_ID aLayer )
+    {
+        return aImporter.HelperGetPadstackLayerIndex( aLayer );
+    }
+
     PCB_IO_ALTIUM_DESIGNER m_altiumPlugin;
 };
 
@@ -138,6 +143,21 @@ BOOST_AUTO_TEST_CASE( NetCodeRejectsIdPastEnd )
     BOOST_CHECK_THROW( getNetCode( importer, netcodes, 3 ), IO_ERROR );
     BOOST_CHECK_EQUAL( getNetCode( importer, netcodes, ALTIUM_NET_UNCONNECTED ),
                        NETINFO_LIST::UNCONNECTED );
+}
+
+
+// Altium padstacks have 32 signal layer slots: top, mid 1-30 and bottom
+BOOST_AUTO_TEST_CASE( PadstackLayerIndexWithoutStackup )
+{
+    BOARD                 board;
+    LAYER_MAPPING_HANDLER layerMappingHandler;
+    ALTIUM_PCB            importer( &board, nullptr, layerMappingHandler );
+
+    BOOST_CHECK_EQUAL( getPadstackLayerIndex( importer, F_Cu ), 0 );
+    BOOST_CHECK_EQUAL( getPadstackLayerIndex( importer, In30_Cu ), 30 );
+    BOOST_CHECK_EQUAL( getPadstackLayerIndex( importer, B_Cu ), 31 );
+    BOOST_CHECK_EQUAL( getPadstackLayerIndex( importer, In31_Cu ), -1 );
+    BOOST_CHECK_EQUAL( getPadstackLayerIndex( importer, In62_Cu ), -1 );
 }
 
 
