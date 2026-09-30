@@ -37,6 +37,8 @@ common/bitmap_info.cpp      generated
 **/import_gfx/*_base.h      generated
 pcb_calculator/calculator_panels/*_base.cpp    generated
 pcb_calculator/calculator_panels/*_base.h      generated
+**/board_stackup_manager/*_base.cpp     generated
+**/board_stackup_manager/*_base.h       generated
 
 # Lemon grammars
 common/libeval/grammar.c    generated
