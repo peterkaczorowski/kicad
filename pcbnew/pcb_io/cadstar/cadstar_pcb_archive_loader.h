@@ -128,6 +128,9 @@ private:
     PROJECT*                         m_project;
     std::map<LAYER_ID, PCB_LAYER_ID> m_layermap;         ///< Map between Cadstar and KiCad Layers.
                                                          ///< Populated by loadBoardStackup().
+    std::map<PHYSICAL_LAYER_ID, PCB_LAYER_ID> m_copperLayermap; ///< Map between Cadstar physical and
+                                                                ///< KiCad copper layers. Populated by
+                                                                ///< loadBoardStackup().
     std::map<SYMDEF_ID, FOOTPRINT*>  m_libraryMap;       ///< Map between Cadstar and KiCad
                                                          ///< components in the library. Populated
                                                          ///< by loadComponentLibrary(). Owns the
@@ -566,12 +569,11 @@ private:
     NETINFO_ITEM* getKiCadNet( const NET_ID& aCadstarNetID );
 
     /**
-     * @brief
-     * @param aLayerNum Physical / logical layer number (starts at 1)
-     * @param aDetectMaxLayer If true, returns B.Cu if the requested layer is the maximum layer
+     * @brief Map a CADSTAR physical layer number to its imported KiCad copper layer.
+     * @param aLayerNum Physical layer number from the CADSTAR layer definition.
      * @return PCB_LAYER_ID
      */
-    PCB_LAYER_ID getKiCadCopperLayerID( unsigned int aLayerNum, bool aDetectMaxLayer = true );
+    PCB_LAYER_ID getKiCadCopperLayerID( PHYSICAL_LAYER_ID aLayerNum );
 
     /**
      * @brief

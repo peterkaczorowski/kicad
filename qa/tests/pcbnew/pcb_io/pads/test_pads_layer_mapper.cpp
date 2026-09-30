@@ -127,6 +127,11 @@ BOOST_AUTO_TEST_CASE( AutoMapCopper )
     BOOST_CHECK_EQUAL( mapper.GetAutoMapLayer( 4 ), B_Cu );
     BOOST_CHECK_EQUAL( mapper.GetAutoMapLayer( 2 ), In1_Cu );
     BOOST_CHECK_EQUAL( mapper.GetAutoMapLayer( 3 ), In2_Cu );
+
+    mapper.SetCopperLayerCount( MAX_CU_LAYERS );
+
+    BOOST_CHECK_EQUAL( mapper.GetAutoMapLayer( MAX_CU_LAYERS - 1 ), In62_Cu );
+    BOOST_CHECK_EQUAL( mapper.GetAutoMapLayer( MAX_CU_LAYERS ), B_Cu );
 }
 
 

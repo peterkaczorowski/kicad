@@ -425,6 +425,9 @@ private:
     PCB_LAYER_ID MapLayer( int aDipTraceLayer ) const;
     PCB_LAYER_ID MapCopperLayer( int aDipTraceLayer ) const;
 
+    /// Map a DipTrace layer index to a KiCad copper layer, or UNDEFINED_LAYER if it is not copper.
+    PCB_LAYER_ID ResolveCopperLayer( int aDipTraceLayer ) const;
+
     /// Convert a DipTrace coordinate (DipTrace units) to KiCad internal units (nm).
     static int ToKiCadCoord( int aDipTraceCoord );
 

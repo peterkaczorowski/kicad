@@ -332,6 +332,12 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
 
     m_numCopperLayers = cadstarBoardStackup.size();
 
+    if( m_numCopperLayers > MAX_CU_LAYERS )
+    {
+        THROW_IO_ERRORF( _( "The CADSTAR file defines %d copper layers, but KiCad supports a maximum of %d." ),
+                         m_numCopperLayers, MAX_CU_LAYERS );
+    }
+
     // Special case: last layer in the stackup is a construction layer, drop it
     if( cadstarBoardStackup.back().ConstructionLayers.size() > 0 )
     {
@@ -438,6 +444,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
                 m_board->SetLayerType( item->GetBrdLayerId(), copperType );
                 m_board->SetLayerName( item->GetBrdLayerId(), item->GetLayerName() );
                 m_layermap.insert( { copperLayer.ID, item->GetBrdLayerId() } );
+                m_copperLayermap.insert( { copperLayer.PhysicalLayer, item->GetBrdLayerId() } );
             }
         }
         else if( item->GetType() == BOARD_STACKUP_ITEM_TYPE::BS_ITEM_TYPE_DIELECTRIC )
@@ -4065,48 +4072,11 @@ NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNet
 }
 
 
-PCB_LAYER_ID CADSTAR_PCB_ARCHIVE_LOADER::getKiCadCopperLayerID( unsigned int aLayerNum, bool aDetectMaxLayer )
+PCB_LAYER_ID CADSTAR_PCB_ARCHIVE_LOADER::getKiCadCopperLayerID( PHYSICAL_LAYER_ID aLayerNum )
 {
-    if( aDetectMaxLayer && aLayerNum == (unsigned int) m_numCopperLayers )
-        return PCB_LAYER_ID::B_Cu;
+    auto it = m_copperLayermap.find( aLayerNum );
 
-    switch( aLayerNum )
-    {
-    case 1:   return PCB_LAYER_ID::F_Cu;
-    case 2:   return PCB_LAYER_ID::In1_Cu;
-    case 3:   return PCB_LAYER_ID::In2_Cu;
-    case 4:   return PCB_LAYER_ID::In3_Cu;
-    case 5:   return PCB_LAYER_ID::In4_Cu;
-    case 6:   return PCB_LAYER_ID::In5_Cu;
-    case 7:   return PCB_LAYER_ID::In6_Cu;
-    case 8:   return PCB_LAYER_ID::In7_Cu;
-    case 9:   return PCB_LAYER_ID::In8_Cu;
-    case 10:  return PCB_LAYER_ID::In9_Cu;
-    case 11:  return PCB_LAYER_ID::In10_Cu;
-    case 12:  return PCB_LAYER_ID::In11_Cu;
-    case 13:  return PCB_LAYER_ID::In12_Cu;
-    case 14:  return PCB_LAYER_ID::In13_Cu;
-    case 15:  return PCB_LAYER_ID::In14_Cu;
-    case 16:  return PCB_LAYER_ID::In15_Cu;
-    case 17:  return PCB_LAYER_ID::In16_Cu;
-    case 18:  return PCB_LAYER_ID::In17_Cu;
-    case 19:  return PCB_LAYER_ID::In18_Cu;
-    case 20:  return PCB_LAYER_ID::In19_Cu;
-    case 21:  return PCB_LAYER_ID::In20_Cu;
-    case 22:  return PCB_LAYER_ID::In21_Cu;
-    case 23:  return PCB_LAYER_ID::In22_Cu;
-    case 24:  return PCB_LAYER_ID::In23_Cu;
-    case 25:  return PCB_LAYER_ID::In24_Cu;
-    case 26:  return PCB_LAYER_ID::In25_Cu;
-    case 27:  return PCB_LAYER_ID::In26_Cu;
-    case 28:  return PCB_LAYER_ID::In27_Cu;
-    case 29:  return PCB_LAYER_ID::In28_Cu;
-    case 30:  return PCB_LAYER_ID::In29_Cu;
-    case 31:  return PCB_LAYER_ID::In30_Cu;
-    case 32:  return PCB_LAYER_ID::B_Cu;
-    }
-
-    return PCB_LAYER_ID::UNDEFINED_LAYER;
+    return it == m_copperLayermap.end() ? UNDEFINED_LAYER : it->second;
 }
 
 
