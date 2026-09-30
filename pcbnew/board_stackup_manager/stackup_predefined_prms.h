@@ -64,6 +64,9 @@ bool IsPrmSpecified( const wxString& aPrmValue );
 // A default Epsilon R value for silkscreen dielectric
 #define DEFAULT_EPSILON_R_SILKSCREEN 1.0
 
+// Minimum dielectric thickness in mm, used when the fixed stackup items leave no room
+#define MIN_DIELECTRIC_THICKNESS_MM 0.05
+
 // A minor struct to handle color in gerber job file and dialog
 class FAB_LAYER_COLOR
 {

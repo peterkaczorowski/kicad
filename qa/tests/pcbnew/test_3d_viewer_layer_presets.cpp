@@ -30,6 +30,7 @@
 
 #include <layer_ids.h>
 #include <3d_viewer/eda_3d_viewer_settings.h>
+#include <3d_canvas/board_adapter.h>
 
 #include <bitset>
 
@@ -70,6 +71,54 @@ BOOST_AUTO_TEST_CASE( PresetLayerVisibilityRoundTrip )
 
     // Unknown layer names also corrupt bit 0 on load, so the full set must match.
     BOOST_CHECK( actual == expected );
+}
+
+
+BOOST_AUTO_TEST_CASE( AllInnerCopperLayersRoundTrip )
+{
+    EDA_3D_VIEWER_SETTINGS cfg;
+    cfg.Load();
+
+    LAYER_PRESET_3D preset( wxS( "inner copper" ) );
+    BOARD_ADAPTER   adapter;
+    adapter.m_Cfg = &cfg;
+    cfg.m_CurrentPreset.clear();
+
+    for( int inner = 1; inner <= 62; ++inner )
+    {
+        PCB_LAYER_ID pcbLayer = static_cast<PCB_LAYER_ID>( In1_Cu + ( inner - 1 ) * 2 );
+        int          layer3D = MapPCBLayerTo3DLayer( pcbLayer );
+
+        BOOST_REQUIRE_LT( layer3D, LAYER_3D_END );
+        BOOST_CHECK_EQUAL( Map3DLayerToPCBLayer( layer3D ), pcbLayer );
+        BOOST_CHECK( preset.layers.test( layer3D ) );
+        BOOST_CHECK( adapter.GetDefaultVisibleLayers().test( layer3D ) );
+        BOOST_CHECK( cfg.m_Render.show_copper_inner[inner - 1] );
+        preset.layers.set( layer3D, inner % 2 == 0 );
+    }
+
+    adapter.SetVisibleLayers( preset.layers );
+
+    for( int inner = 1; inner <= 62; ++inner )
+    {
+        PCB_LAYER_ID pcbLayer = static_cast<PCB_LAYER_ID>( In1_Cu + ( inner - 1 ) * 2 );
+        BOOST_CHECK_EQUAL( adapter.Is3dLayerEnabled( pcbLayer, adapter.GetVisibleLayers() ), inner % 2 == 0 );
+    }
+
+    cfg.m_LayerPresets.push_back( preset );
+    cfg.Store();
+    cfg.m_LayerPresets.clear();
+
+    for( bool& visible : cfg.m_Render.show_copper_inner )
+        visible = true;
+
+    cfg.Load();
+
+    BOOST_REQUIRE_EQUAL( cfg.m_LayerPresets.size(), 1u );
+    BOOST_CHECK( cfg.m_LayerPresets[0].layers == preset.layers );
+
+    for( int inner = 1; inner <= 62; ++inner )
+        BOOST_CHECK_EQUAL( cfg.m_Render.show_copper_inner[inner - 1], inner % 2 == 0 );
 }
 
 

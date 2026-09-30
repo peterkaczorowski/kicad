@@ -293,6 +293,9 @@ private:
     void parseSetup();
 
     void parseDrillSymbolProfile();
+
+    /// Update the B_Cu ordinal in a drill group key written with at most 32 copper layers.
+    std::string migrateDrillGroupKey( const std::string& aKey ) const;
     void parseDefaults( BOARD_DESIGN_SETTINGS& aSettings );
     void parseDefaultTextDims( BOARD_DESIGN_SETTINGS& aSettings, int aLayer );
     void parseNETINFO_ITEM();
@@ -552,6 +555,7 @@ private:
     std::vector<int>    m_netCodes;         ///< net codes mapping for boards being loaded
     bool                m_tooRecent;        ///< true if version parses as later than supported
     int                 m_requiredVersion;  ///< set to the KiCad format version this board requires
+    int                   m_sourceCopperLayerCount; ///< source count before combining with an append destination
     wxString            m_generatorVersion; ///< Set to the generator version this board requires
     bool                m_appendToExisting; ///< reading into an existing board; reset UUIDs
     bool                m_preserveDestinationStackup; ///< append keeps destination stackup

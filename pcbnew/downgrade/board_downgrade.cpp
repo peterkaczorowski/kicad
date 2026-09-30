@@ -113,6 +113,7 @@ static constexpr int VER_FOOTPRINT_HEIGHT = 20261017;
 static constexpr int VER_LINKED_PLACEMENT = 20261018;
 static constexpr int VER_IMAGE_ROTATION = 20261025;
 static constexpr int VER_IMAGE_OPACITY = 20261025;
+static constexpr int VER_64_COPPER_LAYERS = 20261031;
 
 // The board format these rules were written against. When SEXPR_BOARD_FILE_VERSION moves past
 // it, ClassifyBoardForDowngrade asserts in debug builds until the new format is covered.
@@ -124,7 +125,7 @@ static constexpr int VER_IMAGE_OPACITY = 20261025;
 // 3. Otherwise add a VER_ constant above, a BOARD_RULE row that counts and strips the feature,
 //    and a dated row in BOARD_TOKENS or BOARD_VALUES for each new node head or bareword value.
 // 4. Set this constant to the new version.
-static constexpr int BOARD_DOWNGRADE_COVERED = 20261025;
+static constexpr int BOARD_DOWNGRADE_COVERED = 20261026;
 
 
 static bool isEllipse( const BOARD_ITEM* aItem )
@@ -941,6 +942,21 @@ static void dropPcbPoints( BOARD* aBoard )
 
     for( FOOTPRINT* fp : aBoard->Footprints() )
         dropPcbPointsFp( fp );
+}
+
+
+static int countHighCopperLayers( const BOARD* aBoard )
+{
+    const LSET highLayers = LSET::AllCuMask() & ~LSET::AllCuMask( 32 );
+    int        count = ( aBoard->GetEnabledLayers() & highLayers ).count();
+
+    for( FOOTPRINT* fp : aBoard->Footprints() )
+    {
+        if( fp->GetStackupMode() == FOOTPRINT_STACKUP::CUSTOM_LAYERS )
+            count += ( fp->GetStackupLayers() & highLayers ).count();
+    }
+
+    return count;
 }
 
 
@@ -2804,6 +2820,8 @@ static std::vector<BOARD_RULE> boardRules()
         { VER_ZONE_DEFAULTS, DOWNGRADE_BUCKET::DROP, _( "Per-zone layer properties" ),
           _( "The per-layer overrides are removed." ),
           countZoneLayerProperties, dropZoneLayerProperties, dropZoneLayerPropertiesFp },
+        { VER_64_COPPER_LAYERS, DOWNGRADE_BUCKET::BLOCK, _( "Copper layers past In30.Cu" ),
+          _( "The target supports at most 32 copper layers." ), countHighCopperLayers, nullptr },
         { VER_USER_LAYERS, DOWNGRADE_BUCKET::BLOCK, _( "User layers past User_9" ),
           _( "The target supports only 9 user layers." ),
           countHighUserLayers, nullptr },

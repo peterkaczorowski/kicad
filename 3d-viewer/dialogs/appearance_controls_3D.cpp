@@ -557,7 +557,7 @@ void APPEARANCE_CONTROLS_3D::OnLayerVisibilityChanged( int aLayer, bool isVisibl
         visibleLayers.set( aLayer, isVisible );
 
         if( ( aLayer >= LAYER_3D_USER_1 && aLayer <= LAYER_3D_USER_45 )
-         || ( aLayer >= LAYER_3D_COPPER_INNER_1 && aLayer <= LAYER_3D_COPPER_INNER_30 ) )
+            || ( aLayer >= LAYER_3D_COPPER_INNER_1 && aLayer <= LAYER_3D_COPPER_INNER_62 ) )
         {
             killFollow = true;
         }
