@@ -714,10 +714,10 @@ void PCB_IO_PADS::loadFootprints()
                                 }
                                 else if( pads_layer > 1 && pads_layer < m_parser->GetParameters().layer_count )
                                 {
-                                    int inner_idx = pads_layer - 2;
+                                    PCB_LAYER_ID innerLayer = InnerCopperLayer( pads_layer - 1 );
 
-                                    if( inner_idx >= 0 && inner_idx < 30 )
-                                        return static_cast<PCB_LAYER_ID>( In1_Cu + inner_idx * 2 );
+                                    if( innerLayer != UNDEFINED_LAYER )
+                                        return innerLayer;
                                 }
 
                                 return UNDEFINED_LAYER;

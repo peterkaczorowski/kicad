@@ -881,8 +881,12 @@ void PCAD_PCB::ExtractLayerStackup( wxXmlDocument* aXmlDoc )
                        } );
         }
 
-        if( m_layersStackup.size() > 32 )
-            THROW_IO_ERROR( _( "KiCad only supports 32 signal layers." ) );
+        if( m_layersStackup.size() > MAX_CU_LAYERS )
+        {
+            THROW_IO_ERRORF( _( "The P-CAD file defines %d copper layers, but KiCad supports "
+                                "a maximum of %d." ),
+                             static_cast<int>( m_layersStackup.size() ), MAX_CU_LAYERS );
+        }
     }
 }
 
@@ -1120,7 +1124,8 @@ void PCAD_PCB::AddToBoard( FOOTPRINT* )
     int i;
     PCAD_NET* net;
 
-    m_board->SetCopperLayerCount( m_layersStackup.size() );
+    int copperLayerCount = static_cast<int>( m_layersStackup.size() );
+    m_board->SetCopperLayerCount( copperLayerCount + copperLayerCount % 2 );
 
     for( i = 0; i < (int) m_PcbNetlist.GetCount(); i++ )
     {

@@ -229,10 +229,10 @@ PCB_LAYER_ID PADS_LAYER_MAPPER::mapInnerCopperLayer( int aPadsLayer ) const
     if( innerIndex < 0 )
         innerIndex = 0;
 
-    if( innerIndex >= 30 )
-        innerIndex = 29;
+    if( innerIndex >= MAX_CU_LAYERS - 2 )
+        innerIndex = MAX_CU_LAYERS - 3;
 
-    return static_cast<PCB_LAYER_ID>( In1_Cu + innerIndex * 2 );
+    return InnerCopperLayer( innerIndex + 1 );
 }
 
 

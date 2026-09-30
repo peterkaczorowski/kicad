@@ -85,43 +85,19 @@ PCB_LAYER_ID PCB_IO_EASYEDA_PARSER::LayerToKi( const wxString& aLayer )
 
     case 19: return F_Fab; // 3D model
 
-    case 21: return In1_Cu;
-    case 22: return In2_Cu;
-    case 23: return In3_Cu;
-    case 24: return In4_Cu;
-    case 25: return In5_Cu;
-    case 26: return In6_Cu;
-    case 27: return In7_Cu;
-    case 28: return In8_Cu;
-    case 29: return In9_Cu;
-    case 30: return In10_Cu;
-    case 31: return In11_Cu;
-    case 32: return In12_Cu;
-    case 33: return In13_Cu;
-    case 34: return In14_Cu;
-    case 35: return In15_Cu;
-    case 36: return In16_Cu;
-    case 37: return In17_Cu;
-    case 38: return In18_Cu;
-    case 39: return In19_Cu;
-    case 40: return In20_Cu;
-    case 41: return In21_Cu;
-    case 42: return In22_Cu;
-    case 43: return In23_Cu;
-    case 44: return In24_Cu;
-    case 45: return In25_Cu;
-    case 46: return In26_Cu;
-    case 47: return In27_Cu;
-    case 48: return In28_Cu;
-    case 49: return In29_Cu;
-    case 50: return In30_Cu;
-
     case 99: return User_3;
     case 100: return User_4;
     case 101: return User_5;
 
     default: break;
     }
+
+    // EasyEDA Standard layer tables list 32 inner copper layers, Inner1 to Inner32 are 21 to 52
+    constexpr int innerLayerOffset = 20;
+    constexpr int innerLayerCount = 32;
+
+    if( elayer > innerLayerOffset && elayer <= innerLayerOffset + innerLayerCount )
+        return InnerCopperLayer( elayer - innerLayerOffset );
 
     return User_1;
 }
