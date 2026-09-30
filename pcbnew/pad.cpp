@@ -884,32 +884,8 @@ bool PAD::IsBackdrilledOrPostMachined( PCB_LAYER_ID aLayer ) const
 
     if( secondaryDrill.size.x > 0 && secondaryDrill.start != UNDEFINED_LAYER && secondaryDrill.end != UNDEFINED_LAYER )
     {
-        // Secondary drill goes from start to end layer, removing copper on those layers
-        int startOrdinal = board->IsLayerEnabled( secondaryDrill.start )
-                ? board->IsLayerEnabled( F_Cu ) ? ( secondaryDrill.start == F_Cu ? 0
-                                                                                 : secondaryDrill.start / 2 + 1 )
-                                                 : secondaryDrill.start / 2
-                : -1;
-        int endOrdinal = board->IsLayerEnabled( secondaryDrill.end )
-                ? board->IsLayerEnabled( F_Cu ) ? ( secondaryDrill.end == B_Cu ? board->GetCopperLayerCount() - 1
-                                                                               : secondaryDrill.end / 2 + 1 )
-                                                : secondaryDrill.end / 2
-                : -1;
-        int layerOrdinal = board->IsLayerEnabled( aLayer )
-                ? board->IsLayerEnabled( F_Cu ) ? ( aLayer == F_Cu ? 0
-                                                                   : aLayer == B_Cu ? board->GetCopperLayerCount() - 1
-                                                                                    : aLayer / 2 + 1 )
-                                                : aLayer / 2
-                : -1;
-
-        if( layerOrdinal >= 0 && startOrdinal >= 0 && endOrdinal >= 0 )
-        {
-            if( startOrdinal > endOrdinal )
-                std::swap( startOrdinal, endOrdinal );
-
-            if( layerOrdinal >= startOrdinal && layerOrdinal <= endOrdinal )
-                return true;
-        }
+        if( LAYER_RANGE::Contains( secondaryDrill.start, secondaryDrill.end, aLayer ) )
+            return true;
     }
 
     // Check tertiary drill (backdrill from bottom)
@@ -917,31 +893,8 @@ bool PAD::IsBackdrilledOrPostMachined( PCB_LAYER_ID aLayer ) const
 
     if( tertiaryDrill.size.x > 0 && tertiaryDrill.start != UNDEFINED_LAYER && tertiaryDrill.end != UNDEFINED_LAYER )
     {
-        int startOrdinal = board->IsLayerEnabled( tertiaryDrill.start )
-                ? board->IsLayerEnabled( F_Cu ) ? ( tertiaryDrill.start == F_Cu ? 0
-                                                                                : tertiaryDrill.start / 2 + 1 )
-                                                : tertiaryDrill.start / 2
-                : -1;
-        int endOrdinal = board->IsLayerEnabled( tertiaryDrill.end )
-                ? board->IsLayerEnabled( F_Cu ) ? ( tertiaryDrill.end == B_Cu ? board->GetCopperLayerCount() - 1
-                                                                              : tertiaryDrill.end / 2 + 1 )
-                                                : tertiaryDrill.end / 2
-                : -1;
-        int layerOrdinal = board->IsLayerEnabled( aLayer )
-                ? board->IsLayerEnabled( F_Cu ) ? ( aLayer == F_Cu ? 0
-                                                                   : aLayer == B_Cu ? board->GetCopperLayerCount() - 1
-                                                                                    : aLayer / 2 + 1 )
-                                                : aLayer / 2
-                : -1;
-
-        if( layerOrdinal >= 0 && startOrdinal >= 0 && endOrdinal >= 0 )
-        {
-            if( startOrdinal > endOrdinal )
-                std::swap( startOrdinal, endOrdinal );
-
-            if( layerOrdinal >= startOrdinal && layerOrdinal <= endOrdinal )
-                return true;
-        }
+        if( LAYER_RANGE::Contains( tertiaryDrill.start, tertiaryDrill.end, aLayer ) )
+            return true;
     }
 
     // Check if the layer is affected by post-machining
