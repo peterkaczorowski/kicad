@@ -188,6 +188,7 @@ types::KiCadObjectType ToProtoEnum( KICAD_T aValue )
 template<> KICOMMON_API
 PCB_LAYER_ID FromProtoEnum( board::types::BoardLayer aValue )
 {
+    // clang-format off
     switch( aValue )
     {
     case board::types::BoardLayer::BL_UNDEFINED:   return UNDEFINED_LAYER;
@@ -223,6 +224,38 @@ PCB_LAYER_ID FromProtoEnum( board::types::BoardLayer aValue )
     case board::types::BoardLayer::BL_In28_Cu:     return In28_Cu;
     case board::types::BoardLayer::BL_In29_Cu:     return In29_Cu;
     case board::types::BoardLayer::BL_In30_Cu:     return In30_Cu;
+    case board::types::BoardLayer::BL_In31_Cu:     return In31_Cu;
+    case board::types::BoardLayer::BL_In32_Cu:     return In32_Cu;
+    case board::types::BoardLayer::BL_In33_Cu:     return In33_Cu;
+    case board::types::BoardLayer::BL_In34_Cu:     return In34_Cu;
+    case board::types::BoardLayer::BL_In35_Cu:     return In35_Cu;
+    case board::types::BoardLayer::BL_In36_Cu:     return In36_Cu;
+    case board::types::BoardLayer::BL_In37_Cu:     return In37_Cu;
+    case board::types::BoardLayer::BL_In38_Cu:     return In38_Cu;
+    case board::types::BoardLayer::BL_In39_Cu:     return In39_Cu;
+    case board::types::BoardLayer::BL_In40_Cu:     return In40_Cu;
+    case board::types::BoardLayer::BL_In41_Cu:     return In41_Cu;
+    case board::types::BoardLayer::BL_In42_Cu:     return In42_Cu;
+    case board::types::BoardLayer::BL_In43_Cu:     return In43_Cu;
+    case board::types::BoardLayer::BL_In44_Cu:     return In44_Cu;
+    case board::types::BoardLayer::BL_In45_Cu:     return In45_Cu;
+    case board::types::BoardLayer::BL_In46_Cu:     return In46_Cu;
+    case board::types::BoardLayer::BL_In47_Cu:     return In47_Cu;
+    case board::types::BoardLayer::BL_In48_Cu:     return In48_Cu;
+    case board::types::BoardLayer::BL_In49_Cu:     return In49_Cu;
+    case board::types::BoardLayer::BL_In50_Cu:     return In50_Cu;
+    case board::types::BoardLayer::BL_In51_Cu:     return In51_Cu;
+    case board::types::BoardLayer::BL_In52_Cu:     return In52_Cu;
+    case board::types::BoardLayer::BL_In53_Cu:     return In53_Cu;
+    case board::types::BoardLayer::BL_In54_Cu:     return In54_Cu;
+    case board::types::BoardLayer::BL_In55_Cu:     return In55_Cu;
+    case board::types::BoardLayer::BL_In56_Cu:     return In56_Cu;
+    case board::types::BoardLayer::BL_In57_Cu:     return In57_Cu;
+    case board::types::BoardLayer::BL_In58_Cu:     return In58_Cu;
+    case board::types::BoardLayer::BL_In59_Cu:     return In59_Cu;
+    case board::types::BoardLayer::BL_In60_Cu:     return In60_Cu;
+    case board::types::BoardLayer::BL_In61_Cu:     return In61_Cu;
+    case board::types::BoardLayer::BL_In62_Cu:     return In62_Cu;
     case board::types::BoardLayer::BL_B_Cu:        return B_Cu;
     case board::types::BoardLayer::BL_B_Adhes:     return B_Adhes;
     case board::types::BoardLayer::BL_F_Adhes:     return F_Adhes;
@@ -294,12 +327,14 @@ PCB_LAYER_ID FromProtoEnum( board::types::BoardLayer aValue )
         wxCHECK_MSG( false, UNDEFINED_LAYER,
                      "Unhandled case in FromProtoEnum<board::types::BoardLayer>" );
     }
+    // clang-format on
 }
 
 
 template<> KICOMMON_API
 board::types::BoardLayer ToProtoEnum( PCB_LAYER_ID aValue )
 {
+    // clang-format off
     switch( aValue )
     {
     case UNDEFINED_LAYER:   return board::types::BoardLayer::BL_UNDEFINED;
@@ -335,6 +370,38 @@ board::types::BoardLayer ToProtoEnum( PCB_LAYER_ID aValue )
     case In28_Cu:           return board::types::BoardLayer::BL_In28_Cu;
     case In29_Cu:           return board::types::BoardLayer::BL_In29_Cu;
     case In30_Cu:           return board::types::BoardLayer::BL_In30_Cu;
+    case In31_Cu:           return board::types::BoardLayer::BL_In31_Cu;
+    case In32_Cu:           return board::types::BoardLayer::BL_In32_Cu;
+    case In33_Cu:           return board::types::BoardLayer::BL_In33_Cu;
+    case In34_Cu:           return board::types::BoardLayer::BL_In34_Cu;
+    case In35_Cu:           return board::types::BoardLayer::BL_In35_Cu;
+    case In36_Cu:           return board::types::BoardLayer::BL_In36_Cu;
+    case In37_Cu:           return board::types::BoardLayer::BL_In37_Cu;
+    case In38_Cu:           return board::types::BoardLayer::BL_In38_Cu;
+    case In39_Cu:           return board::types::BoardLayer::BL_In39_Cu;
+    case In40_Cu:           return board::types::BoardLayer::BL_In40_Cu;
+    case In41_Cu:           return board::types::BoardLayer::BL_In41_Cu;
+    case In42_Cu:           return board::types::BoardLayer::BL_In42_Cu;
+    case In43_Cu:           return board::types::BoardLayer::BL_In43_Cu;
+    case In44_Cu:           return board::types::BoardLayer::BL_In44_Cu;
+    case In45_Cu:           return board::types::BoardLayer::BL_In45_Cu;
+    case In46_Cu:           return board::types::BoardLayer::BL_In46_Cu;
+    case In47_Cu:           return board::types::BoardLayer::BL_In47_Cu;
+    case In48_Cu:           return board::types::BoardLayer::BL_In48_Cu;
+    case In49_Cu:           return board::types::BoardLayer::BL_In49_Cu;
+    case In50_Cu:           return board::types::BoardLayer::BL_In50_Cu;
+    case In51_Cu:           return board::types::BoardLayer::BL_In51_Cu;
+    case In52_Cu:           return board::types::BoardLayer::BL_In52_Cu;
+    case In53_Cu:           return board::types::BoardLayer::BL_In53_Cu;
+    case In54_Cu:           return board::types::BoardLayer::BL_In54_Cu;
+    case In55_Cu:           return board::types::BoardLayer::BL_In55_Cu;
+    case In56_Cu:           return board::types::BoardLayer::BL_In56_Cu;
+    case In57_Cu:           return board::types::BoardLayer::BL_In57_Cu;
+    case In58_Cu:           return board::types::BoardLayer::BL_In58_Cu;
+    case In59_Cu:           return board::types::BoardLayer::BL_In59_Cu;
+    case In60_Cu:           return board::types::BoardLayer::BL_In60_Cu;
+    case In61_Cu:           return board::types::BoardLayer::BL_In61_Cu;
+    case In62_Cu:           return board::types::BoardLayer::BL_In62_Cu;
     case B_Cu:              return board::types::BoardLayer::BL_B_Cu;
     case B_Adhes:           return board::types::BoardLayer::BL_B_Adhes;
     case F_Adhes:           return board::types::BoardLayer::BL_F_Adhes;
@@ -404,6 +471,7 @@ board::types::BoardLayer ToProtoEnum( PCB_LAYER_ID aValue )
         wxCHECK_MSG( false, board::types::BoardLayer::BL_UNKNOWN,
                      "Unhandled case in ToProtoEnum<PCB_LAYER_ID>");
     }
+    // clang-format on
 }
 
 

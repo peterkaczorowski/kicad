@@ -631,7 +631,7 @@ HANDLER_RESULT<BoardEnabledLayersResponse> API_HANDLER_PCB::handleSetBoardEnable
     {
         ApiResponseStatus e;
         e.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        e.set_error_message( fmt::format( "copper_layer_count must be below %d", MAX_CU_LAYERS ) );
+        e.set_error_message( fmt::format( "copper_layer_count must be at most {}", MAX_CU_LAYERS ) );
         return tl::unexpected( e );
     }
 
@@ -1395,6 +1395,14 @@ HANDLER_RESULT<BoardLayerNameResponse> API_HANDLER_PCB::handleGetBoardLayerName(
     BoardLayerNameResponse response;
 
     PCB_LAYER_ID id = FromProtoEnum<PCB_LAYER_ID>( aCtx.Request.layer() );
+
+    if( id < 0 )
+    {
+        ApiResponseStatus e;
+        e.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        e.set_error_message( "Request contains an invalid layer" );
+        return tl::unexpected( e );
+    }
 
     response.set_name( board()->GetLayerName( id ) );
 

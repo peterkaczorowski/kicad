@@ -127,6 +127,41 @@ enum BoardLayer
   BL_User_43 = 96;
   BL_User_44 = 97;
   BL_User_45 = 98;
+
+  // Inner copper layers 31 through 62
+  // Since: 11.0
+  BL_In31_Cu = 99;
+  BL_In32_Cu = 100;
+  BL_In33_Cu = 101;
+  BL_In34_Cu = 102;
+  BL_In35_Cu = 103;
+  BL_In36_Cu = 104;
+  BL_In37_Cu = 105;
+  BL_In38_Cu = 106;
+  BL_In39_Cu = 107;
+  BL_In40_Cu = 108;
+  BL_In41_Cu = 109;
+  BL_In42_Cu = 110;
+  BL_In43_Cu = 111;
+  BL_In44_Cu = 112;
+  BL_In45_Cu = 113;
+  BL_In46_Cu = 114;
+  BL_In47_Cu = 115;
+  BL_In48_Cu = 116;
+  BL_In49_Cu = 117;
+  BL_In50_Cu = 118;
+  BL_In51_Cu = 119;
+  BL_In52_Cu = 120;
+  BL_In53_Cu = 121;
+  BL_In54_Cu = 122;
+  BL_In55_Cu = 123;
+  BL_In56_Cu = 124;
+  BL_In57_Cu = 125;
+  BL_In58_Cu = 126;
+  BL_In59_Cu = 127;
+  BL_In60_Cu = 128;
+  BL_In61_Cu = 129;
+  BL_In62_Cu = 130;
 }
 
 // Deprecated: Use Net with the name property only

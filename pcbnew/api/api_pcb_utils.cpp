@@ -166,7 +166,7 @@ LSET UnpackLayerSet( const google::protobuf::RepeatedField<int>& aProtoLayerSet 
 
     for( int layer : aProtoLayerSet )
     {
-        wxCHECK2( layer >= F_Cu && layer < PCB_LAYER_ID_COUNT, continue );
+        wxCHECK2( types::BoardLayer_IsValid( layer ), continue );
         PCB_LAYER_ID boardLayer =
                 FromProtoEnum<PCB_LAYER_ID>( static_cast<types::BoardLayer>( layer ) );
 
@@ -262,7 +262,15 @@ void UnpackZoneLayerOverrides( std::map<PCB_LAYER_ID, ZONE_LAYER_OVERRIDE>& aOut
         default: break;
         }
 
-        aOutput[FromProtoEnum<PCB_LAYER_ID>( entry.layer() )] = overrideVal;
+        if( !types::BoardLayer_IsValid( entry.layer() ) )
+            continue;
+
+        PCB_LAYER_ID layer = FromProtoEnum<PCB_LAYER_ID>( entry.layer() );
+
+        if( layer < 0 )
+            continue;
+
+        aOutput[layer] = overrideVal;
     }
 }
 
