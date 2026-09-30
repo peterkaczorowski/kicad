@@ -172,8 +172,20 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
                 { "otherItems", true }
             } ) );
 
-    m_params.emplace_back( new PARAM_ENUM<PCB_LAYER_ID>( "board.active_layer",
-                           &m_ActiveLayer, F_Cu, PCBNEW_LAYER_ID_START, F_Fab ) );
+    m_params.emplace_back( new PARAM_LAMBDA<int>(
+            "board.active_layer",
+            [&]()
+            {
+                return static_cast<int>( m_ActiveLayer );
+            },
+            [&]( int aLayer )
+            {
+                if( IsValidLayer( aLayer ) && aLayer != Rescue )
+                    m_ActiveLayer = static_cast<PCB_LAYER_ID>( aLayer );
+                else
+                    m_ActiveLayer = F_Cu;
+            },
+            static_cast<int>( F_Cu ) ) );
 
     m_params.emplace_back( new PARAM<wxString>( "board.active_layer_preset",
                            &m_ActiveLayerPreset, "" ) );
@@ -463,6 +475,16 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
                     else
                         At( "board" ).erase( "visible_items" );
 
+                    m_wasMigrated = true;
+                }
+
+                // PCB layer IDs were reorganized after the last released schema-3 writer.
+                std::string activeLayerPtr( "board.active_layer" );
+
+                if( Contains( activeLayerPtr ) && At( activeLayerPtr ).is_number_integer() )
+                {
+                    int legacyLayer = At( activeLayerPtr ).get<int>();
+                    At( activeLayerPtr ) = static_cast<int>( BoardLayerFromLegacyId( legacyLayer ) );
                     m_wasMigrated = true;
                 }
 
