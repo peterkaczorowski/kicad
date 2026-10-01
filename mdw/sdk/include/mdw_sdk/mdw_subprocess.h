@@ -50,4 +50,19 @@ MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
                                    const std::string&              aWorkingDir = std::string(),
                                    const std::string&              aStdin = std::string() );
 
+/**
+ * Join an argument vector into a single Windows command line.
+ *
+ * CreateProcess takes one string and the child splits it again, so an argument
+ * containing a space, a tab or a quote has to be quoted such that the child's
+ * runtime recovers it exactly. Backslashes are only special immediately before a
+ * quote, where each one must be doubled, which is the part implementations
+ * usually get wrong. Project paths routinely contain spaces, so this is on the
+ * normal path rather than an edge case.
+ *
+ * Declared on every platform, and built on every platform, so the quoting can be
+ * tested where the tests run rather than only where it is used.
+ */
+std::string MDW_WindowsCommandLine( const std::vector<std::string>& aArgv );
+
 #endif // MDW_SUBPROCESS_H

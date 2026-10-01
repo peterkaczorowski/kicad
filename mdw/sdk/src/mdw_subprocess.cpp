@@ -19,13 +19,197 @@
 
 #include <mdw_sdk/mdw_subprocess.h>
 
+
+std::string MDW_WindowsCommandLine( const std::vector<std::string>& aArgv )
+{
+    std::string command;
+
+    for( const std::string& arg : aArgv )
+    {
+        if( !command.empty() )
+            command += ' ';
+
+        if( !arg.empty() && arg.find_first_of( " \t\n\v\"" ) == std::string::npos )
+        {
+            command += arg;
+            continue;
+        }
+
+        command += '"';
+
+        for( std::size_t i = 0; ; ++i )
+        {
+            std::size_t backslashes = 0;
+
+            while( i < arg.size() && arg[i] == '\\' )
+            {
+                ++i;
+                ++backslashes;
+            }
+
+            if( i == arg.size() )
+            {
+                // Trailing backslashes would otherwise escape the closing quote.
+                command.append( backslashes * 2, '\\' );
+                break;
+            }
+
+            if( arg[i] == '"' )
+                command.append( backslashes * 2 + 1, '\\' );
+            else
+                command.append( backslashes, '\\' );
+
+            command += arg[i];
+        }
+
+        command += '"';
+    }
+
+    return command;
+}
+
+
 #if defined( _WIN32 )
 
-MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>&, const std::string&,
-                                   const std::string& )
+#include <thread>
+
+#include <windows.h>
+
+namespace
 {
-    // TODO Windows CreateProcess implementation with pipe redirection.
+/// Read a pipe to EOF. Run on its own thread so a child filling one pipe while
+/// the parent reads the other cannot deadlock.
+void drainPipe( HANDLE aPipe, std::string& aInto )
+{
+    char  buffer[4096];
+    DWORD count = 0;
+
+    while( ReadFile( aPipe, buffer, sizeof( buffer ), &count, nullptr ) && count > 0 )
+        aInto.append( buffer, count );
+}
+
+
+struct HANDLE_PAIR
+{
+    HANDLE read = nullptr;
+    HANDLE write = nullptr;
+
+    ~HANDLE_PAIR()
+    {
+        if( read )
+            CloseHandle( read );
+
+        if( write )
+            CloseHandle( write );
+    }
+
+    /// Create the pipe with both ends inheritable, then clear inheritance on the
+    /// end the parent keeps. A child holding a copy of the parent's end would
+    /// keep the pipe open and the drain would never see EOF.
+    bool Open( bool aParentKeepsRead )
+    {
+        SECURITY_ATTRIBUTES attrs{};
+        attrs.nLength = sizeof( attrs );
+        attrs.bInheritHandle = TRUE;
+
+        if( !CreatePipe( &read, &write, &attrs, 0 ) )
+        {
+            read = nullptr;
+            write = nullptr;
+            return false;
+        }
+
+        return SetHandleInformation( aParentKeepsRead ? read : write, HANDLE_FLAG_INHERIT, 0 );
+    }
+};
+}
+
+
+MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
+                                   const std::string& aWorkingDir, const std::string& aStdin )
+{
     MDW_PROCESS_RESULT result;
+
+    if( aArgv.empty() )
+        return result;
+
+    HANDLE_PAIR in;
+    HANDLE_PAIR out;
+    HANDLE_PAIR err;
+
+    if( !in.Open( false ) || !out.Open( true ) || !err.Open( true ) )
+        return result;
+
+    STARTUPINFOA startup{};
+    startup.cb = sizeof( startup );
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = in.read;
+    startup.hStdOutput = out.write;
+    startup.hStdError = err.write;
+
+    PROCESS_INFORMATION process{};
+
+    // CreateProcess writes to the command line buffer, so it cannot be const.
+    std::string commandLine = MDW_WindowsCommandLine( aArgv );
+    std::vector<char> mutableCommandLine( commandLine.begin(), commandLine.end() );
+    mutableCommandLine.push_back( '\0' );
+
+    // A null application name is what makes the program name resolve against
+    // PATH, matching execvp on the POSIX side.
+    BOOL launched = CreateProcessA( nullptr, mutableCommandLine.data(), nullptr, nullptr, TRUE, 0,
+                                    nullptr, aWorkingDir.empty() ? nullptr : aWorkingDir.c_str(),
+                                    &startup, &process );
+
+    if( !launched )
+        return result;
+
+    // The child owns its ends now. Closing the parent's copies is what lets the
+    // reads below terminate once the child exits.
+    CloseHandle( in.read );
+    in.read = nullptr;
+    CloseHandle( out.write );
+    out.write = nullptr;
+    CloseHandle( err.write );
+    err.write = nullptr;
+
+    std::thread outReader( [&]() { drainPipe( out.read, result.out ); } );
+    std::thread errReader( [&]() { drainPipe( err.read, result.err ); } );
+
+    if( !aStdin.empty() )
+    {
+        std::size_t written = 0;
+
+        while( written < aStdin.size() )
+        {
+            DWORD count = 0;
+
+            if( !WriteFile( in.write, aStdin.data() + written,
+                            static_cast<DWORD>( aStdin.size() - written ), &count, nullptr )
+                || count == 0 )
+            {
+                break;
+            }
+
+            written += count;
+        }
+    }
+
+    CloseHandle( in.write );
+    in.write = nullptr;
+
+    outReader.join();
+    errReader.join();
+
+    WaitForSingleObject( process.hProcess, INFINITE );
+
+    DWORD exitCode = 0;
+    result.started = true;
+    result.exit_code = GetExitCodeProcess( process.hProcess, &exitCode ) ? static_cast<int>( exitCode )
+                                                                        : -1;
+
+    CloseHandle( process.hThread );
+    CloseHandle( process.hProcess );
+
     return result;
 }
 
