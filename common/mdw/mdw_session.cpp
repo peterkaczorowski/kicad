@@ -22,9 +22,12 @@
  */
 
 #include <mdw/mdw_session.h>
+#include <mdw/mdw_credential_store.h>
 #include <mdw/mdw_event_pub_bridge.h>
 
 #include <kinng.h>
+
+#include <api/mdw/backend_base.pb.h>
 
 #include <wx/filename.h>
 
@@ -35,6 +38,76 @@ MDW_SESSION::MDW_SESSION( const wxString& aProjectPath, const MDW_PROJECT_BINDIN
         m_binding( aBinding ),
         m_supervisor( std::move( aSupervisor ) )
 {
+}
+
+
+bool MDW_SESSION::Authenticate( MDW_CREDENTIAL_STORE& aStore, int aTimeoutMs )
+{
+    MDW_BACKEND* backend = Backend();
+
+    if( !backend )
+        return false;
+
+    // A backend that needs no credentials answers IsAuthenticated true from the
+    // start, so asking first keeps the keychain out of the git backend's path
+    // entirely rather than prompting for secrets it will ignore.
+    kiapi::mdw::IsAuthenticatedRequest probe;
+    kiapi::mdw::IsAuthenticatedReply   probeReply;
+
+    if( backend->CallSync( probe, probeReply, aTimeoutMs ) == MDW_ERROR_CODE::SUCCESS
+        && probeReply.authenticated() )
+    {
+        m_authenticated = true;
+        return true;
+    }
+
+    kiapi::mdw::AuthenticateRequest request;
+    kiapi::mdw::Credentials*        creds = request.mutable_credentials();
+
+    wxString token;
+
+    if( aStore.LoadRefreshToken( m_binding.backend_id, m_binding.workspace_id, token ).IsOk()
+        && !token.IsEmpty() )
+    {
+        creds->set_refresh_token( std::string( token.utf8_string() ) );
+        creds->set_method( "token" );
+    }
+    else
+    {
+        creds->set_method( "password" );
+    }
+
+    for( const wxString& field : { wxS( "username" ), wxS( "password" ) } )
+    {
+        wxString value;
+
+        if( aStore.Load( m_binding.backend_id, m_binding.workspace_id, field, value ).IsOk()
+            && !value.IsEmpty() )
+        {
+            ( *creds->mutable_fields() )[std::string( field.utf8_string() )] =
+                    std::string( value.utf8_string() );
+        }
+    }
+
+    kiapi::mdw::AuthResult reply;
+
+    if( backend->CallSync( request, reply, aTimeoutMs ) != MDW_ERROR_CODE::SUCCESS )
+    {
+        m_authenticated = false;
+        return false;
+    }
+
+    // A rotated token replaces the stored one; the old value is useless once the
+    // backend has minted its successor.
+    if( !reply.refresh_token().empty() )
+    {
+        aStore.StoreRefreshToken( m_binding.backend_id, m_binding.workspace_id,
+                                  wxString::FromUTF8( reply.refresh_token() ) );
+    }
+
+    m_authenticated = reply.authenticated();
+
+    return m_authenticated;
 }
 
 

@@ -56,6 +56,12 @@ MDW_SESSION* MDW_FRAMEWORK::OpenSession( const wxString& aProjectPath,
     auto session = std::make_unique<MDW_SESSION>( aProjectPath, aBinding, std::move( supervisor ) );
     MDW_SESSION* raw = session.get();
 
+    // Authenticate before the session is published, so nothing can borrow it and
+    // issue operations while it is still anonymous. A failure is not fatal: the
+    // session stays open and unauthenticated so the UI can report it and offer
+    // Configure, rather than the project silently appearing unbound.
+    session->Authenticate( m_credentialStore, aTimeoutMs );
+
     std::unique_ptr<MDW_SESSION> previous;
 
     {

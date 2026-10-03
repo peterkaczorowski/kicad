@@ -27,8 +27,27 @@
 
 #include <mdw/mdw_backend_supervisor.h>
 #include <mdw/mdw_backend.h>
+#include <mdw/mdw_credential_store.h>
+#include <mdw/mdw_session.h>
+
+#include <memory>
 
 #include <wx/utils.h>
+
+
+namespace
+{
+MDW_BACKEND_MANIFEST mockManifest()
+{
+    MDW_BACKEND_MANIFEST manifest;
+    manifest.backend_id = wxS( "org.kicad.mdw.mock" );
+    manifest.display_name = wxS( "Mock Workspace" );
+    manifest.executable_path = wxString::FromUTF8( MDW_MOCK_EXECUTABLE );
+    manifest.valid = true;
+
+    return manifest;
+}
+}
 
 BOOST_AUTO_TEST_SUITE( MdwSupervisor )
 
@@ -60,6 +79,86 @@ BOOST_AUTO_TEST_CASE( SpawnHandshakeShutdown )
 
     supervisor.Shutdown();
     BOOST_CHECK( !supervisor.Online() );
+}
+
+
+/*
+ * Most backends need no credentials, and the git reference backend is one, so
+ * the framework must not make an unauthenticated session out of a backend that
+ * considers itself authenticated already. The keychain is never consulted on
+ * this path, which is what lets this run without one.
+ */
+BOOST_AUTO_TEST_CASE( AuthenticateAcceptsBackendNeedingNoCredentials )
+{
+    wxUnsetEnv( wxS( "MDW_MOCK_REQUIRE_AUTH" ) );
+
+    auto supervisor = std::make_unique<MDW_BACKEND_SUPERVISOR>( mockManifest() );
+    BOOST_REQUIRE( supervisor->Launch( wxS( "10.0" ), 5000 ) );
+
+    MDW_PROJECT_BINDING binding;
+    binding.backend_id = wxS( "org.kicad.mdw.mock" );
+    binding.workspace_id = wxS( "ws" );
+
+    MDW_SESSION          session( wxS( "/tmp/p.kicad_pro" ), binding, std::move( supervisor ) );
+    MDW_CREDENTIAL_STORE store;
+
+    BOOST_CHECK( session.Authenticate( store, 5000 ) );
+    BOOST_CHECK( session.Authenticated() );
+}
+
+
+/*
+ * A backend that does require credentials is asked for them. The store is empty
+ * here, so this pins the framework issuing the Authenticate call at all, which
+ * is what was missing: every backend implemented the handler and nothing called
+ * it.
+ */
+BOOST_AUTO_TEST_CASE( AuthenticateCallsBackendThatRequiresCredentials )
+{
+    wxSetEnv( wxS( "MDW_MOCK_REQUIRE_AUTH" ), wxS( "1" ) );
+
+    auto supervisor = std::make_unique<MDW_BACKEND_SUPERVISOR>( mockManifest() );
+    BOOST_REQUIRE( supervisor->Launch( wxS( "10.0" ), 5000 ) );
+
+    MDW_PROJECT_BINDING binding;
+    binding.backend_id = wxS( "org.kicad.mdw.mock" );
+    binding.workspace_id = wxS( "ws" );
+
+    MDW_SESSION          session( wxS( "/tmp/p.kicad_pro" ), binding, std::move( supervisor ) );
+    MDW_CREDENTIAL_STORE store;
+
+    BOOST_CHECK( session.Authenticate( store, 5000 ) );
+    BOOST_CHECK( session.Authenticated() );
+
+    wxUnsetEnv( wxS( "MDW_MOCK_REQUIRE_AUTH" ) );
+}
+
+
+/*
+ * A rejected credential leaves the session open but unauthenticated, so the UI
+ * can say so and offer Configure rather than the project looking unbound.
+ */
+BOOST_AUTO_TEST_CASE( AuthenticateFailureLeavesSessionUnauthenticated )
+{
+    wxSetEnv( wxS( "MDW_MOCK_REQUIRE_AUTH" ), wxS( "1" ) );
+    wxSetEnv( wxS( "MDW_MOCK_FAIL_AUTH" ), wxS( "1" ) );
+
+    auto supervisor = std::make_unique<MDW_BACKEND_SUPERVISOR>( mockManifest() );
+    BOOST_REQUIRE( supervisor->Launch( wxS( "10.0" ), 5000 ) );
+
+    MDW_PROJECT_BINDING binding;
+    binding.backend_id = wxS( "org.kicad.mdw.mock" );
+    binding.workspace_id = wxS( "ws" );
+
+    MDW_SESSION          session( wxS( "/tmp/p.kicad_pro" ), binding, std::move( supervisor ) );
+    MDW_CREDENTIAL_STORE store;
+
+    BOOST_CHECK( !session.Authenticate( store, 5000 ) );
+    BOOST_CHECK( !session.Authenticated() );
+    BOOST_CHECK( session.Online() );
+
+    wxUnsetEnv( wxS( "MDW_MOCK_FAIL_AUTH" ) );
+    wxUnsetEnv( wxS( "MDW_MOCK_REQUIRE_AUTH" ) );
 }
 
 

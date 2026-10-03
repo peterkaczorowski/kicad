@@ -122,6 +122,14 @@ bool envSet( const char* aName )
 }
 
 
+/// Whether a successful Authenticate has been seen, for MDW_MOCK_REQUIRE_AUTH.
+std::atomic<bool> g_authenticated{ false };
+
+/// The method named by the last accepted credentials, so a test can tell a token
+/// replay from a password login.
+std::string g_lastAuthMethod;
+
+
 /// Advertised capability group names, from MDW_MOCK_CAPABILITIES or the default set.
 const std::set<std::string>& advertisedGroups()
 {
@@ -241,7 +249,8 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                            std::atomic<uint64_t>* aSeq, bool aEvents )
 {
     aServer.RegisterHandler<mdw::AuthenticateRequest, mdw::AuthResult>(
-            []( const mdw::AuthenticateRequest&, mdw::AuthResult& aReply ) -> ws::WorkspaceError
+            []( const mdw::AuthenticateRequest& aRequest,
+                mdw::AuthResult& aReply ) -> ws::WorkspaceError
             {
                 injectLatency();
 
@@ -250,6 +259,9 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                     aReply.set_authenticated( false );
                     return MdwFail( ws::WE_AUTH_FAILED, "denied" );
                 }
+
+                g_authenticated.store( true );
+                g_lastAuthMethod = aRequest.credentials().method();
 
                 aReply.set_authenticated( true );
                 aReply.set_user_id( USER );
@@ -270,7 +282,12 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer, MDW_EVENT_PUBLISHER* aPu
                 mdw::IsAuthenticatedReply& aReply ) -> ws::WorkspaceError
             {
                 injectLatency();
-                aReply.set_authenticated( true );
+
+                // Most backends need no credentials and are authenticated from
+                // the start. MDW_MOCK_REQUIRE_AUTH models one that does, so the
+                // framework's Authenticate path can be driven both ways.
+                aReply.set_authenticated( !envSet( "MDW_MOCK_REQUIRE_AUTH" )
+                                          || g_authenticated.load() );
                 return MdwOk();
             } );
 

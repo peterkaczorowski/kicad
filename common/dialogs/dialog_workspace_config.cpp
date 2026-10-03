@@ -24,6 +24,8 @@
 #include <dialogs/dialog_workspace_config.h>
 
 #include <build_version.h>
+#include <pgm_base.h>
+#include <settings/common_settings.h>
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_backend.h>
 #include <mdw/mdw_backend_registry.h>
@@ -122,11 +124,17 @@ bool DIALOG_WORKSPACE_CONFIG::TransferDataToWindow()
         }
     }
 
+    // An unbound project has no backend to preselect, so fall back to the
+    // configured default before the binding, when present, overrides it.
+    const wxString preferred = m_binding.backend_id.IsEmpty()
+                                       ? Pgm().GetCommonSettings()->m_Workspace.default_backend_id
+                                       : m_binding.backend_id;
+
     int selected = 0;
 
     for( size_t ii = 0; ii < m_backendIds.size(); ++ii )
     {
-        if( m_backendIds[ii] == m_binding.backend_id )
+        if( m_backendIds[ii] == preferred )
             selected = static_cast<int>( ii );
     }
 
@@ -135,6 +143,28 @@ bool DIALOG_WORKSPACE_CONFIG::TransferDataToWindow()
 
     m_workspaceIdCtrl->SetValue( m_binding.workspace_id );
     m_bindingCtrl->SetValue( m_binding.binding );
+
+    // Credentials already saved for this binding belong in the fields that wrote
+    // them, or reconfiguring a bound workspace looks like it has none.
+    if( m_framework && m_binding.IsBound() )
+    {
+        MDW_CREDENTIAL_STORE& store = m_framework->CredentialStore();
+
+        wxString username;
+        wxString password;
+
+        if( store.Load( m_binding.backend_id, m_binding.workspace_id, wxS( "username" ), username )
+                    .IsOk() )
+        {
+            m_usernameCtrl->SetValue( username );
+        }
+
+        if( store.Load( m_binding.backend_id, m_binding.workspace_id, wxS( "password" ), password )
+                    .IsOk() )
+        {
+            m_passwordCtrl->SetValue( password );
+        }
+    }
 
     return true;
 }

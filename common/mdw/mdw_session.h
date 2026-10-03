@@ -47,6 +47,7 @@
 #include <wx/string.h>
 
 class KINNG_PUB_SERVER;
+class MDW_CREDENTIAL_STORE;
 class MDW_EVENT_PUB_BRIDGE;
 
 /// The (workspace ...) binding stored in a project's .kicad_pro file.
@@ -81,6 +82,20 @@ public:
     void SetAuthenticated( bool aAuthenticated ) { m_authenticated = aAuthenticated; }
 
     bool Authenticated() const { return m_authenticated; }
+
+    /**
+     * Authenticate this session's backend with the credentials KiCad holds for
+     * its binding. A backend never touches the keychain, so the framework reads
+     * the stored fields and sends them, along with any refresh token from a
+     * previous session, inside the one call the protocol allows them on.
+     *
+     * A rotated token in the reply replaces the stored one. Returns true when the
+     * backend reports the user authenticated; also true, without a call, when the
+     * backend advertises no authentication requirement.
+     *
+     * Blocking; must not run on the UI thread.
+     */
+    bool Authenticate( MDW_CREDENTIAL_STORE& aStore, int aTimeoutMs );
 
     /**
      * The shared dispatch path for this session's workspace operations. Created
