@@ -246,6 +246,26 @@ public:
     bool operator==( const BOARD_STACKUP& aOther ) const;
     bool operator!=( const BOARD_STACKUP& aOther ) const { return !operator==( aOther ); }
 
+    struct VALIDATION_ERROR
+    {
+        int m_StackupItemIndex = -1;    ///< Zero-based stackup item index, or -1 for a global error.
+        int m_SublayerIndex = -1;       ///< Zero-based sublayer index, or -1 when not applicable.
+        wxString m_FieldName;           ///< Stable, untranslated identifier of the invalid field.
+        wxString m_ErrorMessage;        ///< Human-readable, translatable error message.
+    };
+
+    /**
+     * Validate the stackup configuration.
+     * 
+     * Disabled items are ignored. This operation does not modify the stackup.
+     * 
+     * @param aEnabledLayers Proposed enabled board layers against which to validate the stackup
+     * 
+     * @return An empty vector if valid, otherwise a vector of validation errors. 
+     */
+    [[nodiscard]]
+    std::vector<VALIDATION_ERROR> Validate( const LSET& aEnabledLayers ) const;
+
     ~BOARD_STACKUP() { RemoveAll(); }
 
     void Serialize( google::protobuf::Any &aContainer ) const override;
