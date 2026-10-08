@@ -24,10 +24,13 @@
 #include <kicommon.h>
 #include <bitset>
 #include <functional>
+#include <utility>
+#include <vector>
 
 #include <wx/grid.h>
 #include <wx/event.h>
 #include <wx/menu.h>
+#include <wx/weakref.h>
 #include <widgets/wx_grid.h>
 
 #define GRIDTRICKS_MAX_COL 50
@@ -59,6 +62,9 @@ public:
     explicit GRID_TRICKS( WX_GRID* aGrid );
 
     GRID_TRICKS( WX_GRID* aGrid, std::function<void( wxCommandEvent& )> aAddHandler );
+    ~GRID_TRICKS() override;
+
+    void EnableColumnBulkEdit( bool aEnable = true ) { m_columnBulkEditEnabled = aEnable; }
 
     /**
      * Enable the tooltip for a column.
@@ -99,6 +105,17 @@ protected:
     void onGridCellRightClick( wxGridEvent& event );
     void onGridLabelLeftClick( wxGridEvent& event );
     void onGridLabelRightClick( wxGridEvent& event );
+    void onGridCellChanging( wxGridEvent& aEvent );
+    void onGridCellChanged( wxGridEvent& aEvent );
+    void onGridEditorCreated( wxGridEditorCreatedEvent& aEvent );
+    void onGridEditorShown( wxGridEvent& aEvent );
+    void onGridEditorHidden( wxGridEvent& aEvent );
+    void onEditorInput( wxCommandEvent& aEvent );
+    void onEditorKeyDown( wxKeyEvent& aEvent );
+    void onEditorTextEnter( wxCommandEvent& aEvent );
+    void onEditorDropdownOpened( wxCommandEvent& aEvent );
+    void onEditorDropdownClosed( wxCommandEvent& aEvent );
+    void finishEditor( bool aCancel, bool aMoveDown = false );
     void onPopupSelection( wxCommandEvent& event );
     void onKeyDown( wxKeyEvent& event );
     void onCharHook( wxKeyEvent& event );
@@ -138,6 +155,21 @@ protected:
 
     bool                                   m_enableSingleClickEdit;
     bool                                   m_multiCellEditEnabled;
+    bool                                   m_columnBulkEditEnabled = false;
+    wxGridCellCoords                       m_bulkEditSource;
+    wxString                               m_bulkEditValue;
+    std::vector<std::pair<int, wxString>>  m_bulkEditRows;
+    std::vector<wxWeakRef<wxWindow>>       m_bulkEditorControls;
+    std::vector<wxGridBlockCoords>         m_bulkEditSelection;
+    wxGridCellCoords                       m_bulkEditorSource;
+    std::vector<int>                       m_bulkEditorRows;
+    bool                                   m_bulkEditorCommit = false;
+    bool                                   m_bulkEditorInput = false;
+    bool                                   m_bulkEditorTextInitialized = false;
+    bool                                   m_bulkEditorKeyboardNavigation = false;
+    bool                                   m_bulkEditorEnterHandled = false;
+    bool                                   m_bulkEditorOpening = false;
+    bool                                   m_bulkEditorClosing = false;
 };
 
 #endif  // _GRID_TRICKS_H_

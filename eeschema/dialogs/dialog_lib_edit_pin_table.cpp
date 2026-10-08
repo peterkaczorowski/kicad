@@ -834,10 +834,13 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
         m_originalColWidths[ i ] = m_grid->GetColSize( i );
 
     m_grid->SetTable( m_dataModel );
-    m_grid->PushEventHandler( new GRID_TRICKS( m_grid, [this]( wxCommandEvent& aEvent )
-                                                       {
-                                                           OnAddRow( aEvent );
-                                                       } ) );
+    GRID_TRICKS* gridTricks = new GRID_TRICKS( m_grid,
+                                               [this]( wxCommandEvent& aEvent )
+                                               {
+                                                   OnAddRow( aEvent );
+                                               } );
+    gridTricks->EnableColumnBulkEdit();
+    m_grid->PushEventHandler( gridTricks );
     m_grid->SetSelectionMode( wxGrid::wxGridSelectCells );
     m_grid->ShowHideColumns( "0 1 2 3 4 5 9 10" );
     m_columnsShown = m_grid->GetShownColumns();
@@ -989,6 +992,9 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
     m_modified = false;
 
     // Connect Events
+    m_grid->Disconnect( wxEVT_GRID_CELL_LEFT_CLICK, nullptr, nullptr, this );
+    m_grid->Connect( wxEVT_GRID_SELECT_CELL, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnCellSelected ), nullptr,
+                     this );
     m_grid->Connect( wxEVT_GRID_COL_SORT, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnColSort ), nullptr,
                      this );
 }
@@ -997,6 +1003,8 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
 DIALOG_LIB_EDIT_PIN_TABLE::~DIALOG_LIB_EDIT_PIN_TABLE()
 {
     // Disconnect Events
+    m_grid->Disconnect( wxEVT_GRID_SELECT_CELL, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnCellSelected ),
+                        nullptr, this );
     m_grid->Disconnect( wxEVT_GRID_COL_SORT, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnColSort ), nullptr,
                         this );
 
@@ -1073,6 +1081,9 @@ bool DIALOG_LIB_EDIT_PIN_TABLE::TransferDataFromWindow()
 
 void DIALOG_LIB_EDIT_PIN_TABLE::OnColSort( wxGridEvent& aEvent )
 {
+    if( !m_grid->CommitPendingChanges() )
+        return;
+
     int sortCol = aEvent.GetCol();
     bool ascending;
 
@@ -1214,6 +1225,9 @@ bool DIALOG_LIB_EDIT_PIN_TABLE::IsDisplayGrouped()
 
 void DIALOG_LIB_EDIT_PIN_TABLE::OnGroupSelected( wxCommandEvent& event )
 {
+    if( !m_grid->CommitPendingChanges() )
+        return;
+
     m_cbGroup->SetValue( false );
 
     m_dataModel->RebuildRows( m_pins, false, true );

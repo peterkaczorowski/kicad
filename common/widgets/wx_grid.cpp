@@ -472,7 +472,14 @@ void WX_GRID::onCellEditorShown( wxGridEvent& aEvent )
 
 void WX_GRID::onCellEditorHidden( wxGridEvent& aEvent )
 {
-    const int col = aEvent.GetCol();
+    EvaluateCell( aEvent.GetRow(), aEvent.GetCol() );
+    aEvent.Skip();
+}
+
+
+void WX_GRID::EvaluateCell( int aRow, int aCol )
+{
+    const int col = aCol;
 
     if( alg::contains( m_autoEvalCols, col ) )
     {
@@ -484,7 +491,7 @@ void WX_GRID::onCellEditorHidden( wxGridEvent& aEvent )
 
         m_eval->SetDefaultUnits( cellUnits );
 
-        const int row = aEvent.GetRow();
+        const int row = aRow;
 
         // Determine if this cell is marked as holding nullable values
         bool              isNullable = false;
@@ -547,8 +554,6 @@ void WX_GRID::onCellEditorHidden( wxGridEvent& aEvent )
                     }
                 } );
     }
-
-    aEvent.Skip();
 }
 
 

@@ -23,6 +23,7 @@
 #include <boost/test/unit_test.hpp>
 #include <mock_pgm_base.h>
 #include <qa_utils/wx_utils/wx_assert.h>
+#include <qa_utils/wx_utils/wx_log.h>
 #include <qa_utils/file_utils.h>
 #include <settings/settings_manager.h>
 #include <settings/kicad_settings.h>
@@ -33,6 +34,10 @@
 #include <wx/log.h>
 
 #include <locale_io.h>
+
+#ifdef __WXMSW__
+wxIMPLEMENT_APP_NO_MAIN( wxApp );
+#endif
 
 bool init_unit_test()
 {
@@ -59,6 +64,7 @@ bool init_unit_test()
 
     if( ok )
     {
+        delete wxLog::SetActiveTarget( new KI_TEST::QUIET_LOG );
         Pgm().InitPgm( true, true );
         Pgm().GetSettingsManager().RegisterSettings( new KICAD_SETTINGS, false );
         Pgm().GetSettingsManager().Load();

@@ -239,6 +239,8 @@ public:
 
     void SetAutoEvalCols( const std::vector<int>& aCols ) { m_autoEvalCols = aCols; }
 
+    void EvaluateCell( int aRow, int aCol );
+
     /**
      * Set the unit and unit data type to use for a given column
      */
