@@ -62,6 +62,11 @@ MDW_SESSION* MDW_FRAMEWORK::OpenSession( const wxString& aProjectPath,
     // Configure, rather than the project silently appearing unbound.
     session->Authenticate( m_credentialStore, aTimeoutMs );
 
+    // Start accepting the backend's pushed events. Without this the events socket
+    // the supervisor named at spawn has nobody bound to it, and every workspace
+    // change made by another user stays invisible.
+    session->StartEventIngress();
+
     std::unique_ptr<MDW_SESSION> previous;
 
     {

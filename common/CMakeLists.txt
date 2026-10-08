@@ -379,6 +379,7 @@ set( KICOMMON_SRCS
     mdw/mdw_credential_store.cpp
     mdw/mdw_dirty_tracker.cpp
     mdw/mdw_event_bus.cpp
+    mdw/mdw_event_ingress.cpp
     mdw/mdw_event_pub_bridge.cpp
     mdw/mdw_framework.cpp
     mdw/mdw_lock_tracker.cpp

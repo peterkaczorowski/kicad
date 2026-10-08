@@ -29,6 +29,7 @@ add_executable( qa_mdw_framework
     test_mdw_runtime.cpp
     test_mdw_schema_validator.cpp
     test_mdw_event_bridge.cpp
+    test_mdw_event_ingress.cpp
     test_mdw_ipc_handler.cpp
     test_mdw_context_actions.cpp
     test_mdw_status_pill.cpp

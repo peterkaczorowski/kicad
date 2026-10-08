@@ -48,6 +48,7 @@
 
 class KINNG_PUB_SERVER;
 class MDW_CREDENTIAL_STORE;
+class MDW_EVENT_INGRESS;
 class MDW_EVENT_PUB_BRIDGE;
 
 /// The (workspace ...) binding stored in a project's .kicad_pro file.
@@ -124,6 +125,17 @@ public:
      */
     bool SubscribeEvents( wxString& aUrl, wxString& aTopicPrefix, std::uint64_t& aSeq );
 
+    /**
+     * Begin accepting the events the backend pushes at the URL the supervisor
+     * gave it. Without this the backend publishes into a socket nobody binds and
+     * every other user's lock, checkin and lifecycle change is invisible here.
+     *
+     * The backend retries an unacknowledged event, so starting after it has
+     * spawned delays delivery rather than losing it. Returns false when the
+     * runtime directory is unavailable or the address cannot be bound.
+     */
+    bool StartEventIngress();
+
 private:
     wxString                                m_projectPath;
     MDW_PROJECT_BINDING                     m_binding;
@@ -133,6 +145,10 @@ private:
     MDW_EVENT_BUS                           m_eventBus;
     MDW_LOCK_TRACKER                        m_lockTracker;
     MDW_DIRTY_TRACKER                       m_dirtyTracker;
+
+    // Delivers backend events onto the bus from its own thread, so it is stopped
+    // in the destructor before the bus goes.
+    std::unique_ptr<MDW_EVENT_INGRESS>      m_ingress;
 
     // The bridge unsubscribes from the bus and stops touching the pub server on
     // destruction, so both must outlive it; declared before it for that reason.

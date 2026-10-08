@@ -23,6 +23,7 @@
 
 #include <mdw/mdw_session.h>
 #include <mdw/mdw_credential_store.h>
+#include <mdw/mdw_event_ingress.h>
 #include <mdw/mdw_event_pub_bridge.h>
 
 #include <kinng.h>
@@ -119,6 +120,7 @@ MDW_SESSION::~MDW_SESSION()
     if( m_supervisor )
         m_supervisor->Shutdown();
 
+    m_ingress.reset();
     m_service.reset();
     m_pubBridge.reset();
     m_pubServer.reset();
@@ -152,6 +154,30 @@ MDW_WORKSPACE_SERVICE* MDW_SESSION::Service()
     }
 
     return m_service.get();
+}
+
+
+bool MDW_SESSION::StartEventIngress()
+{
+    if( m_ingress )
+        return true;
+
+    if( !m_supervisor || m_supervisor->RuntimeDir().IsEmpty() )
+        return false;
+
+    // The same path the supervisor puts in the child's environment at spawn.
+    const wxString url = wxS( "ipc://" ) + m_supervisor->RuntimeDir()
+                         + wxFileName::GetPathSeparator() + wxS( "events.sock" );
+
+    auto ingress = std::make_unique<MDW_EVENT_INGRESS>( &m_eventBus,
+                                                        m_supervisor->ChannelToken() );
+
+    if( !ingress->Start( url ) )
+        return false;
+
+    m_ingress = std::move( ingress );
+
+    return true;
 }
 
 
