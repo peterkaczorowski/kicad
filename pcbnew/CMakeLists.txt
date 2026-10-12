@@ -62,6 +62,8 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_board_stats_job_base.cpp
     dialogs/dialog_board_stackup_job.cpp
     dialogs/dialog_board_stackup_job_base.cpp
+    dialogs/dialog_hyperlynx_export_job.cpp
+    dialogs/dialog_hyperlynx_export_job_base.cpp
     dialogs/dialog_footprint_associations.cpp
     dialogs/dialog_footprint_associations_base.cpp
     dialogs/dialog_footprint_checker.cpp
