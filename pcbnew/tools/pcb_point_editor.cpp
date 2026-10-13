@@ -49,6 +49,10 @@ using namespace std::placeholders;
 #include <tools/block_drag_displacement.h>
 #include <tools/block_drag_pick.h>
 #include <tools/generator_tool.h>
+#include <router/router_tool.h>
+#include <router/pns_router.h>
+#include <router/pns_drag_algo.h>
+#include <router/pns_kicad_iface.h>
 #include <dialogs/dialog_unit_entry.h>
 #include <board_commit.h>
 #include <pcb_edit_frame.h>
@@ -2979,6 +2983,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     bool                                                       inBlockDrag = false;
     bool                                                       blockPressConsumed = false;
     bool                                                       blockRevertRestarts = false;
+    bool                                                       blockRouterActive = false;
     std::map<PCB_HANDLE_KEY, VECTOR2I>                         blockOrigins;
     std::vector<std::pair<EDIT_POINTS*, POINT_EDIT_BEHAVIOR*>> blockTargets;
     std::vector<BOARD_ITEM*>                                   blockRigidItems;
@@ -3002,6 +3007,21 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
         if( m_editedPoint )
             m_editedPoint->SetActive( false );
+
+        if( blockRouterActive )
+        {
+            ROUTER_TOOL* routerTool = m_toolMgr->GetTool<ROUTER_TOOL>();
+
+            if( routerTool && routerTool->Router() )
+            {
+                if( routerTool->Router()->RoutingInProgress() )
+                    routerTool->Router()->StopRouting();
+
+                routerTool->GetInterface()->SetIndependentPads( {} );
+            }
+
+            blockRouterActive = false;
+        }
 
         blockTargets.clear();
         blockOrigins.clear();
@@ -3030,17 +3050,22 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         m_pickedHandles.clear();
     };
 
-    // Roll the gesture back. Returns true when this call must leave its loop and the
-    // editor start over from the live selection: a board editor footprint child is
-    // staged through its footprint, and reverting that swaps in new child objects, so
-    // every pointer held here to such a child is dead. The stock move tool restarts
-    // the point editor the same way after its own revert
-    auto revertBlockDrag = [&]() -> bool
+    // Undo the gesture. Returns true when this call has to leave its loop and let the
+    // editor start again from the live selection. In the board editor a footprint child
+    // is staged through its footprint, and undoing that gives the footprint fresh child
+    // objects, so every pointer held here to such a child is dead. The move tool
+    // restarts the point editor the same way after its own undo. Once the carried
+    // changes have been pushed, the gesture's undo entry is popped off instead
+    auto revertBlockDrag = [&]( bool aPushed ) -> bool
     {
         bool restart = blockRevertRestarts;
 
         releaseBlockDragState();
-        commit.Revert();
+
+        if( aPushed )
+            editFrame->RollbackFromUndo();
+        else
+            commit.Revert();
 
         if( restart )
             m_toolMgr->PostEvent( EVENTS::SelectedEvent );
@@ -3176,15 +3201,20 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         m_selectionTool->StopDisambiguation();
 
         // Refuse the whole gesture, so no selected item is left out without the user knowing
+        std::vector<BOARD_ITEM*> routerItems;
+
         for( BOARD_ITEM* selectedItem : m_expandedSelection )
         {
             BLOCK_DRAG_CAPABILITY capability = BlockDragCapability( *selectedItem );
 
-            if( capability == BLOCK_DRAG_CAPABILITY::UNSUPPORTED || capability == BLOCK_DRAG_CAPABILITY::ROUTER )
+            if( capability == BLOCK_DRAG_CAPABILITY::UNSUPPORTED )
             {
                 return refuse( wxString::Format( _( "%s cannot be dragged." ),
                                                  selectedItem->GetItemDescription( frame(), false ) ) );
             }
+
+            if( capability == BLOCK_DRAG_CAPABILITY::ROUTER )
+                routerItems.push_back( selectedItem );
         }
 
         blockOrigins = BlockDragMoveOrigins( pickableCollections(), m_pickedHandles );
@@ -3223,7 +3253,150 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                                                      selectedItem->GetItemDescription( frame(), false ) ) );
                 }
 
+                // Copper travels in the router session. A footprint also travels whole on
+                // the board side, and only its copper becomes router solids
+                if( BlockDragCapability( *selectedItem ) == BLOCK_DRAG_CAPABILITY::ROUTER )
+                {
+                    if( selectedItem->Type() == PCB_FOOTPRINT_T )
+                        blockRigidItems.push_back( selectedItem );
+
+                    continue;
+                }
+
                 blockRigidItems.push_back( selectedItem );
+            }
+        }
+
+        // Undoing swaps in fresh footprint children, so a pad selected together with
+        // its footprint gets a new object
+        bool padOfCarriedFootprint = false;
+
+        // Start the router session after every refusal, so no refusal has to unwind it
+        if( !routerItems.empty() )
+        {
+            ROUTER_TOOL* routerTool = m_toolMgr->GetTool<ROUTER_TOOL>();
+
+            if( !routerTool || !routerTool->Router() || routerTool->IsToolActive()
+                || routerTool->Router()->RoutingInProgress() )
+            {
+                return refuse( _( "The router is busy." ) );
+            }
+
+            // The router tool only rebinds its interface when it is reset to run, so after
+            // a board reload the borrowed interface still points at the old board
+            routerTool->GetInterface()->SetBoard( board() );
+            routerTool->GetInterface()->SetView( getView() );
+
+            PNS::ROUTER* router = routerTool->Router();
+            router->SyncWorld();
+
+            PNS::NODE*                     world = router->GetWorld();
+            PNS::ITEM_SET                  routerSet;
+            std::set<PAD*>                 independentPads;
+            std::unordered_set<FOOTPRINT*> carriedFootprints;
+
+            for( BOARD_ITEM* routerItem : routerItems )
+            {
+                if( routerItem->Type() == PCB_FOOTPRINT_T )
+                    carriedFootprints.insert( static_cast<FOOTPRINT*>( routerItem ) );
+            }
+
+            for( BOARD_ITEM* routerItem : routerItems )
+            {
+                if( routerItem->Type() == PCB_FOOTPRINT_T )
+                {
+                    FOOTPRINT* footprint = static_cast<FOOTPRINT*>( routerItem );
+
+                    // A footprint with no copper is not in the router world, so it
+                    // travels on the board side only
+                    for( PAD* pad : footprint->Pads() )
+                    {
+                        for( PNS::ITEM* solid : world->FindItemsByParent( pad ) )
+                            routerSet.Add( solid );
+                    }
+
+                    for( ZONE* zone : footprint->Zones() )
+                    {
+                        for( PNS::ITEM* solid : world->FindItemsByParent( zone ) )
+                            routerSet.Add( solid );
+                    }
+
+                    for( BOARD_ITEM* graphic : footprint->GraphicalItems() )
+                    {
+                        if( graphic->GetLayer() == Edge_Cuts || graphic->GetLayer() == Margin
+                            || IsCopperLayer( graphic->GetLayer() ) )
+                        {
+                            for( PNS::ITEM* solid : world->FindItemsByParent( graphic ) )
+                                routerSet.Add( solid );
+                        }
+                    }
+
+                    continue;
+                }
+
+                if( routerItem->Type() == PCB_PAD_T )
+                {
+                    PAD* pad = static_cast<PAD*>( routerItem );
+
+                    if( carriedFootprints.count( pad->GetParentFootprint() ) )
+                    {
+                        padOfCarriedFootprint = true;
+                        continue;
+                    }
+
+                    // A normal move turns a lone pad into its whole footprint unless free
+                    // pads are allowed, and a block cannot carry an unselected footprint
+                    if( !frame()->GetPcbNewSettings()->m_AllowFreePads )
+                    {
+                        return refuse( wxString::Format( _( "%s cannot be dragged." ),
+                                                         pad->GetItemDescription( frame(), false ) ) );
+                    }
+
+                    // Keeps the router from moving the pad's whole footprint
+                    independentPads.insert( pad );
+                }
+
+                std::vector<PNS::ITEM*> pnsItems = world->FindItemsByParent( routerItem );
+
+                if( pnsItems.empty() )
+                {
+                    return refuse( wxString::Format( _( "%s cannot be dragged." ),
+                                                     routerItem->GetItemDescription( frame(), false ) ) );
+                }
+
+                for( PNS::ITEM* pnsItem : pnsItems )
+                    routerSet.Add( pnsItem );
+            }
+
+            // A generator moves its copper on the board side; the router world must
+            // move the same copper or it would reroute the stale twins over it
+            for( BOARD_ITEM* rigidItem : blockRigidItems )
+            {
+                if( rigidItem->Type() != PCB_GENERATOR_T )
+                    continue;
+
+                for( BOARD_ITEM* member : static_cast<PCB_GENERATOR*>( rigidItem )->GetBoardItems() )
+                {
+                    for( PNS::ITEM* pnsItem : world->FindItemsByParent( member ) )
+                        routerSet.Add( pnsItem );
+                }
+            }
+
+            if( routerSet.Size() > 0 )
+            {
+                routerTool->GetInterface()->SetIndependentPads( independentPads );
+
+                if( !router->StartDragging( grabPoint->GetPosition(), routerSet, PNS::DM_BLOCK ) )
+                {
+                    routerTool->GetInterface()->SetIndependentPads( {} );
+                    return refuse( _( "The copper in the selection cannot be dragged." ) );
+                }
+
+                blockRouterActive = true;
+
+                // The first move hands the carried copper over to the router preview, so
+                // the first snap cannot land on copper that is about to move
+                router->Move( grabPoint->GetPosition(), nullptr );
             }
         }
 
@@ -3262,7 +3435,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         }
 
         blockAppliedDelta = VECTOR2I( 0, 0 );
-        blockRevertRestarts = false;
+        blockRevertRestarts = padOfCarriedFootprint;
 
         if( !m_isFootprintEditor )
         {
@@ -3551,7 +3724,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             {
                 // A picked identity vanished mid gesture. Restore, and let the rest of
                 // this button press go by rather than start over from the cleared picks
-                if( revertBlockDrag() )
+                if( revertBlockDrag( false ) )
                     break;
 
                 endBlockDrag( false );
@@ -3592,6 +3765,12 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 for( EDA_ITEM* updatedItem : updatedItems )
                     getView()->Update( updatedItem );
 
+                if( blockRouterActive && frameStep != VECTOR2I( 0, 0 ) )
+                {
+                    if( ROUTER_TOOL* routerTool = m_toolMgr->GetTool<ROUTER_TOOL>() )
+                        routerTool->Router()->Move( snapped, nullptr );
+                }
+
                 getViewControls()->ForceCursorPosition( true, snapped );
                 updatePoints();
             }
@@ -3601,7 +3780,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             if( blockAppliedDelta == VECTOR2I( 0, 0 ) )
             {
                 // A gesture that changed nothing leaves no undo entry
-                if( revertBlockDrag() )
+                if( revertBlockDrag( false ) )
                     break;
 
                 endBlockDrag( true );
@@ -3613,15 +3792,70 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 for( auto& [targetPoints, behavior] : blockTargets )
                     behavior->FinalizeItem( *targetPoints, commit );
 
-                wxString label;
+                bool routerSessionOk = true;
+                bool routerStatusOk = true;
+                bool forceCommit = evt->Modifier( MD_CTRL );
 
-                if( !blockRigidItems.empty() || blockTargets.size() > 1 )
-                    label = _( "Drag block" );
+                if( blockRouterActive )
+                {
+                    ROUTER_TOOL*    routerTool = m_toolMgr->GetTool<ROUTER_TOOL>();
+                    PNS::DRAG_ALGO* dragger = routerTool ? routerTool->Router()->GetDragger() : nullptr;
+
+                    if( !dragger )
+                        routerSessionOk = false;
+                    else if( routerTool->Router()->Settings().AllowDRCViolations() )
+                        routerStatusOk = true;
+                    else
+                        dragger->GetForceMarkObstaclesMode( &routerStatusOk );
+                }
+
+                if( !routerSessionOk || ( !routerStatusOk && !forceCommit ) )
+                {
+                    // Forced placement skips the collision refusal and nothing else
+                    frame()->ShowInfoBarError( _( "The move violates DRC." ) );
+
+                    if( revertBlockDrag( false ) )
+                        break;
+
+                    endBlockDrag( true );
+                }
                 else
-                    label = blockOrigins.size() > 1 ? _( "Move Points" ) : _( "Move Point" );
+                {
+                    wxString label;
 
-                commit.Push( label );
-                endBlockDrag( true );
+                    if( blockRouterActive || !blockRigidItems.empty() || blockTargets.size() > 1 )
+                        label = _( "Drag block" );
+                    else
+                        label = blockOrigins.size() > 1 ? _( "Move Points" ) : _( "Move Point" );
+
+                    // The carried changes name the undo entry, the router appends to it
+                    commit.Push( label );
+
+                    bool routerCommitted = true;
+
+                    if( blockRouterActive )
+                    {
+                        ROUTER_TOOL* routerTool = m_toolMgr->GetTool<ROUTER_TOOL>();
+                        routerCommitted = false;
+
+                        if( routerTool )
+                        {
+                            routerTool->GetInterface()->SetCommitFlags( APPEND_UNDO );
+                            routerCommitted = routerTool->Router()->FixRoute( VECTOR2I(), nullptr, false, forceCommit );
+                            routerTool->GetInterface()->SetCommitFlags( 0 );
+                        }
+                    }
+
+                    if( !routerCommitted )
+                    {
+                        frame()->ShowInfoBarError( _( "The move violates DRC." ) );
+
+                        if( revertBlockDrag( true ) )
+                            break;
+                    }
+
+                    endBlockDrag( true );
+                }
             }
         }
         else if( blockPressConsumed && evt->IsDrag( BUT_LEFT ) )
@@ -4201,7 +4435,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 if( escape )
                     evt->SetPassEvent( false );
 
-                if( revertBlockDrag() )
+                if( revertBlockDrag( false ) )
                     break;
 
                 endBlockDrag( escape );
