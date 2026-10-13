@@ -3046,6 +3046,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     std::vector<std::shared_ptr<EDIT_POINTS>>                  blockDependentDisplays;
     std::vector<BOARD_ITEM*>                                   blockRigidItems;
     std::vector<BOARD_ITEM*>                                   blockMoving;
+    std::vector<KIID>                                          blockOverlayHidden;
     std::vector<PCB_SHAPE*>                                    blockConstrainedShapes;
     std::set<PCB_SHAPE*>                                       blockSolverBrightened;
     VECTOR2I                                                   blockAppliedDelta;
@@ -3096,6 +3097,15 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             blockRouterActive = false;
         }
+
+        // Resolved by id because fixing the route can replace a carried segment
+        for( const KIID& hidden : blockOverlayHidden )
+        {
+            if( BOARD_ITEM* item = board()->ResolveItem( hidden, true ) )
+                getView()->Hide( item, false );
+        }
+
+        blockOverlayHidden.clear();
 
         blockDependentDisplays.clear();
         blockDependents.clear();
@@ -3542,6 +3552,20 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 }
 
                 blockRouterActive = true;
+
+                // The router keeps carried copper at its board position until the route is
+                // fixed, and the selection overlay paints a selected item from that position.
+                // Hide the overlay copy while the router preview stands in for it. The overlay
+                // flag only takes effect while the item is still visible, and the first move
+                // below hides it
+                for( BOARD_ITEM* routerItem : routerItems )
+                {
+                    if( routerItem->Type() == PCB_FOOTPRINT_T )
+                        continue;
+
+                    getView()->Hide( routerItem, true, true );
+                    blockOverlayHidden.push_back( routerItem->m_Uuid );
+                }
 
                 // The first move hands the carried copper over to the router preview, so
                 // the first snap cannot land on copper that is about to move
