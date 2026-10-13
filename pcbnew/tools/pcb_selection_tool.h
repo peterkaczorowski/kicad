@@ -378,6 +378,17 @@ public:
     void FilterCollectorForFootprints( GENERAL_COLLECTOR& aCollector,
                                        const VECTOR2I& aWhere ) const;
 
+    /**
+     * @return true if the given point is contained in any of selected items' bounding boxes.
+     */
+    bool SelectionContains( const VECTOR2I& aPoint ) const;
+
+    /// Whether anchor point editing is on. When it is, switching modes keeps the
+    /// selection instead of cancelling the point editor.
+    bool anchorPointEditingEnabled() const;
+
+    SELECTION_MODE GetSelectionMode() const { return m_selectionMode; }
+
 protected:
     KIGFX::PCB_VIEW* view() const
     {
@@ -628,11 +639,6 @@ private:
      * @param aGroup [optional] A group to remove the item from.
      */
     void unhighlight( EDA_ITEM* aItem, int aHighlightMode, SELECTION* aGroup = nullptr ) override;
-
-    /**
-     * @return true if the given point is contained in any of selected items' bounding boxes.
-     */
-    bool selectionContains( const VECTOR2I& aPoint ) const;
 
     /**
      * @return the distance from \a aWhere to \a aItem, up to and including \a aMaxDistance.

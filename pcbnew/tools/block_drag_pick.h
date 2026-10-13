@@ -21,11 +21,13 @@
 #define BLOCK_DRAG_PICK_H
 
 #include <set>
+#include <vector>
 
 #include <tools/pcb_handle_key.h>
 
 class EDIT_POINT;
 class EDIT_POINTS;
+class SHAPE_LINE_CHAIN;
 
 /**
  * True when the user is allowed to pick this handle.
@@ -47,5 +49,19 @@ bool BlockDragHandlePickable( const EDIT_POINTS& aCollection, const EDIT_POINT& 
  * the set alone.
  */
 void BlockDragApplyPick( std::set<PCB_HANDLE_KEY>& aPicked, const PCB_HANDLE_KEY& aKey, bool aAccumulate );
+
+/**
+ * Add the handles a lasso surrounds to the picked set.
+ *
+ * A plain lasso keeps just the corner handles it surrounds. Shift adds them and leaves
+ * the rest of the set alone. A lasso picks corners, and an edge comes along once both
+ * of its corners are picked.
+ *
+ * A handle sitting right on the lasso line counts as inside. Handles are single points
+ * with no width, so the usual distinction between enclosing and touching a shape has
+ * nothing to act on.
+ */
+void BlockDragLassoPick( const std::vector<EDIT_POINTS*>& aCollections, const SHAPE_LINE_CHAIN& aLasso,
+                         bool aAccumulate, std::set<PCB_HANDLE_KEY>& aPicked );
 
 #endif // BLOCK_DRAG_PICK_H

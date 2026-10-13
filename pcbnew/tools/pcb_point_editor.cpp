@@ -39,6 +39,8 @@ using namespace std::placeholders;
 #include <tool/point_editor_behavior.h>
 #include <tool/selection_conditions.h>
 #include <preview_items/angle_item.h>
+#include <preview_items/simple_overlay_item.h>
+#include <gal/painter.h>
 #include <tools/pcb_actions.h>
 #include <tools/pcb_selection_tool.h>
 #include <tools/pcb_point_editor.h>
@@ -2700,6 +2702,65 @@ void PCB_POINT_EDITOR::updateEditedPoint( const TOOL_EVENT& aEvent )
 }
 
 
+// Pass on only navigation, the way the selection tool's own band loops do
+static const TOOL_ACTION* const blockDragNavigationActions[] = {
+    &ACTIONS::panUp,        &ACTIONS::panDown,        &ACTIONS::panLeft,        &ACTIONS::panRight,
+    &ACTIONS::cursorUp,     &ACTIONS::cursorDown,     &ACTIONS::cursorLeft,     &ACTIONS::cursorRight,
+    &ACTIONS::cursorUpFast, &ACTIONS::cursorDownFast, &ACTIONS::cursorLeftFast, &ACTIONS::cursorRightFast,
+    &ACTIONS::zoomIn,       &ACTIONS::zoomOut,        &ACTIONS::zoomInCenter,   &ACTIONS::zoomOutCenter,
+    &ACTIONS::zoomCenter,   &ACTIONS::zoomFitScreen,  &ACTIONS::zoomFitObjects, nullptr
+};
+
+
+static void blockDragPassNavigation( TOOL_EVENT* aEvent )
+{
+    for( int ii = 0; blockDragNavigationActions[ii]; ++ii )
+    {
+        if( aEvent->IsAction( blockDragNavigationActions[ii] ) )
+        {
+            aEvent->SetPassEvent();
+            return;
+        }
+    }
+}
+
+
+namespace
+{
+
+// Draw the band in the handle highlight color, so it reads as a handle gesture
+class HANDLE_PICK_AREA : public KIGFX::PREVIEW::SIMPLE_OVERLAY_ITEM
+{
+public:
+    void              SetPoly( const SHAPE_LINE_CHAIN& aPoly ) { m_poly = aPoly; }
+    SHAPE_LINE_CHAIN& GetPoly() { return m_poly; }
+
+    const BOX2I ViewBBox() const override { return m_poly.BBox(); }
+
+private:
+    void drawPreviewShape( KIGFX::VIEW* aView ) const override
+    {
+        if( m_poly.PointCount() < 2 )
+            return;
+
+        KIGFX::GAL& gal = *aView->GetGAL();
+
+        gal.SetIsFill( false );
+        gal.SetIsStroke( true );
+        gal.SetLineWidth( 0.0 );
+        gal.DrawPolygon( m_poly );
+
+        gal.SetIsFill( true );
+        gal.SetIsStroke( false );
+        gal.DrawPolygon( m_poly );
+    }
+
+    SHAPE_LINE_CHAIN m_poly;
+};
+
+} // namespace
+
+
 int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 {
     if( !m_selectionTool || aEvent.Matches( EVENTS::InhibitSelectionEditing ) )
@@ -2883,6 +2944,221 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 } );
     };
 
+    // A drag starting on empty canvas picks handles by area when the feature is on
+    auto handleAreaPickStarts = [&]( const TOOL_EVENT& aEvent ) -> bool
+    {
+        if( !blockAnchorEditingEnabled() )
+            return false;
+
+        int modifiers = aEvent.Modifier( MD_SHIFT | MD_CTRL | MD_ALT );
+
+        if( modifiers != 0 && modifiers != MD_SHIFT )
+            return false;
+
+        bool anyPickable = false;
+
+        for( EDIT_POINTS* candidate : pickableCollections() )
+        {
+            if( candidate->FindPoint( aEvent.DragOrigin(), getView() ) )
+                return false;
+
+            if( anyPickable )
+                continue;
+
+            for( unsigned ii = 0; ii < candidate->PointsSize(); ++ii )
+            {
+                if( BlockDragHandlePickable( *candidate, candidate->Point( ii ) ) )
+                {
+                    anyPickable = true;
+                    break;
+                }
+            }
+        }
+
+        if( !anyPickable )
+            return false;
+
+        // Only empty canvas starts the gesture. A drag on an item still moves it
+        return !m_selectionTool->SelectionContains( aEvent.DragOrigin() );
+    };
+
+    auto bandColor = [&]() -> KIGFX::COLOR4D
+    {
+        KIGFX::RENDER_SETTINGS* settings = getView()->GetPainter()->GetSettings();
+        KIGFX::COLOR4D          color = settings->GetLayerColor( LAYER_AUX_ITEMS );
+
+        if( getView()->GetGAL()->GetClearColor().Distance( color ) < 0.5 )
+            color.Invert();
+
+        return color;
+    };
+
+    // Works like the object lasso. Returns true when the band ended on an event the
+    // main loop has to handle itself
+    auto handleLassoSelect = [&]( const TOOL_EVENT& aEvent ) -> bool
+    {
+        // The selection tool never sees this drag, so stop its long press timer here
+        m_selectionTool->StopDisambiguation();
+
+        KIGFX::VIEW*   view = getView();
+        KIGFX::COLOR4D color = bandColor();
+
+        HANDLE_PICK_AREA area;
+        area.SetStrokeColor( color.WithAlpha( 0.9 ) );
+        area.SetFillColor( color.WithAlpha( 0.15 ) );
+        view->Add( &area );
+        view->SetVisible( &area, true );
+        getViewControls()->SetAutoPan( true );
+
+        // aEvent points at the tool's one event slot, which every Wait() below overwrites
+        bool accumulate = aEvent.Modifier( MD_SHIFT ) != 0;
+        bool finished = false;
+        bool exitLoop = false;
+
+        SHAPE_LINE_CHAIN points;
+        points.SetClosed( true );
+        points.Append( aEvent.DragOrigin() );
+
+        while( TOOL_EVENT* lassoEvt = Wait() )
+        {
+            if( lassoEvt->IsCancelInteractive() )
+            {
+                lassoEvt->SetPassEvent( false );
+                break;
+            }
+            else if( lassoEvt->IsActivate() )
+            {
+                // Pass it on so the new tool starts, as a normal handle drag does
+                exitLoop = !lassoEvt->IsMoveTool();
+                break;
+            }
+            else if( lassoEvt->IsSelectionEvent() || lassoEvt->Matches( EVENTS::InhibitSelectionEditing ) )
+            {
+                exitLoop = true;
+                break;
+            }
+            else if( lassoEvt->IsDrag( BUT_LEFT ) || lassoEvt->IsClick( BUT_LEFT )
+                     || lassoEvt->IsAction( &ACTIONS::cursorClick ) )
+            {
+                points.Append( lassoEvt->Position() );
+            }
+            else if( lassoEvt->IsDblClick( BUT_LEFT ) || lassoEvt->IsAction( &ACTIONS::cursorDblClick )
+                     || lassoEvt->IsAction( &ACTIONS::finishInteractive ) )
+            {
+                finished = true;
+                lassoEvt->SetPassEvent( false );
+                break;
+            }
+            else if( lassoEvt->IsAction( &ACTIONS::deleteLastPoint ) || lassoEvt->IsAction( &ACTIONS::doDelete )
+                     || lassoEvt->IsAction( &ACTIONS::undo ) )
+            {
+                if( points.GetPointCount() > 0 )
+                {
+                    getViewControls()->SetCursorPosition( points.CLastPoint() );
+                    points.Remove( points.GetPointCount() - 1 );
+                }
+            }
+            else
+            {
+                // Never pass a mouse down on, it would arm the long press timer again
+                blockDragPassNavigation( lassoEvt );
+            }
+
+            area.SetPoly( points );
+            area.GetPoly().Append( m_toolMgr->GetMousePosition() );
+            view->Update( &area );
+        }
+
+        getViewControls()->SetAutoPan( false );
+        view->SetVisible( &area, false );
+        view->Remove( &area );
+
+        if( finished )
+        {
+            BlockDragLassoPick( pickableCollections(), points, accumulate, m_pickedHandles );
+            applyPickedFlags();
+        }
+
+        return exitLoop;
+    };
+
+    auto pickRectChain = []( const VECTOR2I& aA, const VECTOR2I& aB )
+    {
+        return SHAPE_LINE_CHAIN( { aA, VECTOR2I( aB.x, aA.y ), aB, VECTOR2I( aA.x, aB.y ) }, true );
+    };
+
+    // The box version finishes on release, like normal box selection
+    auto handleBoxSelect = [&]( const TOOL_EVENT& aEvent ) -> bool
+    {
+        m_selectionTool->StopDisambiguation();
+
+        KIGFX::VIEW*   view = getView();
+        KIGFX::COLOR4D color = bandColor();
+
+        // aEvent points at the tool's one event slot, which every Wait() below
+        // overwrites, so copy out everything needed from it now
+        VECTOR2I origin = aEvent.DragOrigin();
+        VECTOR2I end = aEvent.Position();
+        bool     accumulate = aEvent.Modifier( MD_SHIFT ) != 0;
+        bool     released = false;
+        bool     exitLoop = false;
+
+        HANDLE_PICK_AREA area;
+        area.SetStrokeColor( color.WithAlpha( 0.9 ) );
+        area.SetFillColor( color.WithAlpha( 0.15 ) );
+        area.SetPoly( pickRectChain( origin, end ) );
+        view->Add( &area );
+        view->SetVisible( &area, true );
+        getViewControls()->SetAutoPan( true );
+
+        while( TOOL_EVENT* boxEvt = Wait() )
+        {
+            if( boxEvt->IsCancelInteractive() )
+            {
+                boxEvt->SetPassEvent( false );
+                break;
+            }
+            else if( boxEvt->IsActivate() )
+            {
+                exitLoop = !boxEvt->IsMoveTool();
+                break;
+            }
+            else if( boxEvt->IsSelectionEvent() || boxEvt->Matches( EVENTS::InhibitSelectionEditing ) )
+            {
+                exitLoop = true;
+                break;
+            }
+            else if( boxEvt->IsDrag( BUT_LEFT ) )
+            {
+                end = boxEvt->Position();
+                area.SetPoly( pickRectChain( origin, end ) );
+                view->Update( &area );
+            }
+            else if( boxEvt->IsMouseUp( BUT_LEFT ) )
+            {
+                released = true;
+                break;
+            }
+            else
+            {
+                // Never pass a mouse down on, it would arm the long press timer again
+                blockDragPassNavigation( boxEvt );
+            }
+        }
+
+        getViewControls()->SetAutoPan( false );
+        view->SetVisible( &area, false );
+        view->Remove( &area );
+
+        if( released )
+        {
+            BlockDragLassoPick( pickableCollections(), pickRectChain( origin, end ), accumulate, m_pickedHandles );
+            applyPickedFlags();
+        }
+
+        return exitLoop;
+    };
+
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
@@ -2914,7 +3190,28 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 getView()->Update( m_angleItem.get() );
         }
 
-        if( evt->IsDrag( BUT_LEFT ) && m_editedPoint )
+        if( evt->IsDrag( BUT_LEFT ) && !inDrag && !m_editedPoint )
+        {
+            if( handleAreaPickStarts( *evt ) )
+            {
+                SELECTION_MODE mode = m_selectionTool->GetSelectionMode();
+                bool           exitLoop;
+
+                if( mode == SELECTION_MODE::INSIDE_LASSO || mode == SELECTION_MODE::TOUCHING_LASSO )
+                    exitLoop = handleLassoSelect( *evt );
+                else
+                    exitLoop = handleBoxSelect( *evt );
+
+                if( exitLoop )
+                    break;
+            }
+            else
+            {
+                // A refused start goes to the selection tool, which selects as usual
+                evt->SetPassEvent();
+            }
+        }
+        else if( evt->IsDrag( BUT_LEFT ) && m_editedPoint )
         {
             if( !inDrag )
             {

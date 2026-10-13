@@ -23,6 +23,7 @@
 #include <pcb_shape.h>
 #include <zone.h>
 #include <constraints/pcb_constraint.h>
+#include <geometry/shape_line_chain.h>
 #include <tool/edit_points.h>
 #include <tools/block_drag_pick.h>
 
@@ -40,6 +41,11 @@ std::shared_ptr<EDIT_POINTS> makeCollection( EDA_ITEM* aParent )
     points->AddLine( points->Point( 0 ), points->Point( 1 ) );
 
     return points;
+}
+
+SHAPE_LINE_CHAIN makeRectLasso( const VECTOR2I& aA, const VECTOR2I& aB )
+{
+    return SHAPE_LINE_CHAIN( { aA, VECTOR2I( aB.x, aA.y ), aB, VECTOR2I( aA.x, aB.y ) }, true );
 }
 
 } // namespace
@@ -149,6 +155,187 @@ BOOST_AUTO_TEST_CASE( AccumulatingPickToggles )
 
     BOOST_REQUIRE_EQUAL( picked.size(), 1 );
     BOOST_CHECK( picked.count( *key1 ) == 1 );
+}
+
+
+BOOST_AUTO_TEST_CASE( LassoPickReplacesWithEnclosed )
+{
+    BOARD board;
+    ZONE* zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( zone );
+
+    std::optional<PCB_HANDLE_KEY> key0 = PCB_HANDLE_KEY::Make( *points, &points->Point( 0 ) );
+    std::optional<PCB_HANDLE_KEY> key1 = PCB_HANDLE_KEY::Make( *points, &points->Point( 1 ) );
+    std::optional<PCB_HANDLE_KEY> key2 = PCB_HANDLE_KEY::Make( *points, &points->Point( 2 ) );
+
+    BOOST_REQUIRE( key0 && key1 && key2 );
+
+    std::set<PCB_HANDLE_KEY> picked{ *key2 };
+
+    // A triangle whose bounding box contains all three points but whose area
+    // encloses only points 0 and 1, so containment is genuinely polygonal
+    SHAPE_LINE_CHAIN triangle( { VECTOR2I( -20, -20 ), VECTOR2I( 200, -20 ), VECTOR2I( 0, 80 ) }, true );
+
+    BlockDragLassoPick( { points.get() }, triangle, false, picked );
+
+    BOOST_REQUIRE_EQUAL( picked.size(), 2 );
+    BOOST_CHECK( picked.count( *key0 ) == 1 );
+    BOOST_CHECK( picked.count( *key1 ) == 1 );
+    BOOST_CHECK( picked.count( *key2 ) == 0 );
+}
+
+
+BOOST_AUTO_TEST_CASE( LassoPickAccumulateAdds )
+{
+    BOARD board;
+    ZONE* zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( zone );
+
+    std::optional<PCB_HANDLE_KEY> key0 = PCB_HANDLE_KEY::Make( *points, &points->Point( 0 ) );
+    std::optional<PCB_HANDLE_KEY> key2 = PCB_HANDLE_KEY::Make( *points, &points->Point( 2 ) );
+
+    BOOST_REQUIRE( key0 && key2 );
+
+    std::set<PCB_HANDLE_KEY> picked{ *key2 };
+
+    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 10, 10 ) ), true, picked );
+
+    BOOST_REQUIRE_EQUAL( picked.size(), 2 );
+    BOOST_CHECK( picked.count( *key0 ) == 1 );
+    BOOST_CHECK( picked.count( *key2 ) == 1 );
+
+    // Lassoing an already picked handle again leaves the set as it was
+    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 10, 10 ) ), true, picked );
+
+    BOOST_REQUIRE_EQUAL( picked.size(), 2 );
+}
+
+
+BOOST_AUTO_TEST_CASE( LassoPickSkipsNonPickable )
+{
+    BOARD board;
+
+    ZONE*      zone = new ZONE( &board );
+    PCB_SHAPE* arc = new PCB_SHAPE( &board, SHAPE_T::ARC );
+
+    board.Add( zone );
+    board.Add( arc );
+
+    std::shared_ptr<EDIT_POINTS> zonePoints = makeCollection( zone );
+    std::shared_ptr<EDIT_POINTS> arcPoints = makeCollection( arc );
+
+    std::set<PCB_HANDLE_KEY> picked;
+
+    BlockDragLassoPick( { zonePoints.get(), arcPoints.get() },
+                        makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 200, 200 ) ), false, picked );
+
+    // All three zone corners, and nothing from the arc, which only travels whole
+    BOOST_REQUIRE_EQUAL( picked.size(), 3 );
+
+    for( const PCB_HANDLE_KEY& key : picked )
+        BOOST_CHECK( key.Parent() == zone->m_Uuid );
+}
+
+
+BOOST_AUTO_TEST_CASE( BoundaryHandleCountsAsEnclosed )
+{
+    BOARD board;
+    ZONE* zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( zone );
+
+    std::optional<PCB_HANDLE_KEY> key0 = PCB_HANDLE_KEY::Make( *points, &points->Point( 0 ) );
+    std::optional<PCB_HANDLE_KEY> key1 = PCB_HANDLE_KEY::Make( *points, &points->Point( 1 ) );
+
+    BOOST_REQUIRE( key0 && key1 );
+
+    std::set<PCB_HANDLE_KEY> picked;
+
+    // The lasso's right edge runs right through point 1 at ( 100, 0 )
+    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 100, 50 ) ), false, picked );
+
+    BOOST_REQUIRE_EQUAL( picked.size(), 2 );
+    BOOST_CHECK( picked.count( *key0 ) == 1 );
+    BOOST_CHECK( picked.count( *key1 ) == 1 );
+}
+
+
+// A lasso picks corners only. One that surrounds a zone edge's midpoint handle but
+// neither of its corners picks nothing, because an edge follows its corners
+BOOST_AUTO_TEST_CASE( EnclosedLineMidpointPicksNothing )
+{
+    BOARD board;
+    ZONE* zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( zone );
+
+    std::set<PCB_HANDLE_KEY> picked;
+
+    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( 40, -10 ), VECTOR2I( 60, 10 ) ), false, picked );
+
+    BOOST_CHECK( picked.empty() );
+}
+
+
+BOOST_AUTO_TEST_CASE( EmptyPlainLassoClearsSet )
+{
+    BOARD board;
+    ZONE* zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( zone );
+
+    std::optional<PCB_HANDLE_KEY> key0 = PCB_HANDLE_KEY::Make( *points, &points->Point( 0 ) );
+
+    BOOST_REQUIRE( key0 );
+
+    std::set<PCB_HANDLE_KEY> picked{ *key0 };
+
+    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( 500, 500 ), VECTOR2I( 600, 600 ) ), false, picked );
+
+    BOOST_CHECK( picked.empty() );
+
+    // The same empty lasso with Shift leaves the set alone
+    picked = { *key0 };
+    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( 500, 500 ), VECTOR2I( 600, 600 ) ), true, picked );
+
+    BOOST_REQUIRE_EQUAL( picked.size(), 1 );
+    BOOST_CHECK( picked.count( *key0 ) == 1 );
+}
+
+
+// A chain with fewer than three points surrounds nothing, and a plain lasso with
+// one still clears the picked set
+BOOST_AUTO_TEST_CASE( DegenerateLassoPicksNothing )
+{
+    BOARD board;
+    ZONE* zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( zone );
+
+    std::optional<PCB_HANDLE_KEY> key0 = PCB_HANDLE_KEY::Make( *points, &points->Point( 0 ) );
+
+    BOOST_REQUIRE( key0 );
+
+    std::set<PCB_HANDLE_KEY> picked{ *key0 };
+
+    SHAPE_LINE_CHAIN twoPoints( { VECTOR2I( -10, -10 ), VECTOR2I( 200, 200 ) }, true );
+
+    BlockDragLassoPick( { points.get() }, twoPoints, false, picked );
+
+    BOOST_CHECK( picked.empty() );
+
+    picked = { *key0 };
+    BlockDragLassoPick( { points.get() }, twoPoints, true, picked );
+
+    BOOST_REQUIRE_EQUAL( picked.size(), 1 );
 }
 
 

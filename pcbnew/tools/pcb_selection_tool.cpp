@@ -711,7 +711,7 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                         doDrag = true;
                     }
                     // Check if dragging has started within any of selected items bounding box.
-                    else if( evt->HasPosition() && selectionContains( evt->DragOrigin() ) )
+                    else if( evt->HasPosition() && SelectionContains( evt->DragOrigin() ) )
                     {
                         doDrag = true;
                     }
@@ -820,11 +820,8 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         if( m_frame->ToolStackIsEmpty() )
         {
             // move cursor prediction
-            if( !hasModifier()
-                    && dragAction == MOUSE_DRAG_ACTION::DRAG_SELECTED
-                    && !m_selection.Empty()
-                    && evt->HasPosition()
-                    && selectionContains( evt->Position() ) )
+            if( !hasModifier() && dragAction == MOUSE_DRAG_ACTION::DRAG_SELECTED && !m_selection.Empty()
+                && evt->HasPosition() && SelectionContains( evt->Position() ) )
             {
                 m_nonModifiedCursor = KICURSOR::MOVING;
             }
@@ -1568,7 +1565,13 @@ int PCB_SELECTION_TOOL::SetSelectPoly( const TOOL_EVENT& aEvent )
 {
     m_selectionMode = SELECTION_MODE::INSIDE_LASSO;
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::SELECT_LASSO );
-    m_toolMgr->PostAction( ACTIONS::selectionTool );
+
+    // This activation just cancels the tool on the stack. With an empty stack it would
+    // cancel the point editor and clear the selection instead, and the anchor point
+    // gesture needs both kept
+    if( !m_frame->ToolStackIsEmpty() || !anchorPointEditingEnabled() )
+        m_toolMgr->PostAction( ACTIONS::selectionTool );
+
     return 0; // No need to wait for an event, just set the mode
 }
 
@@ -1577,7 +1580,10 @@ int PCB_SELECTION_TOOL::SetSelectRect( const TOOL_EVENT& aEvent )
 {
     m_selectionMode = SELECTION_MODE::INSIDE_RECTANGLE;
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
-    m_toolMgr->PostAction( ACTIONS::selectionTool );
+
+    if( !m_frame->ToolStackIsEmpty() || !anchorPointEditingEnabled() )
+        m_toolMgr->PostAction( ACTIONS::selectionTool );
+
     return 0; // No need to wait for an event, just set the mode
 }
 
@@ -4588,7 +4594,15 @@ void PCB_SELECTION_TOOL::unhighlightInternal( EDA_ITEM* aItem, int aMode, bool a
 }
 
 
-bool PCB_SELECTION_TOOL::selectionContains( const VECTOR2I& aPoint ) const
+bool PCB_SELECTION_TOOL::anchorPointEditingEnabled() const
+{
+    PCBNEW_SETTINGS* cfg = m_frame ? m_frame->GetPcbNewSettings() : nullptr;
+
+    return cfg && cfg->m_AreaAnchorPointSelection;
+}
+
+
+bool PCB_SELECTION_TOOL::SelectionContains( const VECTOR2I& aPoint ) const
 {
     const unsigned GRIP_MARGIN = 20;
     int            margin = KiROUND( getView()->ToWorld( GRIP_MARGIN ) );

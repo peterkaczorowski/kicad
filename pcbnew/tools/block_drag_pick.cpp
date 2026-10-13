@@ -20,6 +20,7 @@
 #include "block_drag_pick.h"
 
 #include <board_item.h>
+#include <geometry/shape_line_chain.h>
 #include <tool/edit_points.h>
 #include <tools/block_drag_capability.h>
 
@@ -54,4 +55,35 @@ void BlockDragApplyPick( std::set<PCB_HANDLE_KEY>& aPicked, const PCB_HANDLE_KEY
 
     if( !aPicked.erase( aKey ) )
         aPicked.insert( aKey );
+}
+
+
+void BlockDragLassoPick( const std::vector<EDIT_POINTS*>& aCollections, const SHAPE_LINE_CHAIN& aLasso,
+                         bool aAccumulate, std::set<PCB_HANDLE_KEY>& aPicked )
+{
+    if( !aAccumulate )
+        aPicked.clear();
+
+    if( aLasso.PointCount() < 3 )
+        return;
+
+    aLasso.GenerateBBoxCache();
+
+    for( EDIT_POINTS* collection : aCollections )
+    {
+        for( unsigned ii = 0; ii < collection->PointsSize(); ++ii )
+        {
+            const EDIT_POINT& point = collection->Point( ii );
+
+            // A handle exactly on the lasso line counts as enclosed
+            if( !aLasso.PointInside( point.GetPosition(), 0, true ) && !aLasso.PointOnEdge( point.GetPosition() ) )
+                continue;
+
+            if( !BlockDragHandlePickable( *collection, point ) )
+                continue;
+
+            if( std::optional<PCB_HANDLE_KEY> key = PCB_HANDLE_KEY::Make( *collection, &point ) )
+                aPicked.insert( *key );
+        }
+    }
 }
