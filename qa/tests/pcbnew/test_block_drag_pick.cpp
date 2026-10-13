@@ -25,6 +25,7 @@
 #include <constraints/pcb_constraint.h>
 #include <geometry/shape_line_chain.h>
 #include <tool/edit_points.h>
+#include <tools/block_drag_capability.h>
 #include <tools/block_drag_pick.h>
 
 
@@ -74,12 +75,37 @@ BOOST_AUTO_TEST_CASE( PickableFollowsCapabilityAndHandleKind )
     BOOST_CHECK( BlockDragHandlePickable( *zonePoints, zonePoints->Point( 0 ) ) );
     BOOST_CHECK( BlockDragHandlePickable( *polyPoints, polyPoints->Point( 2 ) ) );
 
-    // Line handles are pickable only on zones
+    // Edge handles can be picked on polygons and zones
     BOOST_CHECK( BlockDragHandlePickable( *zonePoints, zonePoints->Line( 0 ) ) );
-    BOOST_CHECK( !BlockDragHandlePickable( *polyPoints, polyPoints->Line( 0 ) ) );
+    BOOST_CHECK( BlockDragHandlePickable( *polyPoints, polyPoints->Line( 0 ) ) );
 
     // An item that only travels whole offers nothing to pick
     BOOST_CHECK( !BlockDragHandlePickable( *arcPoints, arcPoints->Point( 0 ) ) );
+}
+
+
+// An edge handle only means something on an outline that can take a new corner, so it is
+// pickable on a zone or a polygon and refused anywhere else. A rectangle's own behaviour
+// never offers one, and this is the rule that would refuse it if it did
+BOOST_AUTO_TEST_CASE( EdgeHandleIsOnlyPickableOnAnOutline )
+{
+    BOARD board;
+
+    PCB_SHAPE* rect = new PCB_SHAPE( &board, SHAPE_T::RECTANGLE );
+    PCB_SHAPE* segment = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+
+    board.Add( rect );
+    board.Add( segment );
+
+    std::shared_ptr<EDIT_POINTS> rectPoints = makeCollection( rect );
+    std::shared_ptr<EDIT_POINTS> segmentPoints = makeCollection( segment );
+
+    BOOST_REQUIRE( BlockDragCapability( *rect ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+    BOOST_REQUIRE( BlockDragCapability( *segment ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+
+    BOOST_CHECK( BlockDragHandlePickable( *rectPoints, rectPoints->Point( 0 ) ) );
+    BOOST_CHECK( !BlockDragHandlePickable( *rectPoints, rectPoints->Line( 0 ) ) );
+    BOOST_CHECK( !BlockDragHandlePickable( *segmentPoints, segmentPoints->Line( 0 ) ) );
 }
 
 

@@ -21,6 +21,7 @@
 
 #include <board_item.h>
 #include <geometry/shape_line_chain.h>
+#include <pcb_shape.h>
 #include <tool/edit_points.h>
 #include <tools/block_drag_capability.h>
 
@@ -38,7 +39,12 @@ bool BlockDragHandlePickable( const EDIT_POINTS& aCollection, const EDIT_POINT& 
         return false;
 
     if( dynamic_cast<const EDIT_LINE*>( &aPoint ) )
-        return item.Type() == PCB_ZONE_T;
+    {
+        if( item.Type() == PCB_ZONE_T )
+            return true;
+
+        return item.Type() == PCB_SHAPE_T && static_cast<const PCB_SHAPE&>( item ).GetShape() == SHAPE_T::POLY;
+    }
 
     return true;
 }
