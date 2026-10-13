@@ -46,6 +46,7 @@ using namespace std::placeholders;
 #include <tools/pcb_point_editor.h>
 #include <tools/pcb_grid_helper.h>
 #include <tools/block_drag_capability.h>
+#include <tools/block_drag_displacement.h>
 #include <tools/block_drag_pick.h>
 #include <tools/generator_tool.h>
 #include <dialogs/dialog_unit_entry.h>
@@ -595,24 +596,37 @@ private:
 };
 
 
-class ZONE_POINT_EDIT_BEHAVIOR : public POLYGON_POINT_EDIT_BEHAVIOR
+/**
+ * Looks the outline up on every call instead of holding a reference to it, because
+ * undoing a commit gives the zone a new SHAPE_POLY_SET while this object lives on.
+ */
+class ZONE_POINT_EDIT_BEHAVIOR : public POINT_EDIT_BEHAVIOR
 {
 public:
     ZONE_POINT_EDIT_BEHAVIOR( ZONE& aZone ) :
-            POLYGON_POINT_EDIT_BEHAVIOR( *aZone.Outline() ),
             m_zone( aZone )
     {}
+
+    void MakePoints( EDIT_POINTS& aPoints ) override
+    {
+        POLYGON_POINT_EDIT_BEHAVIOR::BuildForPolyOutline( aPoints, *m_zone.Outline() );
+    }
+
+    bool UpdatePoints( EDIT_POINTS& aPoints ) override
+    {
+        POLYGON_POINT_EDIT_BEHAVIOR::UpdatePointsFromOutline( *m_zone.Outline(), aPoints );
+        return true;
+    }
 
     void UpdateItem( const EDIT_POINT& aEditedPoint, EDIT_POINTS& aPoints, COMMIT& aCommit,
                      std::vector<EDA_ITEM*>& aUpdatedItems ) override
     {
         m_zone.UnFill();
-
-        // Defer to the base class to update the polygon
-        POLYGON_POINT_EDIT_BEHAVIOR::UpdateItem( aEditedPoint, aPoints, aCommit, aUpdatedItems );
-
+        POLYGON_POINT_EDIT_BEHAVIOR::UpdateOutlineFromPoints( *m_zone.Outline(), aEditedPoint, aPoints );
         m_zone.HatchBorder();
     }
+
+    void FinalizeItem( EDIT_POINTS& aPoints, COMMIT& aCommit ) override { m_zone.Outline()->RemoveNullSegments(); }
 
 private:
     ZONE& m_zone;
@@ -2063,6 +2077,16 @@ void PCB_POINT_EDITOR::Reset( RESET_REASON aReason )
 {
     m_frame = getEditFrame<PCB_BASE_FRAME>();
 
+    // Undo a running gesture first. ResetTools runs before a board reload deletes the
+    // old board, so the items are still here. Move the callback out before calling it,
+    // so a second reset during the undo cannot call it again
+    if( m_blockDragAbort )
+    {
+        std::function<void()> abort = std::move( m_blockDragAbort );
+        m_blockDragAbort = nullptr;
+        abort();
+    }
+
     if( KIGFX::VIEW* view = getView() )
     {
         if( m_angleItem && view->HasItem( m_angleItem.get() ) )
@@ -2761,6 +2785,13 @@ private:
 } // namespace
 
 
+// BOARD_ITEM::IsLocked covers the parent group but not the parent footprint
+static bool blockDragItemLocked( const BOARD_ITEM* aItem )
+{
+    return aItem->IsLocked() || ( aItem->GetParentFootprint() && aItem->GetParentFootprint()->IsLocked() );
+}
+
+
 int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 {
     if( !m_selectionTool || aEvent.Matches( EVENTS::InhibitSelectionEditing ) )
@@ -2942,6 +2973,314 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 {
                     return session->ResolveCandidates( aContext, aCandidates );
                 } );
+    };
+
+    // State of the block drag gesture
+    bool                                                       inBlockDrag = false;
+    bool                                                       blockPressConsumed = false;
+    bool                                                       blockRevertRestarts = false;
+    std::map<PCB_HANDLE_KEY, VECTOR2I>                         blockOrigins;
+    std::vector<std::pair<EDIT_POINTS*, POINT_EDIT_BEHAVIOR*>> blockTargets;
+    std::vector<BOARD_ITEM*>                                   blockRigidItems;
+    std::vector<BOARD_ITEM*>                                   blockMoving;
+    VECTOR2I                                                   blockAppliedDelta;
+    BOARD_ITEM*                                                blockRefParent = nullptr;
+    GRID_HELPER_GRIDS                                          blockRefGrid = GRID_CURRENT;
+    SNAP_CONSTRAINT_TYPE                                       blockSnapConstraint = OBJECT_LAYERS;
+    VECTOR2I                                                   blockGrabStart;
+
+    auto releaseBlockDragState = [&]()
+    {
+        for( BOARD_ITEM* carried : blockMoving )
+        {
+            if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( carried ) )
+            {
+                shape->ClearFlags( IS_MOVING );
+                shape->UpdateHatching();
+            }
+        }
+
+        if( m_editedPoint )
+            m_editedPoint->SetActive( false );
+
+        blockTargets.clear();
+        blockOrigins.clear();
+        blockRigidItems.clear();
+        blockMoving.clear();
+        blockAppliedDelta = VECTOR2I( 0, 0 );
+        blockRevertRestarts = false;
+        inBlockDrag = false;
+        m_blockDragAbort = nullptr;
+        grid.SetPointEditProfile( true );
+        getViewControls()->ForceCursorPosition( false );
+        getViewControls()->SetAutoPan( false );
+        frame()->UndoRedoBlock( false );
+    };
+
+    // Undo path for exits that miss the release and cancel branches. Reset() runs it
+    // while the items are still here. Release the items before undoing, because the
+    // undo can replace them
+    auto abortBlockDrag = [&]()
+    {
+        if( !inBlockDrag )
+            return;
+
+        releaseBlockDragState();
+        commit.Revert();
+        m_pickedHandles.clear();
+    };
+
+    // Roll the gesture back. Returns true when this call must leave its loop and the
+    // editor start over from the live selection: a board editor footprint child is
+    // staged through its footprint, and reverting that swaps in new child objects, so
+    // every pointer held here to such a child is dead. The stock move tool restarts
+    // the point editor the same way after its own revert
+    auto revertBlockDrag = [&]() -> bool
+    {
+        bool restart = blockRevertRestarts;
+
+        releaseBlockDragState();
+        commit.Revert();
+
+        if( restart )
+            m_toolMgr->PostEvent( EVENTS::SelectedEvent );
+
+        return restart;
+    };
+
+    auto endBlockDrag = [&]( bool aKeepPicks )
+    {
+        if( inBlockDrag )
+            releaseBlockDragState();
+
+        if( !aKeepPicks )
+            clearPickedHandles();
+
+        updatePoints();
+    };
+
+    // Pair every collection that holds a moved point with its behavior. Looked up again
+    // on each use, because updatePoints() can rebuild a collection in place
+    auto collectBlockTargets = [&]() -> bool
+    {
+        blockTargets.clear();
+
+        for( EDIT_POINTS* candidate : pickableCollections() )
+        {
+            EDA_ITEM* parent = candidate->GetParent();
+
+            if( !parent )
+                continue;
+
+            bool hasMovedPoint = false;
+
+            for( const auto& [key, origin] : blockOrigins )
+            {
+                if( key.Parent() == parent->m_Uuid )
+                {
+                    hasMovedPoint = true;
+                    break;
+                }
+            }
+
+            if( !hasMovedPoint )
+                continue;
+
+            POINT_EDIT_BEHAVIOR* behavior = nullptr;
+
+            if( candidate == m_editPoints.get() )
+            {
+                behavior = m_editorBehavior.get();
+            }
+            else
+            {
+                for( BLOCK_HANDLE_ENTRY& entry : m_blockHandles )
+                {
+                    if( entry.points.get() == candidate )
+                    {
+                        behavior = entry.behavior.get();
+                        break;
+                    }
+                }
+            }
+
+            if( !behavior )
+                return false;
+
+            blockTargets.push_back( { candidate, behavior } );
+        }
+
+        return true;
+    };
+
+    auto beginBlockDrag = [&]( const VECTOR2I& aOrigin ) -> bool
+    {
+        EDIT_POINTS* grabCollection = nullptr;
+        EDIT_POINT*  grabPoint = nullptr;
+
+        for( EDIT_POINTS* candidate : pickableCollections() )
+        {
+            if( EDIT_POINT* found = candidate->FindPoint( aOrigin, getView() ) )
+            {
+                if( !BlockDragHandlePickable( *candidate, *found ) )
+                    continue;
+
+                grabCollection = candidate;
+                grabPoint = found;
+                break;
+            }
+        }
+
+        if( !grabPoint )
+            return false;
+
+        std::optional<PCB_HANDLE_KEY> grabKey = PCB_HANDLE_KEY::Make( *grabCollection, grabPoint );
+
+        if( !grabKey )
+            return false;
+
+        std::set<PCB_HANDLE_KEY> priorPicks = m_pickedHandles;
+        bool                     grabPicked = m_pickedHandles.count( *grabKey ) > 0;
+
+        // Put the picks back if the start is declined
+        auto restorePicks = [&]() -> bool
+        {
+            m_pickedHandles = priorPicks;
+            applyPickedFlags();
+            return false;
+        };
+
+        auto refuse = [&]( const wxString& aMessage ) -> bool
+        {
+            frame()->ShowInfoBarError( aMessage );
+            blockPressConsumed = true;
+            return restorePicks();
+        };
+
+        if( grabCollection == m_editPoints.get() )
+        {
+            // A lone object's handles keep the normal drag, unless the handle grabbed is
+            // part of a bigger picked set
+            if( !grabPicked || m_pickedHandles.size() < 2 )
+                return false;
+        }
+        else if( !grabPicked )
+        {
+            // Dragging a handle that is not picked picks just that one first
+            BlockDragApplyPick( m_pickedHandles, *grabKey, false );
+            applyPickedFlags();
+        }
+
+        // From here on the selection tool sees none of this drag, whether the gesture
+        // starts or is refused, so stop its long press timer here
+        m_selectionTool->StopDisambiguation();
+
+        // Refuse the whole gesture, so no selected item is left out without the user knowing
+        for( BOARD_ITEM* selectedItem : m_expandedSelection )
+        {
+            BLOCK_DRAG_CAPABILITY capability = BlockDragCapability( *selectedItem );
+
+            if( capability == BLOCK_DRAG_CAPABILITY::UNSUPPORTED || capability == BLOCK_DRAG_CAPABILITY::ROUTER )
+            {
+                return refuse( wxString::Format( _( "%s cannot be dragged." ),
+                                                 selectedItem->GetItemDescription( frame(), false ) ) );
+            }
+        }
+
+        blockOrigins = BlockDragMoveOrigins( pickableCollections(), m_pickedHandles );
+
+        if( blockOrigins.empty() || !collectBlockTargets() )
+            return restorePicks();
+
+        bool overrideLocksNow = editFrame->GetOverrideLocks();
+
+        for( auto& [targetPoints, behavior] : blockTargets )
+        {
+            BOARD_ITEM* parent = static_cast<BOARD_ITEM*>( targetPoints->GetParent() );
+
+            if( blockDragItemLocked( parent ) && !overrideLocksNow )
+                return refuse( wxString::Format( _( "%s is locked. Enable 'Override locks' to move it." ),
+                                                 parent->GetItemDescription( frame(), false ) ) );
+        }
+
+        // Unpicked selected objects translate rigidly
+        blockRigidItems.clear();
+
+        {
+            std::unordered_set<const EDA_ITEM*> deformParents;
+
+            for( auto& [targetPoints, behavior] : blockTargets )
+                deformParents.insert( targetPoints->GetParent() );
+
+            for( BOARD_ITEM* selectedItem : m_expandedSelection )
+            {
+                if( deformParents.count( selectedItem ) )
+                    continue;
+
+                if( blockDragItemLocked( selectedItem ) && !overrideLocksNow )
+                {
+                    return refuse( wxString::Format( _( "%s is locked. Enable 'Override locks' to move it." ),
+                                                     selectedItem->GetItemDescription( frame(), false ) ) );
+                }
+
+                blockRigidItems.push_back( selectedItem );
+            }
+        }
+
+        blockRefParent = static_cast<BOARD_ITEM*>( grabCollection->GetParent() );
+        blockRefGrid = BlockDragReferenceGrid( grid, blockRefParent );
+        blockSnapConstraint = grabPoint->GetSnapConstraint();
+        blockGrabStart = grabPoint->GetPosition();
+
+        // Keep everything that moves with the cursor out of the snap targets, the
+        // way the move tool does, or the block chases its own geometry
+        blockMoving = blockRigidItems;
+
+        for( auto& [targetPoints, behavior] : blockTargets )
+        {
+            EDA_ITEM* parent = targetPoints->GetParent();
+            blockMoving.push_back( static_cast<BOARD_ITEM*>( parent ) );
+            commit.Modify( parent );
+
+            if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( parent ) )
+            {
+                shape->SetFlags( IS_MOVING );
+                shape->UpdateHatching();
+            }
+        }
+
+        for( BOARD_ITEM* rigidItem : blockRigidItems )
+        {
+            // A generator moves its members with it, so each member needs its own undo copy
+            commit.Modify( rigidItem, nullptr, RECURSE_MODE::RECURSE );
+
+            if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( rigidItem ) )
+            {
+                shape->SetFlags( IS_MOVING );
+                shape->UpdateHatching();
+            }
+        }
+
+        blockAppliedDelta = VECTOR2I( 0, 0 );
+        blockRevertRestarts = false;
+
+        if( !m_isFootprintEditor )
+        {
+            for( BOARD_ITEM* carried : blockMoving )
+            {
+                if( carried->GetParentFootprint() )
+                    blockRevertRestarts = true;
+            }
+        }
+
+        // The block is not a single point edit, so the grabbed item's own geometry
+        // must not act as a snap target
+        grid.SetPointEditProfile( false );
+        frame()->UndoRedoBlock( true );
+        getViewControls()->SetAutoPan( true );
+        inBlockDrag = true;
+        m_blockDragAbort = abortBlockDrag;
+        return true;
     };
 
     // A drag starting on empty canvas picks handles by area when the feature is on
@@ -3179,7 +3518,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
         EDIT_POINT* prevHover = m_hoveredPoint;
 
-        if( !inDrag )
+        if( !inDrag && !inBlockDrag )
             updateEditedPoint( *evt );
 
         if( prevHover != m_hoveredPoint && m_editPoints )
@@ -3190,7 +3529,111 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 getView()->Update( m_angleItem.get() );
         }
 
-        if( evt->IsDrag( BUT_LEFT ) && !inDrag && !m_editedPoint )
+        if( evt->IsDrag( BUT_LEFT ) && !inDrag && !blockPressConsumed
+            && ( inBlockDrag || ( blockAnchorEditingEnabled() && beginBlockDrag( evt->DragOrigin() ) ) ) )
+        {
+            VECTOR2I pos = GetClampedCoords<double, int>( evt->Position(), COORDS_PADDING );
+            LSET     snapLayers;
+
+            switch( blockSnapConstraint )
+            {
+            case IGNORE_SNAPS: break;
+            case OBJECT_LAYERS: snapLayers = blockRefParent->GetLayerSet(); break;
+            case ALL_LAYERS: snapLayers = LSET::AllLayersMask(); break;
+            }
+
+            VECTOR2I snapped =
+                    grid.ResolveSnap( pos, snapLayers, blockRefGrid, blockMoving, blockGrabStart + blockAppliedDelta )
+                            .position;
+            VECTOR2I delta = snapped - blockGrabStart;
+
+            if( !BlockDragApplyDisplacement( pickableCollections(), blockOrigins, delta ) || !collectBlockTargets() )
+            {
+                // A picked identity vanished mid gesture. Restore, and let the rest of
+                // this button press go by rather than start over from the cleared picks
+                if( revertBlockDrag() )
+                    break;
+
+                endBlockDrag( false );
+                blockPressConsumed = true;
+            }
+            else
+            {
+                std::vector<EDA_ITEM*> updatedItems;
+
+                for( auto& [targetPoints, behavior] : blockTargets )
+                {
+                    EDA_ITEM* parent = targetPoints->GetParent();
+                    updatedItems.push_back( parent );
+
+                    for( const auto& [key, origin] : blockOrigins )
+                    {
+                        if( key.Parent() != parent->m_Uuid )
+                            continue;
+
+                        if( EDIT_POINT* moved = key.Resolve( *targetPoints ) )
+                            behavior->UpdateItem( *moved, *targetPoints, commit, updatedItems );
+                    }
+                }
+
+                VECTOR2I frameStep = delta - blockAppliedDelta;
+
+                if( frameStep != VECTOR2I( 0, 0 ) )
+                {
+                    for( BOARD_ITEM* rigidItem : blockRigidItems )
+                    {
+                        rigidItem->Move( frameStep );
+                        updatedItems.push_back( rigidItem );
+                    }
+                }
+
+                blockAppliedDelta = delta;
+
+                for( EDA_ITEM* updatedItem : updatedItems )
+                    getView()->Update( updatedItem );
+
+                getViewControls()->ForceCursorPosition( true, snapped );
+                updatePoints();
+            }
+        }
+        else if( inBlockDrag && evt->IsMouseUp( BUT_LEFT ) )
+        {
+            if( blockAppliedDelta == VECTOR2I( 0, 0 ) )
+            {
+                // A gesture that changed nothing leaves no undo entry
+                if( revertBlockDrag() )
+                    break;
+
+                endBlockDrag( true );
+            }
+            else
+            {
+                collectBlockTargets();
+
+                for( auto& [targetPoints, behavior] : blockTargets )
+                    behavior->FinalizeItem( *targetPoints, commit );
+
+                wxString label;
+
+                if( !blockRigidItems.empty() || blockTargets.size() > 1 )
+                    label = _( "Drag block" );
+                else
+                    label = blockOrigins.size() > 1 ? _( "Move Points" ) : _( "Move Point" );
+
+                commit.Push( label );
+                endBlockDrag( true );
+            }
+        }
+        else if( blockPressConsumed && evt->IsDrag( BUT_LEFT ) )
+        {
+            // The refused gesture owns the pointer until release
+        }
+        else if( blockPressConsumed && ( evt->IsMouseUp( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) ) )
+        {
+            // The refused gesture ends here, a following drag may try again
+            blockPressConsumed = false;
+        }
+        else if( evt->IsDrag( BUT_LEFT ) && !inDrag && !blockPressConsumed && !m_editedPoint )
         {
             if( handleAreaPickStarts( *evt ) )
             {
@@ -3211,7 +3654,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 evt->SetPassEvent();
             }
         }
-        else if( evt->IsDrag( BUT_LEFT ) && m_editedPoint )
+        else if( evt->IsDrag( BUT_LEFT ) && m_editedPoint && !blockPressConsumed )
         {
             if( !inDrag )
             {
@@ -3722,7 +4165,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             m_toolMgr->PostAction<EDA_ITEM*>( ACTIONS::reselectItem, item ); // FIXME: Needed for generators
         }
-        else if( !inDrag && evt->IsClick( BUT_LEFT ) && blockAnchorEditingEnabled() )
+        else if( !inDrag && !inBlockDrag && evt->IsClick( BUT_LEFT ) && blockAnchorEditingEnabled() )
         {
             bool accumulate = evt->Modifier( MD_SHIFT ) != 0;
             bool consumed = pickHandleAt( evt->Position(), accumulate );
@@ -3748,7 +4191,25 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
-            if( inDrag )      // Restore the last change
+            if( inBlockDrag )
+            {
+                // Escape cancels the gesture and nothing else. The picks and the object
+                // selection stay, and the rest of this button press is ignored. A tool
+                // switch and the other ways of cancelling keep their usual effect
+                bool escape = evt->IsCancel() && evt->GetCommandId() == (int) WXK_ESCAPE;
+
+                if( escape )
+                    evt->SetPassEvent( false );
+
+                if( revertBlockDrag() )
+                    break;
+
+                endBlockDrag( escape );
+
+                if( escape )
+                    blockPressConsumed = true;
+            }
+            else if( inDrag ) // Restore the last change
             {
                 if( item->Type() == PCB_GENERATOR_T )
                 {
@@ -3830,6 +4291,11 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             shape->UpdateHatching();
         }
     }
+
+    // Leaving the loop without going through the cancel branch undoes the drag
+    // the same way Escape does. Reset() does this before the collections clear,
+    // while the items are still here.
+    abortBlockDrag();
 
     m_preview.FreeItems();
     m_radiusHelper = nullptr;

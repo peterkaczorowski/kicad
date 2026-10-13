@@ -30,6 +30,7 @@
 #include <pcbnew_settings.h>
 #include <status_popup.h>
 
+#include <functional>
 #include <memory>
 #include <set>
 #include <unordered_set>
@@ -226,6 +227,11 @@ private:
 
     // The expanded explicit selection, group containers replaced by their members
     std::unordered_set<BOARD_ITEM*> m_expandedSelection;
+
+    // Undoes a block drag that is still running. Set only while OnSelectionChange is
+    // parked in its loop, because it reads that call's locals. Reset() calls it before
+    // it clears any collection, so the drag is undone while the items still exist
+    std::function<void()> m_blockDragAbort;
 
     static const unsigned int COORDS_PADDING; // Padding from coordinates limits for this tool
 };

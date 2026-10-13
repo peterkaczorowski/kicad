@@ -511,6 +511,7 @@ set( PCBNEW_CLASS_SRCS
 
     tools/array_tool.cpp
     tools/block_drag_capability.cpp
+    tools/block_drag_displacement.cpp
     tools/block_drag_pick.cpp
     tools/board_editor_control.cpp
     tools/board_inspection_tool.cpp
