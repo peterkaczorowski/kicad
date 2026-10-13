@@ -25,11 +25,13 @@
 
 #include <tool/tool_interactive.h>
 #include <tools/pcb_selection.h>
+#include <tools/pcb_handle_key.h>
 #include "tool/edit_points.h"
 #include <pcbnew_settings.h>
 #include <status_popup.h>
 
 #include <memory>
+#include <set>
 #include <unordered_set>
 
 namespace KIGFX { namespace PREVIEW { class ANGLE_ITEM; } }
@@ -68,6 +70,14 @@ public:
     bool HasPoint()    { return m_editedPoint != nullptr; }
     bool HasMidpoint() { return HasPoint() && dynamic_cast<EDIT_LINE*>( m_editedPoint ); }
     bool HasCorner()   { return HasPoint() && !HasMidpoint() && ( !m_editPoints || m_editPoints->GetParent()->Type() != PCB_GROUP_T ); }
+
+    /**
+     * True when the cursor sits on a handle the user can pick.
+     *
+     * The selection tool asks this so its long press menu does not open on a click
+     * the point editor is about to use.
+     */
+    bool HasBlockHandle() const;
 
     /**
      * Check if a corner can be added to the given item (zones, polys, segments, arcs).
@@ -112,6 +122,18 @@ private:
     /// Gap to leave between the scaling box handles and the shapes' own handles, in
     /// board units for the current zoom.
     int bboxHandleInflation() const;
+
+    /// The handle collections the user can pick from.
+    std::vector<EDIT_POINTS*> pickableCollections();
+
+    /// Pick the handle under aPosition. Returns false when there is no handle to pick.
+    bool pickHandleAt( const VECTOR2I& aPosition, bool aAccumulate );
+
+    /// Unpick everything and redraw.
+    void clearPickedHandles();
+
+    /// Paint the picked handles, dropping keys whose handle has gone.
+    void applyPickedFlags();
 
     /// Update item's points with edit points.
     void updateItem( BOARD_COMMIT& aCommit );
@@ -200,6 +222,7 @@ private:
     std::vector<BLOCK_HANDLE_ENTRY> m_blockHandles;
     EDIT_POINT*                     m_blockHoveredPoint;
     EDIT_POINTS*                    m_blockHoveredOwner;
+    std::set<PCB_HANDLE_KEY>        m_pickedHandles;
 
     // The expanded explicit selection, group containers replaced by their members
     std::unordered_set<BOARD_ITEM*> m_expandedSelection;

@@ -44,6 +44,7 @@ using namespace std::placeholders;
 #include <tools/pcb_point_editor.h>
 #include <tools/pcb_grid_helper.h>
 #include <tools/block_drag_capability.h>
+#include <tools/block_drag_pick.h>
 #include <tools/generator_tool.h>
 #include <dialogs/dialog_unit_entry.h>
 #include <board_commit.h>
@@ -2196,6 +2197,10 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
 {
     std::shared_ptr<EDIT_POINTS> points = std::make_shared<EDIT_POINTS>( aItem );
 
+    // An edge handle is only pickable in its own right with the feature on, so only then does
+    // it show that it is under the cursor or picked
+    points->SetLineStateVisible( blockAnchorEditingEnabled() );
+
     if( !aItem )
         return points;
 
@@ -2447,6 +2452,7 @@ void PCB_POINT_EDITOR::buildBlockHandles( const PCB_SELECTION& aSelection )
         BLOCK_HANDLE_ENTRY entry;
         entry.behavior = std::move( behavior );
         entry.points = std::make_shared<EDIT_POINTS>( item );
+        entry.points->SetLineStateVisible( true );
         entry.behavior->MakePoints( *entry.points );
         getView()->Add( entry.points.get() );
         m_blockHandles.push_back( std::move( entry ) );
@@ -2468,7 +2474,111 @@ void PCB_POINT_EDITOR::clearBlockHandles()
     m_blockHandles.clear();
     m_blockHoveredPoint = nullptr;
     m_blockHoveredOwner = nullptr;
+    m_pickedHandles.clear();
     m_expandedSelection.clear();
+}
+
+
+bool PCB_POINT_EDITOR::HasBlockHandle() const
+{
+    return m_blockHoveredPoint && m_blockHoveredOwner
+           && BlockDragHandlePickable( *m_blockHoveredOwner, *m_blockHoveredPoint );
+}
+
+
+std::vector<EDIT_POINTS*> PCB_POINT_EDITOR::pickableCollections()
+{
+    std::vector<EDIT_POINTS*> collections;
+
+    for( BLOCK_HANDLE_ENTRY& entry : m_blockHandles )
+        collections.push_back( entry.points.get() );
+
+    // The scaling box borrows a member shape as its parent, so it is not pickable
+    if( m_editPoints && m_editPoints->GetParent()
+        && !dynamic_cast<SHAPE_GROUP_POINT_EDIT_BEHAVIOR*>( m_editorBehavior.get() ) )
+    {
+        collections.push_back( m_editPoints.get() );
+    }
+
+    return collections;
+}
+
+
+bool PCB_POINT_EDITOR::pickHandleAt( const VECTOR2I& aPosition, bool aAccumulate )
+{
+    for( EDIT_POINTS* points : pickableCollections() )
+    {
+        EDIT_POINT* point = points->FindPoint( aPosition, getView() );
+
+        if( !point )
+            continue;
+
+        // A pickable handle at the same spot always wins
+        if( !BlockDragHandlePickable( *points, *point ) )
+            continue;
+
+        std::optional<PCB_HANDLE_KEY> key = PCB_HANDLE_KEY::Make( *points, point );
+
+        if( !key )
+            return false;
+
+        BlockDragApplyPick( m_pickedHandles, *key, aAccumulate );
+        applyPickedFlags();
+        return true;
+    }
+
+    return false;
+}
+
+
+void PCB_POINT_EDITOR::clearPickedHandles()
+{
+    if( m_pickedHandles.empty() )
+        return;
+
+    m_pickedHandles.clear();
+    applyPickedFlags();
+}
+
+
+void PCB_POINT_EDITOR::applyPickedFlags()
+{
+    std::vector<EDIT_POINTS*> collections = pickableCollections();
+
+    for( EDIT_POINTS* points : collections )
+    {
+        for( unsigned ii = 0; ii < points->PointsSize(); ++ii )
+            points->Point( ii ).SetSelected( false );
+
+        for( unsigned ii = 0; ii < points->LinesSize(); ++ii )
+            points->Line( ii ).SetSelected( false );
+    }
+
+    for( auto it = m_pickedHandles.begin(); it != m_pickedHandles.end(); )
+    {
+        EDIT_POINT* resolved = nullptr;
+
+        for( EDIT_POINTS* points : collections )
+        {
+            resolved = it->Resolve( *points );
+
+            if( resolved )
+                break;
+        }
+
+        if( resolved )
+        {
+            resolved->SetSelected();
+            ++it;
+        }
+        else
+        {
+            it = m_pickedHandles.erase( it );
+        }
+    }
+
+    for( EDIT_POINTS* points : collections )
+        getView()->Update( points );
 }
 
 
@@ -2494,6 +2604,7 @@ void PCB_POINT_EDITOR::updateBlockHandlePoints()
                 getView()->Remove( entry.points.get() );
 
             entry.points = std::make_shared<EDIT_POINTS>( parent );
+            entry.points->SetLineStateVisible( true );
             entry.behavior->MakePoints( *entry.points );
             getView()->Add( entry.points.get() );
         }
@@ -2678,6 +2789,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             groupBehavior->SetInflation( bboxHandleInflation() );
             m_editorBehavior = std::move( groupBehavior );
             m_editPoints = std::make_shared<EDIT_POINTS>( item );
+            m_editPoints->SetLineStateVisible( blockAnchorEditingEnabled() );
             m_editorBehavior->MakePoints( *m_editPoints );
         }
     }
@@ -3313,6 +3425,30 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             m_toolMgr->PostAction<EDA_ITEM*>( ACTIONS::reselectItem, item ); // FIXME: Needed for generators
         }
+        else if( !inDrag && evt->IsClick( BUT_LEFT ) && blockAnchorEditingEnabled() )
+        {
+            bool accumulate = evt->Modifier( MD_SHIFT ) != 0;
+            bool consumed = pickHandleAt( evt->Position(), accumulate );
+
+            // A plain click on nothing just clears the picks. A Shift click on nothing
+            // keeps them and goes to the selection tool, which adds to the selection
+            if( !consumed && !accumulate && !m_pickedHandles.empty() )
+            {
+                clearPickedHandles();
+                consumed = true;
+            }
+
+            if( consumed )
+            {
+                // The selection tool never sees a click we swallow, so stop its long press
+                // timer here
+                m_selectionTool->StopDisambiguation();
+            }
+            else
+            {
+                evt->SetPassEvent();
+            }
+        }
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
             if( inDrag )      // Restore the last change
@@ -3335,6 +3471,16 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 m_constraintDragSession.reset();
                 frame()->UndoRedoBlock( false );
                 updateSnapLineDirections();
+            }
+            else if( evt->IsCancelInteractive() && !m_pickedHandles.empty() )
+            {
+                clearPickedHandles();
+
+                // Cancel events go to every tool by default. The first Escape only drops
+                // the picks, so stop it before it clears the selection too. A tool switch
+                // and the other ways of cancelling keep their usual effect
+                if( evt->IsCancel() && evt->GetCommandId() == (int) WXK_ESCAPE )
+                    evt->SetPassEvent( false );
             }
 
             // Only cancel point editor when activating a new tool
@@ -3709,6 +3855,7 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT& aCommit )
 void PCB_POINT_EDITOR::updatePoints()
 {
     updateBlockHandlePoints();
+    applyPickedFlags();
 
     if( !m_editPoints )
         return;
@@ -3780,6 +3927,8 @@ void PCB_POINT_EDITOR::updatePoints()
     {
         m_editedPoint = nullptr;
     }
+
+    applyPickedFlags();
 
     getView()->Update( m_editPoints.get() );
 

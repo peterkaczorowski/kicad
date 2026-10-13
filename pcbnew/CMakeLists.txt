@@ -511,6 +511,7 @@ set( PCBNEW_CLASS_SRCS
 
     tools/array_tool.cpp
     tools/block_drag_capability.cpp
+    tools/block_drag_pick.cpp
     tools/board_editor_control.cpp
     tools/board_inspection_tool.cpp
     tools/board_reannotate_tool.cpp
@@ -537,6 +538,7 @@ set( PCBNEW_CLASS_SRCS
     tools/pcb_control.cpp
     tools/pcb_design_block_control.cpp
     tools/pcb_group_tool.cpp
+    tools/pcb_handle_key.cpp
     tools/pcb_picker_tool.cpp
     tools/pcb_selection.cpp
     tools/pcb_selection_conditions.cpp

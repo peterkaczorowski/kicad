@@ -62,6 +62,7 @@ set( QA_PCBNEW_SRCS
     test_graphic_extend.cpp
     test_graphic_trim.cpp
     test_block_drag_capability.cpp
+    test_block_drag_pick.cpp
     test_graphics_import_mgr.cpp
     test_group_load_save.cpp
     test_group_mirror.cpp
@@ -105,6 +106,7 @@ set( QA_PCBNEW_SRCS
     test_odb_soldermask_shape_export.cpp
     test_issue25074_odb_knockout_textbox.cpp
     test_pcb_control_rehatch.cpp
+    test_pcb_handle_key.cpp
     test_pns_basics.cpp
     test_pad_check.cpp
     test_pad_flashing.cpp

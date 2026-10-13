@@ -68,12 +68,11 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem );
  * Replace group containers with their members, through nested groups, and drop
  * duplicates.
  *
- * The returned list contains no PCB_GROUP_T containers. Generators are group
- * subclasses but are single carried objects, they are not expanded. An item that is
- * selected both directly and through a group appears once. Order of the input is
- * preserved for directly selected items, members of an expanded group follow the
- * group's position in the input. A footprint's own children are dropped when the
- * footprint is in the result too, since the footprint carries them.
+ * The result holds no group containers and no markers, which no tool moves. A generator
+ * is a kind of group but travels as one object, so it stays whole. An item selected both
+ * on its own and through a group appears once. Directly selected items keep their order,
+ * and a group's members follow the place the group held. A footprint's own child is
+ * dropped when the footprint is in the result too, because the footprint carries it.
  */
 std::vector<BOARD_ITEM*> BlockDragExpandSelection( const std::vector<BOARD_ITEM*>& aSelection );
 
