@@ -49,7 +49,9 @@ using namespace std::placeholders;
 #include <tools/block_drag_dependents.h>
 #include <tools/block_drag_displacement.h>
 #include <tools/block_drag_pick.h>
+#include <tools/block_drag_validation.h>
 #include <tools/generator_tool.h>
+#include <tools/zone_filler_tool.h>
 #include <router/router_tool.h>
 #include <router/pns_router.h>
 #include <router/pns_block_dragger.h>
@@ -69,6 +71,7 @@ using namespace std::placeholders;
 #include <pcb_table.h>
 #include <pad.h>
 #include <zone.h>
+#include <zone_filler.h>
 #include <footprint.h>
 #include <board.h>
 #include <constraints/board_constraint_adapter.h>
@@ -3050,6 +3053,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     std::vector<KIID>                                          blockOverlayHidden;
     std::vector<PCB_SHAPE*>                                    blockConstrainedShapes;
     std::set<PCB_SHAPE*>                                       blockSolverBrightened;
+    std::optional<BLOCK_DRAG_VALIDATION>                       blockValidation;
     VECTOR2I                                                   blockAppliedDelta;
     BOARD_ITEM*                                                blockRefParent = nullptr;
     GRID_HELPER_GRIDS                                          blockRefGrid = GRID_CURRENT;
@@ -3115,6 +3119,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         blockRigidItems.clear();
         blockMoving.clear();
         blockConstrainedShapes.clear();
+        blockValidation.reset();
         blockAppliedDelta = VECTOR2I( 0, 0 );
         blockRevertRestarts = false;
         inBlockDrag = false;
@@ -3657,6 +3662,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
         blockDragAppendConstraintCoMembers( board(), validationScope );
 
+        blockValidation.emplace( *board() );
+        blockValidation->CaptureBaseline( validationScope );
+
         blockAppliedDelta = VECTOR2I( 0, 0 );
         blockRevertRestarts = padOfCarriedFootprint;
 
@@ -4061,8 +4069,35 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             {
                 collectBlockTargets();
 
+                // Finalize first, so the geometry that was checked is the geometry that goes in
                 for( auto& [targetPoints, behavior] : blockTargets )
                     behavior->FinalizeItem( *targetPoints, commit );
+
+                BLOCK_DRAG_VALIDATION_RESULT validationResult =
+                        blockValidation ? blockValidation->Validate() : BLOCK_DRAG_VALIDATION_RESULT::OK;
+
+                std::vector<ZONE*> zonesToFill;
+
+                auto appendFillZone = [&]( EDA_ITEM* aItem )
+                {
+                    if( aItem->Type() != PCB_ZONE_T )
+                        return;
+
+                    // A rule area has no fill, and filling nothing still rebuilds connectivity
+                    // and every zone's caches
+                    if( !static_cast<ZONE*>( aItem )->GetIsRuleArea() )
+                        zonesToFill.push_back( static_cast<ZONE*>( aItem ) );
+                };
+
+                // The collections were just resolved, and the footprint editor does no zone filling
+                if( !m_isFootprintEditor )
+                {
+                    for( auto& [targetPoints, behavior] : blockTargets )
+                        appendFillZone( targetPoints->GetParent() );
+
+                    for( BOARD_ITEM* rigidItem : blockRigidItems )
+                        appendFillZone( rigidItem );
+                }
 
                 bool routerSessionOk = true;
                 bool routerStatusOk = true;
@@ -4081,7 +4116,19 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                         dragger->GetForceMarkObstaclesMode( &routerStatusOk );
                 }
 
-                if( !routerSessionOk || ( !routerStatusOk && !forceCommit ) )
+                if( validationResult != BLOCK_DRAG_VALIDATION_RESULT::OK )
+                {
+                    if( validationResult == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE )
+                        frame()->ShowInfoBarError( _( "The move would create a self-intersecting zone outline." ) );
+                    else
+                        frame()->ShowInfoBarError( _( "The move would break the board outline." ) );
+
+                    if( revertBlockDrag( false ) )
+                        break;
+
+                    endBlockDrag( true );
+                }
+                else if( !routerSessionOk || ( !routerStatusOk && !forceCommit ) )
                 {
                     // Forced placement skips the collision refusal and nothing else
                     frame()->ShowInfoBarError( _( "The move violates DRC." ) );
@@ -4101,8 +4148,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     else
                         label = blockOrigins.size() > 1 ? _( "Move Points" ) : _( "Move Point" );
 
-                    // The carried changes name the undo entry, the router appends to it
-                    commit.Push( label );
+                    // The carried changes name the undo entry, the router and the fill append to
+                    // it. Only the last push of the gesture may arm the refill scheduler, or it
+                    // would fill against the geometry the router has not committed yet
+                    commit.Push( label, blockRouterActive ? ZONE_FILL_OP : 0 );
 
                     bool routerCommitted = true;
 
@@ -4125,6 +4174,36 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
                         if( revertBlockDrag( true ) )
                             break;
+                    }
+                    else if( !zonesToFill.empty()
+                             && ( blockRouterActive || !editFrame->GetPcbNewSettings()->m_AutoRefillZones ) )
+                    {
+                        // Dragging an outline leaves its zone unfilled, so refill the carried zones
+                        // here whenever the automatic refill will miss them. That happens when the
+                        // user has turned it off, and when the router follows this push, because the
+                        // geometry then goes in with the scheduler held back and the router's own
+                        // push only marks what its copper passed near
+                        BOARD_COMMIT fillCommit( editFrame );
+                        ZONE_FILLER  filler( board(), &fillCommit );
+
+                        if( filler.Fill( zonesToFill ) )
+                        {
+                            board()->OnZonesFilled( zonesToFill );
+
+                            if( ZONE_FILLER_TOOL* zoneFillerTool = m_toolMgr->GetTool<ZONE_FILLER_TOOL>() )
+                                zoneFillerTool->RegenerateDirtyGenerators( fillCommit );
+
+                            fillCommit.Push( label, APPEND_UNDO | ZONE_FILL_OP );
+                        }
+                        else
+                        {
+                            // The gesture's undo entry holds a copy of every zone the fill touched from
+                            // before the drag, so one undo takes the fill out along with the move
+                            frame()->ShowInfoBarError( _( "Zone fill failed, the move was undone." ) );
+
+                            if( revertBlockDrag( true ) )
+                                break;
+                        }
                     }
 
                     endBlockDrag( true );

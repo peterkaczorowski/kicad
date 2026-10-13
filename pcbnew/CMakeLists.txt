@@ -514,6 +514,7 @@ set( PCBNEW_CLASS_SRCS
     tools/block_drag_dependents.cpp
     tools/block_drag_displacement.cpp
     tools/block_drag_pick.cpp
+    tools/block_drag_validation.cpp
     tools/board_editor_control.cpp
     tools/board_inspection_tool.cpp
     tools/board_reannotate_tool.cpp

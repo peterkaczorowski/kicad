@@ -65,6 +65,7 @@ set( QA_PCBNEW_SRCS
     test_block_drag_dependents.cpp
     test_block_drag_displacement.cpp
     test_block_drag_pick.cpp
+    test_block_drag_validation.cpp
     test_graphics_import_mgr.cpp
     test_group_load_save.cpp
     test_group_mirror.cpp
