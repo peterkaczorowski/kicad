@@ -24,10 +24,47 @@
 #include <unordered_set>
 
 #include <board.h>
+#include <footprint.h>
 #include <pcb_generator.h>
 #include <pcb_group.h>
 #include <pcb_shape.h>
 #include <zone.h>
+#include <constraints/pcb_constraint.h>
+
+
+static bool constraintsContain( const CONSTRAINTS& aConstraints, const KIID& aId )
+{
+    for( const PCB_CONSTRAINT* constraint : aConstraints )
+    {
+        for( const CONSTRAINT_MEMBER& member : constraint->GetMembers() )
+        {
+            if( member.m_item == aId )
+                return true;
+        }
+    }
+
+    return false;
+}
+
+
+bool BlockDragIsConstraintMember( const BOARD_ITEM& aItem )
+{
+    const BOARD* board = aItem.GetBoard();
+
+    if( !board )
+        return false;
+
+    if( constraintsContain( board->Constraints(), aItem.m_Uuid ) )
+        return true;
+
+    for( const FOOTPRINT* footprint : board->Footprints() )
+    {
+        if( constraintsContain( footprint->Constraints(), aItem.m_Uuid ) )
+            return true;
+    }
+
+    return false;
+}
 
 
 BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem )

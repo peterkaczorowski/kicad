@@ -65,6 +65,21 @@ enum class BLOCK_DRAG_CAPABILITY
 BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem );
 
 /**
+ * True when the item belongs to any geometric constraint on its board or inside one of
+ * its footprints.
+ *
+ * This is deliberately membership, not solver-cluster analysis. Driving and
+ * reference-only constraints count equally, and so does membership in a malformed or
+ * unresolved constraint. Membership does not affect classification, the gesture uses
+ * it to know which moved shapes need their constraint clusters re-solved.
+ *
+ * Each call scans every constraint on the board and its footprints. Callers
+ * classifying a large selection should classify once per item and cache, a
+ * selection-level bulk query belongs in the drag coordinator.
+ */
+bool BlockDragIsConstraintMember( const BOARD_ITEM& aItem );
+
+/**
  * Replace group containers with their members, through nested groups, and drop
  * duplicates.
  *

@@ -39,6 +39,8 @@
 #include <zone.h>
 #include <teardrop/teardrop_types.h>
 #include <pcb_generator.h>
+#include <constraints/pcb_constraint.h>
+#include <constraints/board_constraint_adapter.h>
 #include <tools/block_drag_capability.h>
 
 
@@ -138,6 +140,47 @@ BOOST_AUTO_TEST_CASE( ShapeKindsSplitDeformableFromRigid )
     BOOST_CHECK( BlockDragCapability( *arc ) == BLOCK_DRAG_CAPABILITY::RIGID );
     BOOST_CHECK( BlockDragCapability( *circle ) == BLOCK_DRAG_CAPABILITY::RIGID );
     BOOST_CHECK( BlockDragCapability( *bezier ) == BLOCK_DRAG_CAPABILITY::RIGID );
+}
+
+
+BOOST_AUTO_TEST_CASE( ConstrainedShapeIsDeformable )
+{
+    BOARD board;
+
+    PCB_SHAPE* constrained = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+    PCB_SHAPE* free = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+
+    board.Add( constrained );
+    board.Add( free );
+
+    PCB_CONSTRAINT* constraint = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::HORIZONTAL );
+    constraint->AddMember( constrained->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+    board.Add( constraint );
+
+    BOOST_CHECK( BlockDragIsConstraintMember( *constrained ) );
+    BOOST_CHECK( !BlockDragIsConstraintMember( *free ) );
+    BOOST_CHECK( BlockDragCapability( *constrained ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+    BOOST_CHECK( BlockDragCapability( *free ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+}
+
+
+BOOST_AUTO_TEST_CASE( FootprintOwnedConstraintIsFound )
+{
+    BOARD board;
+    board.SetBoardUse( BOARD_USE::FPHOLDER );
+
+    FOOTPRINT* footprint = new FOOTPRINT( &board );
+    PCB_SHAPE* shape = new PCB_SHAPE( footprint, SHAPE_T::SEGMENT );
+
+    footprint->Add( shape );
+    board.Add( footprint );
+
+    PCB_CONSTRAINT* constraint = new PCB_CONSTRAINT( footprint, PCB_CONSTRAINT_TYPE::VERTICAL );
+    constraint->AddMember( shape->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+    footprint->Add( constraint );
+
+    BOOST_CHECK( BlockDragIsConstraintMember( *shape ) );
+    BOOST_CHECK( BlockDragCapability( *shape ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
 }
 
 
@@ -397,6 +440,85 @@ BOOST_AUTO_TEST_CASE( GeneratorIsNotExpanded )
 
     BOOST_REQUIRE_EQUAL( expanded.size(), 1 );
     BOOST_CHECK( expanded.front() == generator );
+}
+
+
+BOOST_AUTO_TEST_CASE( ReferenceOnlyConstraintIsDeformable )
+{
+    BOARD board;
+
+    PCB_SHAPE* measured = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+    board.Add( measured );
+
+    PCB_CONSTRAINT* reference = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::HORIZONTAL );
+    reference->SetDriving( false );
+    reference->AddMember( measured->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+    board.Add( reference );
+
+    BOOST_CHECK( BlockDragIsConstraintMember( *measured ) );
+    BOOST_CHECK( BlockDragCapability( *measured ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+}
+
+
+BOOST_AUTO_TEST_CASE( MalformedConstraintIsDeformable )
+{
+    BOARD board;
+
+    PCB_SHAPE* listed = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+    board.Add( listed );
+
+    // The other member never resolves to a real item, so the constraint is broken
+    PCB_CONSTRAINT* dangling = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::PARALLEL );
+    dangling->AddMember( listed->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+    dangling->AddMember( KIID(), CONSTRAINT_ANCHOR::WHOLE );
+    board.Add( dangling );
+
+    BOOST_CHECK( BlockDragIsConstraintMember( *listed ) );
+    BOOST_CHECK( BlockDragCapability( *listed ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+}
+
+
+// The exact call the block gesture makes per motion, edited geometry held fixed,
+// the constrained neighbor chases it
+BOOST_AUTO_TEST_CASE( HeldEditNeighborFollows )
+{
+    BOARD board;
+
+    PCB_SHAPE* moved = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+    moved->SetStart( VECTOR2I( 0, 0 ) );
+    moved->SetEnd( VECTOR2I( 100000, 0 ) );
+
+    PCB_SHAPE* follower = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+    follower->SetStart( VECTOR2I( 100000, 0 ) );
+    follower->SetEnd( VECTOR2I( 300000, 50000 ) );
+
+    board.Add( moved );
+    board.Add( follower );
+
+    PCB_CONSTRAINT* coincident = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::COINCIDENT );
+    coincident->AddMember( moved->m_Uuid, CONSTRAINT_ANCHOR::END );
+    coincident->AddMember( follower->m_Uuid, CONSTRAINT_ANCHOR::START );
+    board.Add( coincident );
+
+    moved->SetStart( VECTOR2I( 10000, 10000 ) );
+    moved->SetEnd( VECTOR2I( 110000, 10000 ) );
+
+    std::vector<PCB_SHAPE*>  solverMoved;
+    std::vector<BOARD_ITEM*> staged;
+
+    bool solved = ReSolveShapeClustersHoldingEdited( &board, { moved }, &solverMoved,
+                                                     [&]( BOARD_ITEM* aItem )
+                                                     {
+                                                         staged.push_back( aItem );
+                                                     } );
+
+    BOOST_REQUIRE( solved );
+    BOOST_CHECK( moved->GetEnd() == VECTOR2I( 110000, 10000 ) );
+    BOOST_CHECK_LE( ( follower->GetStart() - VECTOR2I( 110000, 10000 ) ).EuclideanNorm(), 5000.0 );
+
+    BOOST_REQUIRE_EQUAL( solverMoved.size(), 1 );
+    BOOST_CHECK( solverMoved.front() == follower );
+    BOOST_CHECK( std::find( staged.begin(), staged.end(), follower ) != staged.end() );
 }
 
 

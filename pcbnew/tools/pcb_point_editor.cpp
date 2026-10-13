@@ -72,6 +72,7 @@ using namespace std::placeholders;
 #include <board.h>
 #include <constraints/board_constraint_adapter.h>
 #include <constraints/constraint_builder.h>
+#include <constraints/pcb_constraint.h>
 #include <footprint_editor_settings.h>
 #include <connectivity/connectivity_data.h>
 #include <progress_reporter.h>
@@ -2790,6 +2791,60 @@ private:
 } // namespace
 
 
+// The solver can move shapes that share a constraint with the block but were never dragged
+static void blockDragAppendConstraintCoMembers( BOARD* aBoard, std::vector<BOARD_ITEM*>& aItems )
+{
+    std::set<KIID> known;
+
+    for( BOARD_ITEM* item : aItems )
+        known.insert( item->m_Uuid );
+
+    std::vector<const PCB_CONSTRAINT*> constraints( aBoard->Constraints().begin(), aBoard->Constraints().end() );
+
+    for( const FOOTPRINT* footprint : aBoard->Footprints() )
+    {
+        constraints.insert( constraints.end(), footprint->Constraints().begin(), footprint->Constraints().end() );
+    }
+
+    bool grew = true;
+
+    while( grew )
+    {
+        grew = false;
+
+        for( const PCB_CONSTRAINT* constraint : constraints )
+        {
+            bool touches = false;
+
+            for( const CONSTRAINT_MEMBER& member : constraint->GetMembers() )
+            {
+                if( known.count( member.m_item ) )
+                {
+                    touches = true;
+                    break;
+                }
+            }
+
+            if( !touches )
+                continue;
+
+            for( const CONSTRAINT_MEMBER& member : constraint->GetMembers() )
+            {
+                if( known.count( member.m_item ) )
+                    continue;
+
+                if( BOARD_ITEM* item = aBoard->ResolveItem( member.m_item, true ) )
+                {
+                    known.insert( item->m_Uuid );
+                    aItems.push_back( item );
+                    grew = true;
+                }
+            }
+        }
+    }
+}
+
+
 // BOARD_ITEM::IsLocked covers the parent group but not the parent footprint
 static bool blockDragItemLocked( const BOARD_ITEM* aItem )
 {
@@ -2991,6 +3046,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     std::vector<std::shared_ptr<EDIT_POINTS>>                  blockDependentDisplays;
     std::vector<BOARD_ITEM*>                                   blockRigidItems;
     std::vector<BOARD_ITEM*>                                   blockMoving;
+    std::vector<PCB_SHAPE*>                                    blockConstrainedShapes;
+    std::set<PCB_SHAPE*>                                       blockSolverBrightened;
     VECTOR2I                                                   blockAppliedDelta;
     BOARD_ITEM*                                                blockRefParent = nullptr;
     GRID_HELPER_GRIDS                                          blockRefGrid = GRID_CURRENT;
@@ -3013,6 +3070,14 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             if( getView()->HasItem( display.get() ) )
                 getView()->Remove( display.get() );
         }
+
+        for( PCB_SHAPE* neighbor : blockSolverBrightened )
+        {
+            neighbor->ClearBrightened();
+            getView()->Update( neighbor );
+        }
+
+        blockSolverBrightened.clear();
 
         if( m_editedPoint )
             m_editedPoint->SetActive( false );
@@ -3038,6 +3103,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         blockOrigins.clear();
         blockRigidItems.clear();
         blockMoving.clear();
+        blockConstrainedShapes.clear();
         blockAppliedDelta = VECTOR2I( 0, 0 );
         blockRevertRestarts = false;
         inBlockDrag = false;
@@ -3536,6 +3602,21 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             blockDependentDisplays.push_back( std::move( display ) );
         }
 
+        std::vector<BOARD_ITEM*> validationScope = blockMoving;
+
+        // A co-member is itself a constraint member, so the cache is taken before they
+        // are appended or the solver would hold them fixed instead of moving them
+        for( BOARD_ITEM* item : validationScope )
+        {
+            if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item ) )
+            {
+                if( BlockDragIsConstraintMember( *shape ) )
+                    blockConstrainedShapes.push_back( shape );
+            }
+        }
+
+        blockDragAppendConstraintCoMembers( board(), validationScope );
+
         blockAppliedDelta = VECTOR2I( 0, 0 );
         blockRevertRestarts = padOfCarriedFootprint;
 
@@ -3880,6 +3961,36 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     {
                         blockDependentDisplays[ii]->Point( 0 ).SetPosition( target );
                         getView()->Update( blockDependentDisplays[ii].get() );
+                    }
+                }
+
+                // The moved geometry is authoritative and the clusters holding it re-solve
+                // around it. A failed solve leaves every neighbor untouched this frame
+                if( !blockConstrainedShapes.empty() && frameStep != VECTOR2I( 0, 0 ) )
+                {
+                    std::vector<PCB_SHAPE*> solverMoved;
+
+                    auto stageNeighbor = [&]( BOARD_ITEM* aItem )
+                    {
+                        commit.Modify( aItem );
+
+                        // A remeasured dimension is not reported as moved, so it is
+                        // refreshed here or it looks frozen until the drag ends
+                        if( aItem->Type() != PCB_SHAPE_T )
+                            updatedItems.push_back( aItem );
+                    };
+
+                    ReSolveShapeClustersHoldingEdited( board(), blockConstrainedShapes, &solverMoved, stageNeighbor );
+
+                    for( PCB_SHAPE* neighbor : solverMoved )
+                    {
+                        updatedItems.push_back( neighbor );
+
+                        if( !neighbor->IsBrightened() )
+                        {
+                            neighbor->SetBrightened();
+                            blockSolverBrightened.insert( neighbor );
+                        }
                     }
                 }
 
