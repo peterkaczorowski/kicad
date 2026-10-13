@@ -56,12 +56,14 @@ BOOST_AUTO_TEST_CASE( PointSelectionFlagsAreIndependent )
     EDIT_POINT point( VECTOR2I( 0, 0 ) );
 
     BOOST_CHECK( !point.IsSelected() );
+    BOOST_CHECK( !point.IsDependent() );
 
     point.SetSelected();
     point.SetActive();
     point.SetHover();
 
     BOOST_CHECK( point.IsSelected() );
+    BOOST_CHECK( !point.IsDependent() );
 
     point.SetActive( false );
     point.SetHover( false );
@@ -70,8 +72,10 @@ BOOST_AUTO_TEST_CASE( PointSelectionFlagsAreIndependent )
     BOOST_CHECK( !point.IsActive() );
     BOOST_CHECK( !point.IsHover() );
 
+    point.SetDependent();
     point.SetSelected( false );
 
+    BOOST_CHECK( point.IsDependent() );
     BOOST_CHECK( !point.IsSelected() );
 }
 

@@ -292,6 +292,8 @@ void EDIT_POINTS::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
 
     auto drawPoint = [&]( const EDIT_POINT& aPoint, bool aDrawCircle = false, bool aShowState = true )
     {
+        bool fill = true;
+
         if( aShowState && aPoint.IsSelected() )
         {
             gal->SetStrokeColor( highlightColor );
@@ -304,6 +306,12 @@ void EDIT_POINTS::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
             gal->SetLineWidth( hoverSize );
             gal->SetFillColor( drawColor );
         }
+        else if( aShowState && aPoint.IsDependent() )
+        {
+            gal->SetStrokeColor( highlightColor );
+            gal->SetLineWidth( borderSize );
+            fill = false;
+        }
         else
         {
             gal->SetStrokeColor( borderColor );
@@ -311,10 +319,14 @@ void EDIT_POINTS::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
             gal->SetFillColor( drawColor );
         }
 
+        gal->SetIsFill( fill );
+
         if( aDrawCircle )
             gal->DrawCircle( aPoint.GetPosition(), size );
         else
             gal->DrawRectangle( aPoint.GetPosition() - size, aPoint.GetPosition() + size );
+
+        gal->SetIsFill( true );
     };
 
     for( const EDIT_POINT& point : m_points )

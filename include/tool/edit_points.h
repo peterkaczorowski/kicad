@@ -52,6 +52,7 @@ public:
             m_isActive( false ),
             m_isHover( false ),
             m_isSelected( false ),
+            m_isDependent( false ),
             m_drawCircle( false ),
             m_gridConstraint( SNAP_TO_GRID ),
             m_snapConstraint( OBJECT_LAYERS ),
@@ -169,6 +170,9 @@ public:
     bool IsSelected() const { return m_isSelected; }
     void SetSelected( bool aSelected = true ) { m_isSelected = aSelected; }
 
+    bool IsDependent() const { return m_isDependent; }
+    void SetDependent( bool aDependent = true ) { m_isDependent = aDependent; }
+
     bool DrawCircle() const { return m_drawCircle; }
     void SetDrawCircle( bool aDrawCircle = true ) { m_drawCircle = aDrawCircle; }
 
@@ -198,7 +202,8 @@ private:
     VECTOR2I             m_position;        ///< Position of EDIT_POINT.
     bool                 m_isActive;        ///< True if this point is being manipulated.
     bool                 m_isHover;         ///< True if this point is being hovered over.
-    bool                 m_isSelected;      ///< True if this point is part of a point selection.
+    bool                 m_isSelected;      ///< True if the user has picked this point.
+    bool                 m_isDependent;     ///< True if this point follows a point the user picked.
     bool                 m_drawCircle;      ///< True if the point is drawn circular.
     GRID_CONSTRAINT_TYPE m_gridConstraint;  ///< Describe the grid snapping behavior.
     SNAP_CONSTRAINT_TYPE m_snapConstraint;  ///< Describe the object snapping behavior.

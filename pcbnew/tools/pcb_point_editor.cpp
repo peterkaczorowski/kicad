@@ -46,6 +46,7 @@ using namespace std::placeholders;
 #include <tools/pcb_point_editor.h>
 #include <tools/pcb_grid_helper.h>
 #include <tools/block_drag_capability.h>
+#include <tools/block_drag_dependents.h>
 #include <tools/block_drag_displacement.h>
 #include <tools/block_drag_pick.h>
 #include <tools/generator_tool.h>
@@ -2986,6 +2987,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     bool                                                       blockRouterActive = false;
     std::map<PCB_HANDLE_KEY, VECTOR2I>                         blockOrigins;
     std::vector<std::pair<EDIT_POINTS*, POINT_EDIT_BEHAVIOR*>> blockTargets;
+    std::vector<BLOCK_DRAG_ENDPOINT>                           blockDependents;
+    std::vector<std::shared_ptr<EDIT_POINTS>>                  blockDependentDisplays;
     std::vector<BOARD_ITEM*>                                   blockRigidItems;
     std::vector<BOARD_ITEM*>                                   blockMoving;
     VECTOR2I                                                   blockAppliedDelta;
@@ -3003,6 +3006,12 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 shape->ClearFlags( IS_MOVING );
                 shape->UpdateHatching();
             }
+        }
+
+        for( std::shared_ptr<EDIT_POINTS>& display : blockDependentDisplays )
+        {
+            if( getView()->HasItem( display.get() ) )
+                getView()->Remove( display.get() );
         }
 
         if( m_editedPoint )
@@ -3023,6 +3032,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             blockRouterActive = false;
         }
 
+        blockDependentDisplays.clear();
+        blockDependents.clear();
         blockTargets.clear();
         blockOrigins.clear();
         blockRigidItems.clear();
@@ -3267,6 +3278,78 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
         }
 
+        // The ends of moved and carried segments are the starting points for finding
+        // unselected graphics that should follow
+        std::vector<BLOCK_DRAG_ENDPOINT> movedEndpoints;
+
+        for( auto& [targetPoints, behavior] : blockTargets )
+        {
+            PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( targetPoints->GetParent() );
+
+            if( !shape || shape->GetShape() != SHAPE_T::SEGMENT )
+                continue;
+
+            for( const auto& [key, origin] : blockOrigins )
+            {
+                if( key.Parent() != shape->m_Uuid || key.IsLine() )
+                    continue;
+
+                if( key.Index() == 0 || key.Index() == 1 )
+                    movedEndpoints.push_back( { shape, key.Index() == 0, origin } );
+            }
+        }
+
+        for( BOARD_ITEM* rigidItem : blockRigidItems )
+        {
+            PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( rigidItem );
+
+            if( !shape || shape->GetShape() != SHAPE_T::SEGMENT )
+                continue;
+
+            movedEndpoints.push_back( { shape, true, shape->GetStart() } );
+            movedEndpoints.push_back( { shape, false, shape->GetEnd() } );
+        }
+
+        blockDependents.clear();
+
+        if( !movedEndpoints.empty() )
+        {
+            std::vector<PCB_SHAPE*> candidates;
+
+            // A selected group marks only the container, so exclusion keys on the
+            // expanded selection
+            auto addCandidate = [&]( BOARD_ITEM* aItem )
+            {
+                if( aItem->Type() != PCB_SHAPE_T )
+                    return;
+
+                if( aItem->IsSelected() || m_expandedSelection.count( aItem ) )
+                    return;
+
+                candidates.push_back( static_cast<PCB_SHAPE*>( aItem ) );
+            };
+
+            if( m_isFootprintEditor )
+            {
+                if( FOOTPRINT* footprint = board()->GetFirstFootprint() )
+                {
+                    for( BOARD_ITEM* drawing : footprint->GraphicalItems() )
+                        addCandidate( drawing );
+                }
+            }
+            else
+            {
+                for( BOARD_ITEM* drawing : board()->Drawings() )
+                    addCandidate( drawing );
+            }
+
+            if( BlockDragFindDependents( candidates, movedEndpoints, overrideLocksNow, blockDependents )
+                == BLOCK_DRAG_DEPENDENT_RESULT::LOCKED )
+            {
+                return refuse( _( "A locked connected item prevents the drag. Enable 'Override locks' to move it." ) );
+            }
+        }
+
         // Undoing swaps in fresh footprint children, so a pad selected together with
         // its footprint gets a new object
         bool padOfCarriedFootprint = false;
@@ -3432,6 +3515,25 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 shape->SetFlags( IS_MOVING );
                 shape->UpdateHatching();
             }
+        }
+
+        blockDependentDisplays.clear();
+
+        for( const BLOCK_DRAG_ENDPOINT& dep : blockDependents )
+        {
+            commit.Modify( dep.shape );
+            dep.shape->SetFlags( IS_MOVING );
+            dep.shape->UpdateHatching();
+
+            // A segment joined to the block at both ends shows up twice
+            if( std::find( blockMoving.begin(), blockMoving.end(), dep.shape ) == blockMoving.end() )
+                blockMoving.push_back( dep.shape );
+
+            std::shared_ptr<EDIT_POINTS> display = std::make_shared<EDIT_POINTS>( dep.shape );
+            display->AddPoint( dep.position );
+            display->Point( 0 ).SetDependent();
+            getView()->Add( display.get() );
+            blockDependentDisplays.push_back( std::move( display ) );
         }
 
         blockAppliedDelta = VECTOR2I( 0, 0 );
@@ -3762,6 +3864,25 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
                 blockAppliedDelta = delta;
 
+                for( size_t ii = 0; ii < blockDependents.size(); ++ii )
+                {
+                    const BLOCK_DRAG_ENDPOINT& dep = blockDependents[ii];
+                    VECTOR2I                   target = dep.position + delta;
+
+                    if( dep.isStart )
+                        dep.shape->SetStart( target );
+                    else
+                        dep.shape->SetEnd( target );
+
+                    updatedItems.push_back( dep.shape );
+
+                    if( ii < blockDependentDisplays.size() )
+                    {
+                        blockDependentDisplays[ii]->Point( 0 ).SetPosition( target );
+                        getView()->Update( blockDependentDisplays[ii].get() );
+                    }
+                }
+
                 for( EDA_ITEM* updatedItem : updatedItems )
                     getView()->Update( updatedItem );
 
@@ -3823,7 +3944,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 {
                     wxString label;
 
-                    if( blockRouterActive || !blockRigidItems.empty() || blockTargets.size() > 1 )
+                    if( blockRouterActive || !blockRigidItems.empty() || !blockDependents.empty()
+                        || blockTargets.size() > 1 )
                         label = _( "Drag block" );
                     else
                         label = blockOrigins.size() > 1 ? _( "Move Points" ) : _( "Move Point" );
