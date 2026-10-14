@@ -3103,11 +3103,18 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             blockRouterActive = false;
         }
 
-        // Resolved by id because fixing the route can replace a carried segment
+        // Look items up by id, because fixing the route can replace a carried segment.
+        // The selection tool hides a selected item from the board pass so the overlay can
+        // draw it alone, and clearing the overlay flag clears that hiding too, so put it back
         for( const KIID& hidden : blockOverlayHidden )
         {
             if( BOARD_ITEM* item = board()->ResolveItem( hidden, true ) )
+            {
                 getView()->Hide( item, false );
+
+                if( item->IsSelected() )
+                    getView()->Hide( item, true );
+            }
         }
 
         blockOverlayHidden.clear();
@@ -4148,9 +4155,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     else
                         label = blockOrigins.size() > 1 ? _( "Move Points" ) : _( "Move Point" );
 
-                    // The carried changes name the undo entry, the router and the fill append to
-                    // it. Only the last push of the gesture may arm the refill scheduler, or it
-                    // would fill against the geometry the router has not committed yet
+                    // The carried changes name the undo entry, and the router and the fill add to
+                    // it. Only the gesture's last push may arm the refill scheduler. An earlier one
+                    // would run a fill, a connectivity rebuild and maybe a progress dialog inside
+                    // that push, while the router drag is still live
                     commit.Push( label, blockRouterActive ? ZONE_FILL_OP : 0 );
 
                     bool routerCommitted = true;
