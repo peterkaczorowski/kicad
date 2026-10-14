@@ -41,8 +41,8 @@ enum class BLOCK_DRAG_VALIDATION_RESULT
 /**
  * Checks a Block Drag's result at release and says whether it may be kept.
  *
- * Frame free by design so the QA harness can drive it: it reads only the board
- * model. Capture the baseline before the first mutation, then validate at release.
+ * Reads only the board model. Capture the baseline before the first mutation, then
+ * validate at release.
  * Pre-existing damage never rejects a gesture: a zone that was already
  * self-intersecting and an outline that was already broken are recorded at capture
  * and only newly introduced damage fails validation.

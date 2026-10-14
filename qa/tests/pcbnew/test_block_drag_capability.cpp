@@ -478,8 +478,8 @@ BOOST_AUTO_TEST_CASE( MalformedConstraintIsDeformable )
 }
 
 
-// The exact call the block gesture makes per motion, edited geometry held fixed,
-// the constrained neighbor chases it
+// Solve with the edited geometry held fixed. The constrained neighbour follows it, and
+// the caller hears about it through the before-modify callback
 BOOST_AUTO_TEST_CASE( HeldEditNeighborFollows )
 {
     BOARD board;

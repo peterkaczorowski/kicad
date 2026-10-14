@@ -21,10 +21,8 @@
 
 #include <board.h>
 #include <pcb_shape.h>
-#include <pcb_track.h>
 #include <zone.h>
 #include <tool/edit_points.h>
-#include <tools/pcb_grid_helper.h>
 #include <tools/block_drag_displacement.h>
 
 
@@ -48,29 +46,6 @@ std::shared_ptr<EDIT_POINTS> makeTriangle( EDA_ITEM* aParent, int aOffset = 0 )
 
 
 BOOST_AUTO_TEST_SUITE( BlockDragDisplacementTests )
-
-
-// The reference grid comes from the grabbed handle's parent item, with the
-// current grid as the no-handle fallback
-BOOST_AUTO_TEST_CASE( ReferenceGridComesFromGrabbedParent )
-{
-    BOARD board;
-
-    PCB_SHAPE* shape = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
-    ZONE*      zone = new ZONE( &board );
-    PCB_VIA*   via = new PCB_VIA( &board );
-
-    board.Add( shape );
-    board.Add( zone );
-    board.Add( via );
-
-    PCB_GRID_HELPER helper;
-
-    BOOST_CHECK( BlockDragReferenceGrid( helper, shape ) == GRID_GRAPHICS );
-    BOOST_CHECK( BlockDragReferenceGrid( helper, via ) == GRID_VIAS );
-    BOOST_CHECK( BlockDragReferenceGrid( helper, zone ) == GRID_CURRENT );
-    BOOST_CHECK( BlockDragReferenceGrid( helper, nullptr ) == GRID_CURRENT );
-}
 
 
 // Two items, one drag. Every picked handle moves by the same offset, and no point
@@ -109,7 +84,6 @@ BOOST_AUTO_TEST_CASE( OneDisplacementReachesEveryPickedHandle )
     BOOST_CHECK( zonePoints->Point( 2 ).GetPosition() == VECTOR2I( 1333, 923 ) );
     BOOST_CHECK( polyPoints->Point( 1 ).GetPosition() == VECTOR2I( 6333, -77 ) );
 
-    // Unpicked points did not move
     BOOST_CHECK( zonePoints->Point( 1 ).GetPosition() == VECTOR2I( 1000, 0 ) );
     BOOST_CHECK( polyPoints->Point( 0 ).GetPosition() == VECTOR2I( 5000, 0 ) );
 
@@ -122,7 +96,6 @@ BOOST_AUTO_TEST_CASE( OneDisplacementReachesEveryPickedHandle )
 }
 
 
-// A picked line expands to its endpoints and a shared endpoint moves exactly once
 BOOST_AUTO_TEST_CASE( PickedLineExpandsWithoutDoubleMove )
 {
     BOARD board;

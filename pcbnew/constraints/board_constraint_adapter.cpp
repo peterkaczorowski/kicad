@@ -2144,9 +2144,9 @@ BOARD_CONSTRAINT_ADAPTER::SolveBlockEdit( const std::vector<std::pair<CONSTRAINT
     if( !m_built )
         return CONSTRAINT_BLOCK_RESULT::NOT_MODELED;
 
-    // The commanded coordinates and their IU targets, keyed by parameter index so a coordinate two
-    // commands name is pinned once.  The axes are kept apart because a rectangle corner aliases one
-    // stored corner's x with the other's y.
+    // The held coordinates and their IU targets, keyed by parameter index so a coordinate
+    // two anchors name is held once. The axes are kept apart because a rectangle corner
+    // shares one stored corner's x with the other's y.
     std::map<int, int> targetsX;
     std::map<int, int> targetsY;
 

@@ -70,9 +70,6 @@ EDIT_POINT* PCB_HANDLE_KEY::Resolve( EDIT_POINTS& aPoints ) const
     if( aPoints.PointsSize() != m_pointCount || aPoints.LinesSize() != m_lineCount )
         return nullptr;
 
-    if( m_index < 0 )
-        return nullptr;
-
     if( m_isLine )
     {
         if( (unsigned) m_index >= aPoints.LinesSize() )

@@ -25,22 +25,9 @@
 #include <vector>
 
 #include <math/vector2d.h>
-#include <tool/grid_helper.h>
 #include <tools/pcb_handle_key.h>
 
-class BOARD_ITEM;
 class EDIT_POINTS;
-class PCB_GRID_HELPER;
-
-/**
- * The grid family the one common displacement is resolved against.
- *
- * A drag grabbing a picked handle uses that handle's parent item to pick the
- * family, including any enabled per-family override. A drag with no grabbed handle
- * falls back to the current grid. Every other item's own grid family yields to the
- * common displacement and is never consulted.
- */
-GRID_HELPER_GRIDS BlockDragReferenceGrid( const PCB_GRID_HELPER& aGridHelper, const BOARD_ITEM* aGrabbedParent );
 
 /**
  * Note every handle the drag will move, and where each one started.

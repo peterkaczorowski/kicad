@@ -133,6 +133,9 @@ private:
     /// Unpick everything and redraw.
     void clearPickedHandles();
 
+    /// Replace the picked set and repaint the handles to match it.
+    void setPickedHandles( std::set<PCB_HANDLE_KEY> aPicked );
+
     /// Paint the picked handles, dropping keys whose handle has gone.
     void applyPickedFlags();
 
@@ -225,8 +228,9 @@ private:
     EDIT_POINTS*                    m_blockHoveredOwner;
     std::set<PCB_HANDLE_KEY>        m_pickedHandles;
 
-    // The expanded explicit selection, group containers replaced by their members
-    std::unordered_set<BOARD_ITEM*> m_expandedSelection;
+    // The selection with each group replaced by its members, kept in selection order
+    // so a refusal message always names the same item
+    std::vector<BOARD_ITEM*> m_expandedSelection;
 
     // Undoes a block drag that is still running. Set only while OnSelectionChange is
     // parked in its loop, because it reads that call's locals. Reset() calls it before

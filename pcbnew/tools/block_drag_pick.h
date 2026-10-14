@@ -23,6 +23,7 @@
 #include <set>
 #include <vector>
 
+#include <math/vector2d.h>
 #include <tools/pcb_handle_key.h>
 
 class EDIT_POINT;
@@ -49,6 +50,9 @@ bool BlockDragHandlePickable( const EDIT_POINTS& aCollection, const EDIT_POINT& 
  * the set alone.
  */
 void BlockDragApplyPick( std::set<PCB_HANDLE_KEY>& aPicked, const PCB_HANDLE_KEY& aKey, bool aAccumulate );
+
+/// The closed rectangle a box pick covers, built from two opposite corners.
+SHAPE_LINE_CHAIN BlockDragPickRect( const VECTOR2I& aFirst, const VECTOR2I& aSecond );
 
 /**
  * Add the handles a lasso surrounds to the picked set.

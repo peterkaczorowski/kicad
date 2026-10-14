@@ -19,18 +19,7 @@
 
 #include "block_drag_displacement.h"
 
-#include <board_item.h>
 #include <tool/edit_points.h>
-#include <tools/pcb_grid_helper.h>
-
-
-GRID_HELPER_GRIDS BlockDragReferenceGrid( const PCB_GRID_HELPER& aGridHelper, const BOARD_ITEM* aGrabbedParent )
-{
-    if( !aGrabbedParent )
-        return GRID_CURRENT;
-
-    return aGridHelper.GetItemGrid( aGrabbedParent );
-}
 
 
 static EDIT_POINT* resolveInCollections( const std::vector<EDIT_POINTS*>& aCollections, const PCB_HANDLE_KEY& aKey,

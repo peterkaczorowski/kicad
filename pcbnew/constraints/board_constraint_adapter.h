@@ -179,14 +179,15 @@ public:
     /**
      * Solve a block edit whose geometry the caller has already written.
      *
-     * Each commanded coordinate is pinned at full weight exactly where the caller put it, and every
-     * other coordinate in the cluster keeps a minimal-movement pin, so an unpicked anchor of an
-     * edited shape and an untouched neighbour both relax by the least the relations allow instead of
-     * being frozen.  Nothing is written; the caller applies the result.
+     * Every coordinate the caller names is held exactly where the caller put it. Every other
+     * coordinate in the cluster is held with a weak pull back to where it was, so an anchor
+     * of an edited shape that the user did not pick, and an untouched neighbour, each move
+     * only as far as the constraints make them. The result is handed back for the caller to
+     * apply.
      *
-     * A commanded coordinate the solve cannot move, a locked shape's or a dimension point no
-     * constraint binds, takes its command as a constant, since the caller has already carried the
-     * item there; a relation that then breaks still shows up as a refusal.
+     * Some named coordinates cannot move at all, such as a locked shape's or a dimension
+     * point no constraint binds. Those are read as constants, since the caller has already
+     * put the item there. If a constraint then breaks, the solve is still refused.
      *
      * @param aPinnedAnchors the anchors the user placed, each with its target in IU.
      * @param aTranslatedShapes shapes that travelled whole, with all of their coordinates held.
@@ -368,14 +369,14 @@ private:
     /// As above for the point whose x param is @p aPointX and whose y param follows it
     void softPinPoint( int aPointX, int aTag, std::optional<double> aWeight = std::nullopt );
 
-    /// Pin the single coordinate at @p aParam where it sits tagged @p aTag with @p aWeight
-    /// rescaling the tier for an anchor whose two coordinates are commanded separately as a
-    /// rectangle corner's aliased pair is a negative param is ignored
+    /// Hold the one coordinate at @p aParam where it sits, tagged @p aTag, with @p aWeight
+    /// scaling the tier. Used where an anchor's two coordinates are set one at a time, as a
+    /// rectangle corner's shared pair is. A negative param is ignored.
     void softPinCoordinate( int aParam, int aTag, std::optional<double> aWeight = std::nullopt );
 
-    /// Soft-pin every cluster coordinate outside @p aCommanded where it sits tagged @p aTag with
-    /// the stay-put weight so nothing the caller did not command moves further than the relations
-    /// force and a shape with a commanded coordinate carries its radii at full weight
+    /// Weakly hold every cluster coordinate outside @p aCommanded where it sits, tagged
+    /// @p aTag, so nothing the caller left alone moves further than the constraints force.
+    /// A shape with a held coordinate keeps its radii at full weight.
     void pinUncommandedCoordinates( const std::set<int>& aCommanded, int aTag );
 
     /// Soft-pin every vertex of each POLYGON in @p aShapes tagged @p aTag for edited shapes
@@ -543,17 +544,17 @@ private:
 /**
  * One block edit session, holding several anchors and one travel offset at once.
  *
- * A block drag deforms some shapes through picked anchors while carrying others whole, so it needs
- * more than the drag session's single anchor and more than the move session's one rigid step.  The
- * session is built once, over every cluster the block touches, and each frame solves from the
- * baseline, so the committed geometry depends on the final displacement rather than on the path the
- * cursor took to it.
+ * A block drag reshapes some shapes by their picked anchors while carrying others whole, so
+ * it needs more than the drag session's single anchor and more than the move session's one
+ * rigid step. The session is built once, over every cluster the block touches, and every
+ * frame solves from the same starting geometry, so the result depends only on where the
+ * drag ends and not on the path the cursor took.
  */
 class BOARD_CONSTRAINT_BLOCK_SESSION : public BOARD_CONSTRAINT_SESSION
 {
 public:
-    /// Assemble one adapter over the clusters holding @p aBlockShapes.  False when they hold none,
-    /// and the caller then does no constraint work rather than refusing its edit.
+    /// Build one adapter over the clusters holding @p aBlockShapes. False when none of them
+    /// are constrained, which tells the caller to edit without the solver.
     bool Build( BOARD* aBoard, const std::vector<PCB_SHAPE*>& aBlockShapes );
 
     /**

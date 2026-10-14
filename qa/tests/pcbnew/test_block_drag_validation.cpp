@@ -83,8 +83,6 @@ struct BLOCK_DRAG_VALIDATION_FIXTURE
 BOOST_FIXTURE_TEST_SUITE( BlockDragValidationTests, BLOCK_DRAG_VALIDATION_FIXTURE )
 
 
-// A validation failure on a carried-only operation proves complete rollback
-// with no board change surviving
 BOOST_AUTO_TEST_CASE( InvalidZoneRestoresStagedGeometry )
 {
     ZONE* zone = makeSquareZone();

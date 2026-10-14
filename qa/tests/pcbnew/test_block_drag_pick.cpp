@@ -44,11 +44,6 @@ std::shared_ptr<EDIT_POINTS> makeCollection( EDA_ITEM* aParent )
     return points;
 }
 
-SHAPE_LINE_CHAIN makeRectLasso( const VECTOR2I& aA, const VECTOR2I& aB )
-{
-    return SHAPE_LINE_CHAIN( { aA, VECTOR2I( aB.x, aA.y ), aB, VECTOR2I( aA.x, aB.y ) }, true );
-}
-
 } // namespace
 
 
@@ -228,14 +223,14 @@ BOOST_AUTO_TEST_CASE( LassoPickAccumulateAdds )
 
     std::set<PCB_HANDLE_KEY> picked{ *key2 };
 
-    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 10, 10 ) ), true, picked );
+    BlockDragLassoPick( { points.get() }, BlockDragPickRect( VECTOR2I( -10, -10 ), VECTOR2I( 10, 10 ) ), true, picked );
 
     BOOST_REQUIRE_EQUAL( picked.size(), 2 );
     BOOST_CHECK( picked.count( *key0 ) == 1 );
     BOOST_CHECK( picked.count( *key2 ) == 1 );
 
     // Lassoing an already picked handle again leaves the set as it was
-    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 10, 10 ) ), true, picked );
+    BlockDragLassoPick( { points.get() }, BlockDragPickRect( VECTOR2I( -10, -10 ), VECTOR2I( 10, 10 ) ), true, picked );
 
     BOOST_REQUIRE_EQUAL( picked.size(), 2 );
 }
@@ -257,7 +252,7 @@ BOOST_AUTO_TEST_CASE( LassoPickSkipsNonPickable )
     std::set<PCB_HANDLE_KEY> picked;
 
     BlockDragLassoPick( { zonePoints.get(), arcPoints.get() },
-                        makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 200, 200 ) ), false, picked );
+                        BlockDragPickRect( VECTOR2I( -10, -10 ), VECTOR2I( 200, 200 ) ), false, picked );
 
     // All three zone corners, and nothing from the arc, which only travels whole
     BOOST_REQUIRE_EQUAL( picked.size(), 3 );
@@ -283,7 +278,8 @@ BOOST_AUTO_TEST_CASE( BoundaryHandleCountsAsEnclosed )
     std::set<PCB_HANDLE_KEY> picked;
 
     // The lasso's right edge runs right through point 1 at ( 100, 0 )
-    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( -10, -10 ), VECTOR2I( 100, 50 ) ), false, picked );
+    BlockDragLassoPick( { points.get() }, BlockDragPickRect( VECTOR2I( -10, -10 ), VECTOR2I( 100, 50 ) ), false,
+                        picked );
 
     BOOST_REQUIRE_EQUAL( picked.size(), 2 );
     BOOST_CHECK( picked.count( *key0 ) == 1 );
@@ -303,7 +299,7 @@ BOOST_AUTO_TEST_CASE( EnclosedLineMidpointPicksNothing )
 
     std::set<PCB_HANDLE_KEY> picked;
 
-    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( 40, -10 ), VECTOR2I( 60, 10 ) ), false, picked );
+    BlockDragLassoPick( { points.get() }, BlockDragPickRect( VECTOR2I( 40, -10 ), VECTOR2I( 60, 10 ) ), false, picked );
 
     BOOST_CHECK( picked.empty() );
 }
@@ -323,13 +319,15 @@ BOOST_AUTO_TEST_CASE( EmptyPlainLassoClearsSet )
 
     std::set<PCB_HANDLE_KEY> picked{ *key0 };
 
-    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( 500, 500 ), VECTOR2I( 600, 600 ) ), false, picked );
+    BlockDragLassoPick( { points.get() }, BlockDragPickRect( VECTOR2I( 500, 500 ), VECTOR2I( 600, 600 ) ), false,
+                        picked );
 
     BOOST_CHECK( picked.empty() );
 
     // The same empty lasso with Shift leaves the set alone
     picked = { *key0 };
-    BlockDragLassoPick( { points.get() }, makeRectLasso( VECTOR2I( 500, 500 ), VECTOR2I( 600, 600 ) ), true, picked );
+    BlockDragLassoPick( { points.get() }, BlockDragPickRect( VECTOR2I( 500, 500 ), VECTOR2I( 600, 600 ) ), true,
+                        picked );
 
     BOOST_REQUIRE_EQUAL( picked.size(), 1 );
     BOOST_CHECK( picked.count( *key0 ) == 1 );

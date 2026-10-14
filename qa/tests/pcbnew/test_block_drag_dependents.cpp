@@ -105,8 +105,6 @@ BOOST_AUTO_TEST_CASE( ToleranceIsEuclidean )
 }
 
 
-// Arc endpoints coinciding with a moved endpoint are not dependents, only
-// straight segments follow
 BOOST_AUTO_TEST_CASE( ArcCandidateIsSkipped )
 {
     BOARD board;

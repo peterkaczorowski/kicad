@@ -28,18 +28,12 @@ class BOARD_ITEM;
  * How one selected item takes part in a block drag.
  *
  * Every item in an expanded selection gets exactly one of these.
- *
- * The matrix governs Block Drag participation only. The pre-existing bounding box
- * scaler for all-shape selections is separate shipping functionality and is
- * deliberately not filtered by it, so a shape that is rigid-only here, such as an
- * arc, still scales through that box.
  */
 enum class BLOCK_DRAG_CAPABILITY
 {
-    /// Shows handles. Picked handles deform the item. With none of its pickable handles picked it
-    /// takes no part in the gesture at all, since picking is the command and selecting only offers
-    /// the handles; only an item that offers no pickable handle is carried rigidly instead. An item
-    /// left out may still follow by an endpoint, like any item outside the selection.
+    /// Shows handles, and reshapes as the user drags the ones they picked. An item like
+    /// this joins the drag once one of its handles is picked. With none picked it stays
+    /// put, though it can still follow by a shared endpoint like any unselected item.
     DEFORMABLE,
 
     /// Moves with the block using its own move operation.
@@ -76,9 +70,7 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem );
  * unresolved constraint. Membership does not affect classification, the gesture uses
  * it to know which moved shapes need their constraint clusters re-solved.
  *
- * Each call scans every constraint on the board and its footprints. Callers
- * classifying a large selection should classify once per item and cache, a
- * selection-level bulk query belongs in the drag coordinator.
+ * Each call scans every constraint on the board and its footprints.
  */
 bool BlockDragIsConstraintMember( const BOARD_ITEM& aItem );
 

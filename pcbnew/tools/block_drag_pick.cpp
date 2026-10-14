@@ -64,6 +64,13 @@ void BlockDragApplyPick( std::set<PCB_HANDLE_KEY>& aPicked, const PCB_HANDLE_KEY
 }
 
 
+SHAPE_LINE_CHAIN BlockDragPickRect( const VECTOR2I& aFirst, const VECTOR2I& aSecond )
+{
+    return SHAPE_LINE_CHAIN( { aFirst, VECTOR2I( aSecond.x, aFirst.y ), aSecond, VECTOR2I( aFirst.x, aSecond.y ) },
+                             true );
+}
+
+
 void BlockDragLassoPick( const std::vector<EDIT_POINTS*>& aCollections, const SHAPE_LINE_CHAIN& aLasso,
                          bool aAccumulate, std::set<PCB_HANDLE_KEY>& aPicked )
 {
@@ -81,7 +88,6 @@ void BlockDragLassoPick( const std::vector<EDIT_POINTS*>& aCollections, const SH
         {
             const EDIT_POINT& point = collection->Point( ii );
 
-            // A handle exactly on the lasso line counts as enclosed
             if( !aLasso.PointInside( point.GetPosition(), 0, true ) && !aLasso.PointOnEdge( point.GetPosition() ) )
                 continue;
 
