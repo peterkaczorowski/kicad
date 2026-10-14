@@ -60,6 +60,7 @@ PROJECT_FILE::PROJECT_FILE( const wxString& aFullPath ) :
     m_params.emplace_back( new PARAM<wxString>( "workspace.backend", &m_WorkspaceBackend, wxS( "" ) ) );
     m_params.emplace_back( new PARAM<wxString>( "workspace.workspace_id", &m_WorkspaceId, wxS( "" ) ) );
     m_params.emplace_back( new PARAM<wxString>( "workspace.binding", &m_WorkspaceBinding, wxS( "" ) ) );
+    m_params.emplace_back( new PARAM_WXSTRING_MAP( "workspace.items", &m_WorkspaceItems, {} ) );
 
     m_params.emplace_back( new PARAM_LIST<TOP_LEVEL_SHEET_INFO>( "schematic.top_level_sheets",
             &m_topLevelSheets, {} ) );
@@ -914,6 +915,47 @@ void from_json( const nlohmann::json& aJson, FILE_INFO_PAIR& aPair )
     wxCHECK( aJson.is_array() && aJson.size() == 2, /* void */ );
     aPair.first  = KIID( wxString( aJson[0].get<std::string>().c_str(), wxConvUTF8 ) );
     aPair.second = wxString( aJson[1].get<std::string>().c_str(), wxConvUTF8 );
+}
+
+
+wxString PROJECT_FILE::projectRelativePath( const wxString& aLocalPath ) const
+{
+    if( aLocalPath.IsEmpty() )
+        return wxString();
+
+    wxFileName file( aLocalPath );
+
+    if( file.IsRelative() || !m_project )
+        return aLocalPath;
+
+    // MakeRelativeTo leaves the path alone when it shares no root with the
+    // project, so a file outside the project tree keeps its absolute form and
+    // simply never matches a stored entry.
+    file.MakeRelativeTo( m_project->GetProjectPath() );
+
+    return file.GetFullPath();
+}
+
+
+wxString PROJECT_FILE::GetWorkspaceItemId( const wxString& aLocalPath ) const
+{
+    auto it = m_WorkspaceItems.find( projectRelativePath( aLocalPath ) );
+
+    return it == m_WorkspaceItems.end() ? wxString() : it->second;
+}
+
+
+void PROJECT_FILE::SetWorkspaceItemId( const wxString& aLocalPath, const wxString& aItemId )
+{
+    const wxString key = projectRelativePath( aLocalPath );
+
+    if( key.IsEmpty() )
+        return;
+
+    if( aItemId.IsEmpty() )
+        m_WorkspaceItems.erase( key );
+    else
+        m_WorkspaceItems[key] = aItemId;
 }
 
 

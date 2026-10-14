@@ -495,4 +495,57 @@ BOOST_AUTO_TEST_CASE( WorkspaceBindingRoundTrips )
 }
 
 
+/*
+ * The editors hold a path and the workspace protocol addresses items by id, so
+ * this map is the only thing connecting an open document to the item it came
+ * from. It is keyed relative to the project because projects get moved and
+ * shared, and an absolute key would silently stop matching the moment they are.
+ */
+BOOST_AUTO_TEST_CASE( WorkspaceItemBindingIsRelativeAndPersists )
+{
+    fs::path projectDir = m_tempDir / "item_project";
+    fs::create_directories( projectDir );
+
+    fs::path proPath = projectDir / "item_project.kicad_pro";
+
+    {
+        std::ofstream proFile( proPath );
+        proFile << R"({ "meta": { "filename": "item_project.kicad_pro", "version": 3 } })";
+    }
+
+    SETTINGS_MANAGER settingsManager;
+    BOOST_REQUIRE( settingsManager.LoadProject( wxString( proPath.string() ) ) );
+
+    PROJECT_FILE& projectFile = settingsManager.Prj().GetProjectFile();
+
+    const wxString absolute = wxString( ( projectDir / "board.kicad_pcb" ).string() );
+
+    projectFile.SetWorkspaceItemId( absolute, wxS( "item-42" ) );
+
+    // The same file addressed either way is the same binding.
+    BOOST_CHECK_EQUAL( projectFile.GetWorkspaceItemId( absolute ), wxS( "item-42" ) );
+    BOOST_CHECK_EQUAL( projectFile.GetWorkspaceItemId( wxS( "board.kicad_pcb" ) ), wxS( "item-42" ) );
+
+    // A file that was never checked out is not under workspace control.
+    BOOST_CHECK( projectFile.GetWorkspaceItemId( wxS( "other.kicad_sch" ) ).IsEmpty() );
+
+    // Abandoning a checkout drops the binding rather than leaving a stale id.
+    projectFile.SetWorkspaceItemId( absolute, wxEmptyString );
+    BOOST_CHECK( projectFile.GetWorkspaceItemId( absolute ).IsEmpty() );
+
+    projectFile.SetWorkspaceItemId( absolute, wxS( "item-42" ) );
+    BOOST_REQUIRE( settingsManager.SaveProject() );
+
+    std::ifstream     in( proPath );
+    std::stringstream buffer;
+    buffer << in.rdbuf();
+    const std::string saved = buffer.str();
+
+    BOOST_CHECK( saved.find( "item-42" ) != std::string::npos );
+
+    // The stored key must be the relative path, or moving the project breaks it.
+    BOOST_CHECK( saved.find( projectDir.string() ) == std::string::npos );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -39,6 +39,7 @@
 
 #include <wx/string.h>
 
+class PROJECT;
 class wxWindow;
 
 namespace MDW_SAVE_GUARD
@@ -53,6 +54,21 @@ KICOMMON_API bool NeedsWarning( MDW_LIFECYCLE_CATEGORY aCategory );
  */
 KICOMMON_API bool ConfirmSave( MDW_LIFECYCLE_CATEGORY aCategory, const wxString& aItemName,
                                wxWindow* aParent );
+
+/**
+ * The editors' entry point. Resolves aLocalPath to the workspace item it was
+ * checked out from, asks the backend for that item's lifecycle category, and
+ * warns when the category blocks writes.
+ *
+ * Returns true to proceed with the save. Everything that is not a bound,
+ * write-blocked workspace item proceeds silently, so an unmanaged project and a
+ * disabled integration both cost one map lookup and nothing else.
+ *
+ * The category query is a blocking call to the backend, so this belongs on an
+ * explicit save and not on an autosave path.
+ */
+KICOMMON_API bool ConfirmSaveOf( PROJECT& aProject, const wxString& aLocalPath,
+                                 wxWindow* aParent );
 }
 
 #endif // MDW_SAVE_GUARD_H

@@ -223,6 +223,21 @@ public:
     wxString m_WorkspaceId;
     wxString m_WorkspaceBinding;
 
+    /// Which workspace item each checked-out file came from, keyed by the file's
+    /// path relative to the project. The workspace protocol addresses items by
+    /// id while the editors only ever hold a path, so without this an open
+    /// document cannot be traced back to the item it belongs to. Relative because
+    /// a project is routinely moved or shared and the binding must survive it.
+    std::map<wxString, wxString> m_WorkspaceItems;
+
+    /// The item a checked-out file belongs to, or empty when the file is not
+    /// under workspace control. aLocalPath may be absolute or project-relative.
+    wxString GetWorkspaceItemId( const wxString& aLocalPath ) const;
+
+    /// Record that aLocalPath holds aItemId. An empty item id removes the entry,
+    /// which is what abandoning a checkout means.
+    void SetWorkspaceItemId( const wxString& aLocalPath, const wxString& aItemId );
+
     /// Recent queries for Find by Properties dialog
     std::vector<wxString> m_FindByPropertiesQueries;
 
@@ -287,6 +302,9 @@ private:
     std::vector<FILE_INFO_PAIR> m_boards;
 
     /// A link to the owning PROJECT
+    /// Normalise a path to the project-relative key the item map is stored under.
+    wxString projectRelativePath( const wxString& aLocalPath ) const;
+
     PROJECT* m_project;
 
     bool m_wasMigrated;

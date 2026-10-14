@@ -22,8 +22,17 @@
  */
 
 #include <mdw/mdw_save_guard.h>
+#include <mdw/mdw_framework.h>
+#include <mdw/mdw_session.h>
 #include <mdw/mdw_state_mapper.h>
+#include <mdw/mdw_workspace_service.h>
 
+#include <pgm_base.h>
+#include <project.h>
+#include <project/project_file.h>
+#include <settings/common_settings.h>
+
+#include <wx/filename.h>
 #include <wx/msgdlg.h>
 
 
@@ -51,4 +60,35 @@ bool MDW_SAVE_GUARD::ConfirmSave( MDW_LIFECYCLE_CATEGORY aCategory, const wxStri
     dialog.SetYesNoLabels( _( "Save Anyway" ), _( "Cancel" ) );
 
     return dialog.ShowModal() == wxID_YES;
+}
+
+
+bool MDW_SAVE_GUARD::ConfirmSaveOf( PROJECT& aProject, const wxString& aLocalPath,
+                                    wxWindow* aParent )
+{
+    if( !Pgm().GetCommonSettings()->m_Workspace.enable_integration )
+        return true;
+
+    const wxString itemId = aProject.GetProjectFile().GetWorkspaceItemId( aLocalPath );
+
+    if( itemId.IsEmpty() )
+        return true;
+
+    MDW_FRAMEWORK* framework = Pgm().MdwFrameworkOrNull();
+    MDW_SESSION*   session = framework ? framework->Session( aProject.GetProjectFullName() )
+                                       : nullptr;
+    MDW_WORKSPACE_SERVICE* service = session ? session->Service() : nullptr;
+
+    // A bound item whose backend is unreachable is not a reason to block a local
+    // save; the user still owns their working copy.
+    if( !service )
+        return true;
+
+    MDW_LIFECYCLE_CATEGORY category = MDW_LIFECYCLE_CATEGORY::EDITABLE;
+    wxString               stateId;
+
+    if( service->GetLifecycleCategory( itemId, category, stateId ) != MDW_ERROR_CODE::SUCCESS )
+        return true;
+
+    return ConfirmSave( category, wxFileName( aLocalPath ).GetFullName(), aParent );
 }

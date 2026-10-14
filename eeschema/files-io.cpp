@@ -40,6 +40,7 @@
 #include <libraries/symbol_library_adapter.h>
 #include <local_history.h>
 #include <lockfile.h>
+#include <mdw/mdw_save_guard.h>
 #include <pgm_base.h>
 #include <core/profile.h>
 #include <project/project_file.h>
@@ -1014,6 +1015,11 @@ bool SCH_EDIT_FRAME::saveSchematicFile( SCH_SHEET* aSheet, const wxString& aSave
 
     // Write through symlinks, don't replace them
     WX_FILENAME::ResolvePossibleSymlinks( schematicFileName );
+
+    // A sheet checked out from a workspace may be in a state the backend will
+    // refuse, so warn before the local write rather than after the failed push.
+    if( !MDW_SAVE_GUARD::ConfirmSaveOf( Prj(), schematicFileName.GetFullPath(), this ) )
+        return false;
 
     if( !schematicFileName.DirExists() )
     {

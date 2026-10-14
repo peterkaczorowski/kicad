@@ -43,6 +43,7 @@
 #include <trace_helpers.h>
 #include <length_delay_calculation/length_delay_calculation.h>
 #include <lockfile.h>
+#include <mdw/mdw_save_guard.h>
 #include <netlist_reader/pcb_netlist.h>
 #include <pcbnew_id.h>
 #include <wildcards_and_files_ext.h>
@@ -987,6 +988,11 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
 
     // Write through symlinks, don't replace them
     WX_FILENAME::ResolvePossibleSymlinks( pcbFileName );
+
+    // A board checked out from a workspace may be in a state the backend will
+    // refuse, so warn before the local write rather than after the failed push.
+    if( !MDW_SAVE_GUARD::ConfirmSaveOf( Prj(), pcbFileName.GetFullPath(), this ) )
+        return false;
 
     if( !IsWritable( pcbFileName ) )
     {

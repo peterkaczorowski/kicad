@@ -365,16 +365,32 @@ implement any offline-specific semantics. When the feature is specified, it will
 be additive within protocol major version 1 (a higher minor), so a backend that
 ignores the field today stays conformant.
 
-## 12. Reserved: local-file to item binding
+## 12. Local-file to item binding
 
 The workspace commands identify items by `item_id`. KiCad's editors, by
-contrast, open a local file. Mapping an open document back to the item it was
-checked out from — needed for a per-document status pill, an editor toolbar
-action group, and a save warning on a write-blocking item — requires a
-persisted `local_path` to `item_id` binding that `Checkout` does not yet record.
+contrast, open a local file. The binding between the two lives on the KiCad
+side, in the project file, so no protocol field carries it and a backend needs
+to do nothing to support it.
 
-The current release covers the workspace-level surface that needs no such map
-(the status pill's bound and online state, the project-tree browse and history
-dialogs, and cross-user notifications). The per-document editor features are
-deferred until the binding is specified; it will be additive (checkout returns
-the pairing, the project stores it) and requires no protocol break.
+`.kicad_pro` stores a `workspace.items` object mapping each checked-out file to
+the item it came from:
+
+```json
+"workspace": {
+    "backend": "org.kicad.mdw.git",
+    "workspace_id": "github.com/example/widget",
+    "items": {
+        "board.kicad_pcb": "item-42"
+    }
+}
+```
+
+Keys are relative to the project directory, because projects are routinely moved
+and shared and an absolute key would stop matching the moment they are. A file
+with no entry is simply not under workspace control, which is what makes the
+lookup free for unmanaged projects.
+
+This is what lets an editor resolve the document it has open back to an item,
+and it is what the save warning on a write-blocking item is built on. A backend
+sees only that `GetLifecycleCategory` is called with an `item_id` it already
+knows.
