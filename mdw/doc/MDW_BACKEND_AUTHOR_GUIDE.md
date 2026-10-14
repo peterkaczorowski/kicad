@@ -78,14 +78,13 @@ Fields, as read by `parseManifest`:
 ## 3. The main scaffold
 
 A backend is a `main()` that does five things: parse the launch, build a
-descriptor, build a server and register handlers, optionally build an event
-publisher, and hand all of it to `MDW_RunBackend`. This mirrors the mock
+descriptor, build a server and register handlers, build an event publisher if it
+advertises `CG_EVENTS`, and hand all of it to `MDW_RunBackend`. This mirrors the mock
 (`qa/tests/mdw/mock/kicad_mdw_mock.cpp`). A minimal skeleton:
 
 ```cpp
 #include <mdw_sdk/mdw_backend_server.h>
 #include <mdw_sdk/mdw_run_backend.h>
-#include <mdw_sdk/mdw_event_publisher.h>
 
 #include <api/mdw/backend_base.pb.h>
 #include <api/workspace/workspace_types.pb.h>
@@ -118,9 +117,8 @@ int main( int argc, char** argv )
 
     // ... register the rest of the mandatory surface and each advertised group ...
 
-    MDW_EVENT_PUBLISHER publisher( launch.channel_token );
-
-    return MDW_RunBackend( launch, descriptor, server, &publisher );
+    // No CG_EVENTS advertised above, so no publisher.
+    return MDW_RunBackend( launch, descriptor, server, nullptr );
 }
 ```
 
@@ -140,8 +138,9 @@ What the pieces do:
   on `WE_OK`, packs your `Resp` into the response envelope. All handlers must be
   registered before `MDW_RunBackend` starts the workers; the handler map is not
   guarded for concurrent registration once serving.
-- **`MDW_EVENT_PUBLISHER`** is optional; construct it with the channel token and
-  pass it in only if you advertise `CG_EVENTS`. Pass `nullptr` otherwise.
+- **`MDW_EVENT_PUBLISHER`** is only for a backend advertising `CG_EVENTS`.
+  Construct it with the channel token and pass it in. Pass `nullptr` otherwise:
+  one costs a dialed socket and a thread that would never carry anything.
 - **`MDW_RunBackend( launch, descriptor, server, publisher )`** registers the
   built-in `Hello`, `GetBackendInfo`, `GetCapabilities`, `GetSchema`, `Ping`,
   and `Bye` handlers, sets the channel token on the server, starts the control

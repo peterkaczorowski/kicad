@@ -46,11 +46,6 @@ MDW_BACKEND_SERVER::~MDW_BACKEND_SERVER()
 }
 
 
-void MDW_BACKEND_SERVER::RegisterRawHandler( const std::string& aTypeName, RAW_HANDLER aHandler )
-{
-    m_handlers[aTypeName] = std::move( aHandler );
-}
-
 
 bool MDW_BACKEND_SERVER::Running() const
 {

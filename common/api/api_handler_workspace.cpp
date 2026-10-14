@@ -44,6 +44,14 @@ void setError( WorkspaceError* aError, MDW_ERROR_CODE aCode )
 {
     // MDW_ERROR_CODE and WorkspaceErrorCode share their numbering by contract.
     aError->set_code( static_cast<WorkspaceErrorCode>( aCode ) );
+
+    // An IPC client sees only what rides this envelope, and the field was left
+    // empty on every command. The backend's own wording does not reach here:
+    // MDW_BACKEND::decode keeps the code from MdwResponse.error and drops the
+    // message, and recovering it means threading a string back through all
+    // nineteen service operations. The shared text at least tells a client what
+    // happened rather than nothing.
+    aError->set_message( std::string( MdwErrorMessage( aCode ).utf8_string() ) );
 }
 
 

@@ -141,9 +141,8 @@ aDescriptor.schema.set_schema_version( "1" );
 ```
 
 Only the mandatory surface plus the attribute handlers are registered, so the
-SDK auto-answers `WE_NOT_SUPPORTED` for every other group. `main` builds an
-`MDW_EVENT_PUBLISHER` for `MDW_RunBackend` but never advertises `CG_EVENTS`, so
-no events are emitted.
+SDK auto-answers `WE_NOT_SUPPORTED` for every other group. It never advertises
+`CG_EVENTS`, so `main` passes `nullptr` for the publisher.
 
 ## The handlers
 

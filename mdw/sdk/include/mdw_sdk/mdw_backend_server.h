@@ -114,8 +114,6 @@ public:
         m_handlers[Req::descriptor()->full_name()] = std::move( raw );
     }
 
-    void RegisterRawHandler( const std::string& aTypeName, RAW_HANDLER aHandler );
-
     /// Bind the control socket and spawn aWorkers blocking worker threads.
     bool Start( const std::string& aControlUrl, int aWorkers );
 

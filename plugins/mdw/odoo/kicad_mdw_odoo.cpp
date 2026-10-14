@@ -35,7 +35,6 @@
 #include <mdw_sdk/mdw_backend_server.h>
 #include <mdw_sdk/mdw_folder_tree.h>
 #include <mdw_sdk/mdw_run_backend.h>
-#include <mdw_sdk/mdw_event_publisher.h>
 
 #include <api/mdw/backend_base.pb.h>
 #include <api/mdw/backend_attributes.pb.h>
@@ -524,9 +523,7 @@ int main( int argc, char** argv )
     registerBaseHandlers( server );
     registerAttributeHandlers( server );
 
-    MDW_EVENT_PUBLISHER publisher( launch.channel_token );
-
-    int code = MDW_RunBackend( launch, descriptor, server, &publisher );
+    int code = MDW_RunBackend( launch, descriptor, server, nullptr );
 
     curl_global_cleanup();
     return code;

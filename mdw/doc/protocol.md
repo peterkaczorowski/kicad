@@ -351,13 +351,7 @@ backend does not have.
 9. Keep the protocol pure protobuf — no host-string types, no framework
    dependencies — so the contract stays language-neutral.
 
-## 11. Reserved
-
-`Capabilities.supports_offline` is reserved. The offline operation queue is
-deferred; a backend should leave the field at its default and not rely on any
-offline semantics.
-
-## 12. Reserved: offline operation
+## 11. Reserved: offline operation
 
 The `supports_offline` capability scalar (Section 6) is reserved and not yet
 implemented. The offline operation queue it will eventually gate — buffering
@@ -371,7 +365,7 @@ implement any offline-specific semantics. When the feature is specified, it will
 be additive within protocol major version 1 (a higher minor), so a backend that
 ignores the field today stays conformant.
 
-## 13. Reserved: local-file to item binding
+## 12. Reserved: local-file to item binding
 
 The workspace commands identify items by `item_id`. KiCad's editors, by
 contrast, open a local file. Mapping an open document back to the item it was

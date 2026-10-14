@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
+#include <cctype>
 #include "git_operations.h"
 
 #include <cstdlib>
@@ -78,19 +80,16 @@ bool GitTracked( const std::string& aPath )
 
 bool IsSafeRef( const std::string& aRef )
 {
+    // A leading dash would be read as an option rather than a ref.
     if( aRef.empty() || aRef[0] == '-' )
         return false;
 
-    for( char c : aRef )
-    {
-        bool allowed = ( c >= '0' && c <= '9' ) || ( c >= 'A' && c <= 'Z' )
-                       || ( c >= 'a' && c <= 'z' ) || c == '.' || c == '_' || c == '/' || c == '-';
-
-        if( !allowed )
-            return false;
-    }
-
-    return true;
+    return std::all_of( aRef.begin(), aRef.end(),
+                        []( char c )
+                        {
+                            return std::isalnum( static_cast<unsigned char>( c ) ) || c == '.'
+                                   || c == '_' || c == '/' || c == '-';
+                        } );
 }
 
 

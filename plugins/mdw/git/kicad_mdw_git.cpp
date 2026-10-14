@@ -32,7 +32,6 @@
 #include <mdw_sdk/mdw_backend_server.h>
 #include <mdw_sdk/mdw_folder_tree.h>
 #include <mdw_sdk/mdw_run_backend.h>
-#include <mdw_sdk/mdw_event_publisher.h>
 
 #include <api/mdw/backend_base.pb.h>
 #include <api/mdw/backend_revisions.pb.h>
@@ -411,7 +410,5 @@ int main( int argc, char** argv )
     MDW_BACKEND_SERVER server;
     registerHandlers( server );
 
-    MDW_EVENT_PUBLISHER publisher( launch.channel_token );
-
-    return MDW_RunBackend( launch, descriptor, server, &publisher );
+    return MDW_RunBackend( launch, descriptor, server, nullptr );
 }

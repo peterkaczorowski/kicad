@@ -115,8 +115,8 @@ aDescriptor.schema.set_schema_version( "1" );
 
 Because only `CG_REVISIONS` is advertised and only its handlers plus the
 mandatory surface are registered, the SDK auto-answers `WE_NOT_SUPPORTED` for
-every other group. No `MDW_EVENT_PUBLISHER` events are emitted (the backend
-constructs a publisher for `MDW_RunBackend` but never advertises `CG_EVENTS`).
+every other group. No events are emitted, so it passes `nullptr` for the
+publisher rather than paying for a socket and thread it never uses.
 
 ## The handlers
 
