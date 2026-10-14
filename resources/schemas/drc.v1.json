@@ -89,7 +89,7 @@
     "violations",
     "unconnected_items",
     "schematic_parity",
-    "coordinate_units",
+    "coordinate_units"
   ],
   "definitions": {
     "Violation": {
@@ -112,6 +112,12 @@
           "items": {
             "$ref": "#/definitions/AffectedItem"
           }
+        },
+        "pos": {
+          "$ref": "#/definitions/Coordinate"
+        },
+        "layer": {
+          "type": "string"
         },
         "excluded": {
           "type": "boolean",
