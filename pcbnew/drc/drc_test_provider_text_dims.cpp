@@ -239,6 +239,11 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
         PCB_DIMENSION_T
     };
 
+    // Both checks evaluate their rules on the item's layer, so text on a layer no height or
+    // thickness rule covers cannot fail; on a default board only the silkscreen has them
+    LSET ruleLayers = m_drcEngine->GetLayersForConstraintType( TEXT_HEIGHT_CONSTRAINT )
+                      | m_drcEngine->GetLayersForConstraintType( TEXT_THICKNESS_CONSTRAINT );
+
     forEachGeometryItem( itemTypes, LSET::AllLayersMask(),
             [&]( BOARD_ITEM* item ) -> bool
             {
@@ -251,6 +256,9 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
             {
                 if( !reportProgress( ii++, count, progressDelta ) )
                     return false;
+
+                if( IsPcbLayer( item->GetLayer() ) && !ruleLayers.test( item->GetLayer() ) )
+                    return true;
 
                 if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( item ) )
                 {
