@@ -183,6 +183,18 @@ bool KIPLATFORM::UI::SupportsKeyState()
 }
 
 
+wxKeyEvent KIPLATFORM::UI::GetNativePopupDismissalEvent()
+{
+    return wxKeyEvent();
+}
+
+
+bool KIPLATFORM::UI::PrepareChoicePopup( wxWindow* )
+{
+    return true;
+}
+
+
 wxPoint KIPLATFORM::UI::GetMousePosition()
 {
     return wxGetMousePosition();

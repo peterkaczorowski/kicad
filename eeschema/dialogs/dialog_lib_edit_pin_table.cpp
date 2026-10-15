@@ -296,37 +296,6 @@ public:
 };
 
 
-void getSelectedArea( WX_GRID* aGrid, int* aRowStart, int* aRowCount )
-{
-    wxGridCellCoordsArray topLeft  = aGrid->GetSelectionBlockTopLeft();
-    wxGridCellCoordsArray botRight = aGrid->GetSelectionBlockBottomRight();
-
-    wxArrayInt  cols = aGrid->GetSelectedCols();
-    wxArrayInt  rows = aGrid->GetSelectedRows();
-
-    if( topLeft.Count() && botRight.Count() )
-    {
-        *aRowStart = topLeft[0].GetRow();
-        *aRowCount = botRight[0].GetRow() - *aRowStart + 1;
-    }
-    else if( cols.Count() )
-    {
-        *aRowStart = 0;
-        *aRowCount = aGrid->GetNumberRows();
-    }
-    else if( rows.Count() )
-    {
-        *aRowStart = rows[0];
-        *aRowCount = rows.Count();
-    }
-    else
-    {
-        *aRowStart = aGrid->GetGridCursorRow();
-        *aRowCount = *aRowStart >= 0 ? 1 : 0;
-    }
-}
-
-
 class PIN_TABLE_DATA_MODEL : public WX_GRID_TABLE_BASE
 {
 public:
@@ -621,14 +590,9 @@ public:
                 for( SCH_PIN* pin : aPins )
                     pin->ClearTempFlags();
 
-                int firstSelectedRow;
-                int selectedRowCount;
-
-                getSelectedArea( grid, &firstSelectedRow, &selectedRowCount );
-
-                for( int ii = 0; ii < selectedRowCount; ++ii )
+                for( int row : grid->GetSelectedRowIndices() )
                 {
-                    for( SCH_PIN* pin : m_rows[ firstSelectedRow + ii ] )
+                    for( SCH_PIN* pin : m_rows[row] )
                     {
                         pin->SetFlags( CANDIDATE );
                         clear_flags.push_back( pin );
@@ -992,9 +956,6 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
     m_modified = false;
 
     // Connect Events
-    m_grid->Disconnect( wxEVT_GRID_CELL_LEFT_CLICK, nullptr, nullptr, this );
-    m_grid->Connect( wxEVT_GRID_SELECT_CELL, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnCellSelected ), nullptr,
-                     this );
     m_grid->Connect( wxEVT_GRID_COL_SORT, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnColSort ), nullptr,
                      this );
 }
@@ -1003,8 +964,6 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
 DIALOG_LIB_EDIT_PIN_TABLE::~DIALOG_LIB_EDIT_PIN_TABLE()
 {
     // Disconnect Events
-    m_grid->Disconnect( wxEVT_GRID_SELECT_CELL, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnCellSelected ),
-                        nullptr, this );
     m_grid->Disconnect( wxEVT_GRID_COL_SORT, wxGridEventHandler( DIALOG_LIB_EDIT_PIN_TABLE::OnColSort ), nullptr,
                         this );
 
@@ -1211,9 +1170,7 @@ void DIALOG_LIB_EDIT_PIN_TABLE::OnCellSelected( wxGridEvent& event )
         m_editFrame->GetCanvas()->Refresh();
     }
 
-    // Let WX_GRID run its editor-positioning handler
-    if( event.GetEventType() == wxEVT_GRID_EDITOR_SHOWN )
-        event.Skip();
+    event.Skip();
 }
 
 
@@ -1589,10 +1546,7 @@ void DIALOG_LIB_EDIT_PIN_TABLE::OnUpdateUI( wxUpdateUIEvent& event )
             adjustGridColumns();
     }
 
-    int firstSelectedRow;
-    int selectedRowCount;
-
-    getSelectedArea( m_grid, &firstSelectedRow, &selectedRowCount );
+    const size_t selectedRowCount = m_grid->GetSelectedRowIndices().size();
 
     if( ( selectedRowCount > 1 ) != m_groupSelected->IsEnabled() )
         m_groupSelected->Enable( selectedRowCount > 1 );
@@ -1607,8 +1561,11 @@ void DIALOG_LIB_EDIT_PIN_TABLE::OnCancel( wxCommandEvent& event )
 
 void DIALOG_LIB_EDIT_PIN_TABLE::OnClose( wxCloseEvent& event )
 {
-    // This is a cancel, so commit quietly as we're going to throw the results away anyway.
-    m_grid->CommitPendingChanges( true );
+    if( !m_grid->CommitPendingChanges() )
+    {
+        event.Veto();
+        return;
+    }
 
     int retval = wxID_CANCEL;
 

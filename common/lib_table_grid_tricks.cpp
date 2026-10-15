@@ -30,8 +30,6 @@
 LIB_TABLE_GRID_TRICKS::LIB_TABLE_GRID_TRICKS( WX_GRID* aGrid ) :
         GRID_TRICKS( aGrid )
 {
-    m_grid->Disconnect( wxEVT_CHAR_HOOK );
-    m_grid->Connect( wxEVT_CHAR_HOOK, wxCharEventHandler( LIB_TABLE_GRID_TRICKS::onCharHook ), nullptr, this );
 }
 
 
@@ -39,8 +37,6 @@ LIB_TABLE_GRID_TRICKS::LIB_TABLE_GRID_TRICKS( WX_GRID* aGrid,
         std::function<void( wxCommandEvent& )> aAddHandler ) :
         GRID_TRICKS( aGrid, aAddHandler )
 {
-    m_grid->Disconnect( wxEVT_CHAR_HOOK );
-    m_grid->Connect( wxEVT_CHAR_HOOK, wxCharEventHandler( LIB_TABLE_GRID_TRICKS::onCharHook ), nullptr, this );
 }
 
 

@@ -21,6 +21,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <grid_tricks.h>
+#include <lib_table_grid_tricks.h>
 #include <dialog_shim.h>
 #include <base_units.h>
 #include <units_provider.h>
@@ -72,7 +73,6 @@ public:
         BOOST_TEST_CHECKPOINT( "Initializing the grid cells" );
         m_grid->CreateGrid( 0, 3 );
         m_grid->SetTable( new wxGridStringTable( 5, 3 ), true );
-        m_grid->Bind( wxEVT_GRID_SELECT_CELL, &GRID_TRICKS_FIXTURE::onSelectCell, this );
         m_grid->Bind( wxEVT_GRID_CELL_CHANGED, &GRID_TRICKS_FIXTURE::onCellChanged, this );
 
         for( int row = 0; row < m_grid->GetNumberRows(); ++row )
@@ -192,8 +192,6 @@ public:
     }
 
 private:
-    void onSelectCell( wxGridEvent& ) {}
-
     void onCellChanged( wxGridEvent& aEvent )
     {
         m_changedCells.emplace_back( aEvent.GetRow(), aEvent.GetCol() );
@@ -887,6 +885,54 @@ BOOST_AUTO_TEST_CASE( EnterOpensBothDropdownEditors )
 }
 
 
+BOOST_AUTO_TEST_CASE( EnterOpensDropdownWithoutWaitingForIdleAfterTextEdit )
+{
+    SKIP_IF_HEADLESS();
+
+    for( bool icons : { false, true } )
+    {
+        SetChoiceColumn( icons );
+        m_frame->Show();
+        wxTheApp->Yield();
+        m_grid->EnableCellEditControl();
+        wxComboBox* control = GetCombo();
+        BOOST_REQUIRE( control );
+        m_grid->CancelPendingChanges();
+
+        auto opened = std::make_shared<int>( 0 );
+        control->GetEventHandler()->Bind( wxEVT_COMBOBOX_DROPDOWN,
+                                          [opened]( wxCommandEvent& aEvent )
+                                          {
+                                              ++*opened;
+                                              aEvent.Skip();
+                                          } );
+
+        for( int cycle = 0; cycle < 3; ++cycle )
+        {
+            m_grid->SetGridCursor( 0, 0 );
+            m_grid->SelectBlock( 0, 0, 0, 0 );
+            PressKey( m_grid->GetGridWindow(), WXK_RETURN, wxEVT_CHAR_HOOK );
+            BOOST_REQUIRE( m_grid->IsCellEditControlEnabled() );
+            wxGridCellEditor* editor = m_grid->GetCellEditor( 0, 0 );
+            wxTextCtrl*       text = dynamic_cast<wxTextCtrl*>( editor->GetWindow() );
+            BOOST_REQUIRE( text );
+            text->SetValue( wxString::Format( "Pin %d", cycle ) );
+            PressKey( text, WXK_RETURN, wxEVT_CHAR_HOOK );
+            editor->DecRef();
+            BOOST_REQUIRE( !m_grid->IsCellEditControlEnabled() );
+
+            m_grid->SetGridCursor( 0, 1 );
+            m_grid->SelectBlock( 0, 1, 0, 1 );
+            PressKey( m_grid->GetGridWindow(), WXK_RETURN, wxEVT_CHAR_HOOK );
+            BOOST_REQUIRE( m_grid->IsCellEditControlEnabled() );
+            BOOST_CHECK_EQUAL( *opened, cycle + 1 );
+            m_grid->CancelPendingChanges();
+            wxTheApp->ProcessPendingEvents();
+        }
+    }
+}
+
+
 BOOST_AUTO_TEST_CASE( EnterMovesBelowContiguousSelectionContainingCursor )
 {
     SKIP_IF_HEADLESS();
@@ -1194,6 +1240,356 @@ BOOST_AUTO_TEST_CASE( BulkEditingRequiresOptIn )
     BOOST_CHECK_EQUAL( m_grid->GetCellValue( 0, 1 ), wxT( "single" ) );
     BOOST_CHECK_EQUAL( m_grid->GetCellValue( 1, 1 ), wxT( "1,1" ) );
     BOOST_CHECK_EQUAL( m_grid->GetCellValue( 2, 1 ), wxT( "2,1" ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( NativeSelectionPreservesEarlierSelectionHandlers )
+{
+    SKIP_IF_HEADLESS();
+
+    int     selectionEvents = 0;
+    WX_GRID grid( m_frame, wxID_ANY );
+    grid.CreateGrid( 0, 3 );
+    grid.Bind( wxEVT_GRID_SELECT_CELL,
+               [&]( wxGridEvent& aEvent )
+               {
+                   ++selectionEvents;
+                   aEvent.Skip();
+               } );
+    grid.SetTable( new wxGridStringTable( 5, 3 ), true );
+    grid.SetUseNativeSelection( true );
+    selectionEvents = 0;
+    grid.SetGridCursor( 1, 1 );
+    BOOST_CHECK_EQUAL( selectionEvents, 1 );
+
+    grid.SelectBlock( 0, 1, 0, 1 );
+    grid.SelectBlock( 2, 1, 2, 1, true );
+    grid.SetGridCursor( 2, 1 );
+    BOOST_CHECK_EQUAL( selectionEvents, 2 );
+    BOOST_CHECK( grid.IsInSelection( 0, 1 ) );
+    BOOST_CHECK( grid.IsInSelection( 2, 1 ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( ChangedEventVetoRestoresEverySelectedCell )
+{
+    SKIP_IF_HEADLESS();
+
+    class VETO_HANDLER : public wxEvtHandler
+    {
+    public:
+        void OnChanged( wxGridEvent& aEvent )
+        {
+            if( aEvent.GetRow() == Row )
+                aEvent.Veto();
+            else
+                aEvent.Skip();
+        }
+
+        int Row = 0;
+    } validator;
+
+    m_grid->Bind( wxEVT_GRID_CELL_CHANGED, &VETO_HANDLER::OnChanged, &validator );
+
+    for( int vetoRow : { 0, 1 } )
+    {
+        BOOST_TEST_CONTEXT( "Veto row: " << vetoRow )
+        {
+            validator.Row = vetoRow;
+
+            for( int row = 0; row < 5; ++row )
+                m_grid->SetCellValue( row, 1, wxString::Format( "%d,1", row ) );
+
+            m_grid->SetGridCursor( 0, 1 );
+            m_grid->SelectBlock( 0, 1, 2, 1 );
+            m_grid->EnableCellEditControl();
+            wxGridCellEditor* editor = m_grid->GetCellEditor( 0, 1 );
+            wxTextCtrl*       control = dynamic_cast<wxTextCtrl*>( editor->GetWindow() );
+            BOOST_REQUIRE( control );
+            control->SetValue( wxT( "rejected" ) );
+            BOOST_CHECK( !m_grid->CommitPendingChanges() );
+            editor->DecRef();
+
+            for( int row = 0; row < 5; ++row )
+                BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 1 ), wxString::Format( "%d,1", row ) );
+        }
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( DisjointSelectionDeleteAndPastePreserveGaps )
+{
+    SKIP_IF_HEADLESS();
+
+    class PASTE_TRICKS : public GRID_TRICKS
+    {
+    public:
+        using GRID_TRICKS::GRID_TRICKS;
+
+        void Paste( const wxString& aText )
+        {
+            getSelectedArea();
+            paste_text( aText );
+        }
+    };
+
+    m_grid->PopEventHandler( true );
+    PASTE_TRICKS* tricks = new PASTE_TRICKS( m_grid );
+    m_tricks = tricks;
+    tricks->EnableColumnBulkEdit();
+    m_grid->PushEventHandler( tricks );
+
+    m_grid->SetGridCursor( 0, 1 );
+    m_grid->SelectBlock( 0, 1, 0, 1 );
+    m_grid->SelectBlock( 2, 1, 2, 1, true );
+    PressKey( m_grid, WXK_DELETE );
+    BOOST_CHECK( m_grid->GetCellValue( 0, 1 ).empty() );
+    BOOST_CHECK( m_grid->GetCellValue( 2, 1 ).empty() );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 1, 1 ), wxT( "1,1" ) );
+
+    tricks->Paste( wxT( "pasted" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 0, 1 ), wxT( "pasted" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 2, 1 ), wxT( "pasted" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 1, 1 ), wxT( "1,1" ) );
+
+    tricks->Paste( wxT( "first\nskipped\nlast" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 0, 1 ), wxT( "first" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 2, 1 ), wxT( "last" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 1, 1 ), wxT( "1,1" ) );
+
+    PressKey( m_grid, WXK_DELETE );
+    BOOST_CHECK( m_grid->GetCellValue( 0, 1 ).empty() );
+    BOOST_CHECK( m_grid->GetCellValue( 2, 1 ).empty() );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 1, 1 ), wxT( "1,1" ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( SelectedRowIndicesIncludeEveryBlockAndWholeColumn )
+{
+    SKIP_IF_HEADLESS();
+
+    m_grid->SetGridCursor( 0, 1 );
+    m_grid->SelectBlock( 0, 1, 0, 1 );
+    m_grid->SelectBlock( 2, 2, 3, 2, true );
+    const std::vector<int> expected = { 0, 2, 3 };
+    std::vector<int>       rows = m_grid->GetSelectedRowIndices();
+    BOOST_CHECK_EQUAL_COLLECTIONS( rows.begin(), rows.end(), expected.begin(), expected.end() );
+
+    m_grid->ClearSelection();
+    m_grid->SelectCol( 1 );
+    rows = m_grid->GetSelectedRowIndices();
+    BOOST_REQUIRE_EQUAL( rows.size(), 5 );
+    BOOST_CHECK_EQUAL( rows.front(), 0 );
+    BOOST_CHECK_EQUAL( rows.back(), 4 );
+
+    m_grid->ClearSelection();
+    rows = m_grid->GetSelectedRowIndices();
+    BOOST_REQUIRE_EQUAL( rows.size(), 1 );
+    BOOST_CHECK_EQUAL( rows.front(), 0 );
+}
+
+
+BOOST_AUTO_TEST_CASE( WholeRowSelectionSurvivesOpeningAnEditor )
+{
+    SKIP_IF_HEADLESS();
+
+    m_grid->SetSelectionMode( wxGrid::wxGridSelectRows );
+    m_grid->SelectRow( 1 );
+    m_grid->SelectRow( 3, true );
+    ClickCell( 3, 1 );
+    BOOST_REQUIRE( m_grid->IsCellEditControlEnabled() );
+    wxGridCellEditor* editor = m_grid->GetCellEditor( 3, 1 );
+    wxTextCtrl*       control = dynamic_cast<wxTextCtrl*>( editor->GetWindow() );
+    BOOST_REQUIRE( control );
+    control->SetValue( wxT( "selected rows" ) );
+    editor->DecRef();
+    BOOST_REQUIRE( m_grid->CommitPendingChanges() );
+
+    for( int row = 0; row < 5; ++row )
+    {
+        const wxString expected =
+                row == 1 || row == 3 ? wxString( wxT( "selected rows" ) ) : wxString::Format( "%d,1", row );
+        BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 1 ), expected );
+        BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 0 ), wxString::Format( "%d,0", row ) );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( LibraryTableKeyboardOverrideRunsOnce )
+{
+    SKIP_IF_HEADLESS();
+
+    class COUNTING_LIB_TRICKS : public LIB_TABLE_GRID_TRICKS
+    {
+    public:
+        explicit COUNTING_LIB_TRICKS( WX_GRID* aGrid ) :
+                LIB_TABLE_GRID_TRICKS( aGrid )
+        {
+        }
+
+        int Calls = 0;
+
+    protected:
+        void onCharHook( wxKeyEvent& aEvent ) override
+        {
+            ++Calls;
+            LIB_TABLE_GRID_TRICKS::onCharHook( aEvent );
+        }
+
+        void     optionsEditor( int ) override {}
+        void     openTable( const LIBRARY_TABLE_ROW& ) override {}
+        bool     supportsVisibilityColumn() override { return false; }
+        wxString getTablePreamble() override { return wxT( "(test_lib_table" ); }
+    };
+
+    m_tricks->EnableColumnBulkEdit( false );
+    m_grid->PopEventHandler( true );
+    COUNTING_LIB_TRICKS* tricks = new COUNTING_LIB_TRICKS( m_grid );
+    m_tricks = tricks;
+    m_grid->PushEventHandler( m_tricks );
+    PressKey( m_grid, WXK_F1, wxEVT_CHAR_HOOK );
+    BOOST_CHECK_EQUAL( tricks->Calls, 1 );
+}
+
+
+BOOST_AUTO_TEST_CASE( ContextMenuCommitsTheBulkEditBeforeOpening )
+{
+    SKIP_IF_HEADLESS();
+
+    class POPUP_TRICKS : public GRID_TRICKS
+    {
+    public:
+        explicit POPUP_TRICKS( WX_GRID* aGrid ) :
+                GRID_TRICKS( aGrid )
+        {
+        }
+        bool Shown = false;
+
+    protected:
+        void showPopupMenu( wxMenu&, wxGridEvent& ) override { Shown = true; }
+    };
+
+    m_grid->PopEventHandler( true );
+    POPUP_TRICKS* tricks = new POPUP_TRICKS( m_grid );
+    m_tricks = tricks;
+    m_tricks->EnableColumnBulkEdit();
+    m_grid->PushEventHandler( m_tricks );
+    m_grid->SetGridCursor( 0, 1 );
+    m_grid->SelectBlock( 0, 1, 2, 1 );
+    m_grid->EnableCellEditControl();
+    wxGridCellEditor* editor = m_grid->GetCellEditor( 0, 1 );
+    wxTextCtrl*       control = dynamic_cast<wxTextCtrl*>( editor->GetWindow() );
+    BOOST_REQUIRE( control );
+    control->SetValue( wxT( "before popup" ) );
+    editor->DecRef();
+    wxGridEvent click( m_grid->GetId(), wxEVT_GRID_CELL_RIGHT_CLICK, m_grid, 0, 1 );
+    m_grid->GetEventHandler()->ProcessEvent( click );
+    BOOST_CHECK( tricks->Shown );
+
+    for( int row = 0; row < 3; ++row )
+        BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 1 ), wxT( "before popup" ) );
+
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 3, 1 ), wxT( "3,1" ) );
+
+    m_grid->Bind( wxEVT_GRID_CELL_CHANGING,
+                  []( wxGridEvent& aEvent )
+                  {
+                      if( aEvent.GetRow() == 1 )
+                          aEvent.Veto();
+                      else
+                          aEvent.Skip();
+                  } );
+    tricks->Shown = false;
+    m_grid->EnableCellEditControl();
+    editor = m_grid->GetCellEditor( 0, 1 );
+    control = dynamic_cast<wxTextCtrl*>( editor->GetWindow() );
+    BOOST_REQUIRE( control );
+    control->SetValue( wxT( "rejected" ) );
+    editor->DecRef();
+    m_grid->GetEventHandler()->ProcessEvent( click );
+    BOOST_CHECK( !tricks->Shown );
+
+    for( int row = 0; row < 3; ++row )
+        BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 1 ), wxT( "before popup" ) );
+
+    wxGridEvent outside( m_grid->GetId(), wxEVT_GRID_CELL_RIGHT_CLICK, m_grid, 4, 1 );
+    m_grid->GetEventHandler()->ProcessEvent( outside );
+    BOOST_CHECK( tricks->Shown );
+    BOOST_CHECK( m_grid->IsInSelection( 4, 1 ) );
+    BOOST_CHECK( !m_grid->IsInSelection( 0, 1 ) );
+    BOOST_CHECK( !m_grid->IsInSelection( 2, 1 ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( DisjointSelectedRowsAreDeletedInReverseOrder )
+{
+    SKIP_IF_HEADLESS();
+
+    m_grid->SetGridCursor( 0, 1 );
+    m_grid->SelectBlock( 0, 1, 0, 1 );
+    m_grid->SelectBlock( 2, 2, 3, 2, true );
+    std::vector<int> removed;
+    m_grid->OnDeleteRows(
+            [&]( int aRow )
+            {
+                removed.push_back( aRow );
+                m_grid->DeleteRows( aRow );
+            } );
+    const std::vector<int> expected = { 3, 2, 0 };
+    BOOST_CHECK_EQUAL_COLLECTIONS( removed.begin(), removed.end(), expected.begin(), expected.end() );
+    BOOST_REQUIRE_EQUAL( m_grid->GetNumberRows(), 2 );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 0, 1 ), wxT( "1,1" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 1, 1 ), wxT( "4,1" ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( DisabledBulkEditRetainsMultiColumnCheckboxToggling )
+{
+    SKIP_IF_HEADLESS();
+
+    m_tricks->EnableColumnBulkEdit( false );
+
+    for( int col : { 0, 1 } )
+    {
+        wxGridCellAttr* attr = new wxGridCellAttr;
+        attr->SetRenderer( new wxGridCellBoolRenderer );
+        attr->SetEditor( new wxGridCellBoolEditor );
+        m_grid->SetColAttr( col, attr );
+
+        for( int row = 0; row < 5; ++row )
+            m_grid->SetCellValue( row, col, wxT( "0" ) );
+    }
+
+    m_grid->SetGridCursor( 0, 0 );
+    m_grid->SelectBlock( 0, 0, 1, 1 );
+    PressKey( m_grid, ' ' );
+
+    for( int row = 0; row < 2; ++row )
+    {
+        for( int col = 0; col < 2; ++col )
+            BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, col ), wxT( "1" ) );
+    }
+
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 2, 0 ), wxT( "0" ) );
+    BOOST_CHECK_EQUAL( m_grid->GetCellValue( 2, 1 ), wxT( "0" ) );
+}
+
+
+BOOST_AUTO_TEST_CASE( DestroyingTricksDisconnectsLiveEditorControls )
+{
+    SKIP_IF_HEADLESS();
+
+    SetChoiceColumn( false );
+    m_grid->EnableCellEditControl();
+    wxComboBox* control = GetCombo();
+    BOOST_REQUIRE( control );
+    m_grid->CancelPendingChanges();
+    m_grid->PopEventHandler( true );
+    m_tricks = new GRID_TRICKS( m_grid );
+    m_grid->PushEventHandler( m_tricks );
+    m_changedCells.clear();
+    SelectChoice( control, 2 );
+    BOOST_CHECK( m_changedCells.empty() );
 }
 
 
