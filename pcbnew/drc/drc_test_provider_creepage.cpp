@@ -322,9 +322,10 @@ int DRC_TEST_PROVIDER_CREEPAGE::testCreepage()
     int  beConnectionsSize = graph.m_connections.size();
     bool prevTestChangedGraph = false;
 
+    // A copper layer no creepage rule covers yields no constraint, and so no violation
+    LSET   layers = m_board->GetLayerSet() & m_drcEngine->GetLayersForConstraintType( CREEPAGE_CONSTRAINT );
     size_t current = 0;
-    size_t total = ( netcodes.size() * ( netcodes.size() - 1 ) ) / 2 * m_board->GetCopperLayerCount();
-    LSET layers = m_board->GetLayerSet();
+    size_t total = ( netcodes.size() * ( netcodes.size() - 1 ) ) / 2 * layers.CuStack().size();
 
     alg::for_all_pairs( netcodes.begin(), netcodes.end(),
                         [&]( int aNet1, int aNet2 )
@@ -383,9 +384,10 @@ int DRC_TEST_PROVIDER_CREEPAGE::testCreepageV2( const std::vector<int>& aNetcode
     if( ADVANCED_CFG::GetCfg().m_EnableCreepageSlot )
         engine.SetMinGrooveWidth( m_board->GetDesignSettings().m_MinGrooveWidth );
 
-    LSET   layers = m_board->GetLayerSet();
+    // A copper layer no creepage rule covers yields no constraint, and so no violation
+    LSET   layers = m_board->GetLayerSet() & m_drcEngine->GetLayersForConstraintType( CREEPAGE_CONSTRAINT );
     size_t current = 0;
-    size_t total = ( aNetcodes.size() * ( aNetcodes.size() - 1 ) ) / 2 * m_board->GetCopperLayerCount();
+    size_t total = ( aNetcodes.size() * ( aNetcodes.size() - 1 ) ) / 2 * layers.CuStack().size();
 
     alg::for_all_pairs( aNetcodes.begin(), aNetcodes.end(),
             [&]( int aNet1, int aNet2 )
