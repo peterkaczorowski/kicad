@@ -163,6 +163,7 @@ protected:
     std::vector<wxGridBlockCoords>         m_bulkEditSelection;
     wxGridCellCoords                       m_bulkEditorSource;
     std::vector<int>                       m_bulkEditorRows;
+    unsigned int                           m_bulkEditorGeneration = 0;
     bool                                   m_bulkEditorCommit = false;
     bool                                   m_bulkEditorInput = false;
     bool                                   m_bulkEditorTextInitialized = false;

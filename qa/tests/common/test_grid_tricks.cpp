@@ -754,11 +754,80 @@ BOOST_AUTO_TEST_CASE( DropdownMouseChoiceAfterArrowNavigationCommitsOnClose )
         wxCommandEvent close( wxEVT_COMBOBOX_CLOSEUP, control->GetId() );
         close.SetEventObject( control );
         control->ProcessWindowEvent( close );
+        wxTheApp->ProcessPendingEvents();
 
         BOOST_CHECK( !m_grid->IsCellEditControlEnabled() );
 
         for( int row = 0; row < 3; ++row )
             BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 1 ), wxT( "Bidirectional" ) );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( DropdownCloseBeforeSelectionCommitsUpdatedValue )
+{
+    SKIP_IF_HEADLESS();
+
+    for( bool icons : { false, true } )
+    {
+        for( bool multiple : { false, true } )
+        {
+            BOOST_TEST_CONTEXT( "Icon dropdown: " << icons << ", multiple cells: " << multiple )
+            {
+                SetChoiceColumn( icons );
+
+                if( !multiple )
+                    m_grid->SelectBlock( 0, 1, 0, 1 );
+
+                m_grid->EnableCellEditControl();
+                wxComboBox* control = GetCombo();
+                BOOST_REQUIRE( control );
+
+                wxCommandEvent close( wxEVT_COMBOBOX_CLOSEUP, control->GetId() );
+                close.SetEventObject( control );
+                control->ProcessWindowEvent( close );
+                BOOST_CHECK( m_grid->IsCellEditControlEnabled() );
+
+                SelectChoice( control, 2 );
+                wxTheApp->ProcessPendingEvents();
+
+                BOOST_CHECK( !m_grid->IsCellEditControlEnabled() );
+
+                for( int row = 0; row < 5; ++row )
+                {
+                    const wxString expected = row == 0 || ( multiple && row < 3 ) ? wxT( "Bidirectional" )
+                                              : row == 1                          ? wxT( "Output" )
+                                                                                  : wxT( "Input" );
+                    BOOST_CHECK_EQUAL( m_grid->GetCellValue( row, 1 ), expected );
+                }
+            }
+        }
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( DeferredDropdownCloseDoesNotCommitReopenedEditor )
+{
+    SKIP_IF_HEADLESS();
+
+    for( bool icons : { false, true } )
+    {
+        SetChoiceColumn( icons );
+        m_grid->EnableCellEditControl();
+        wxComboBox* control = GetCombo();
+        BOOST_REQUIRE( control );
+
+        wxCommandEvent close( wxEVT_COMBOBOX_CLOSEUP, control->GetId() );
+        close.SetEventObject( control );
+        control->ProcessWindowEvent( close );
+        m_grid->CancelPendingChanges();
+        m_grid->EnableCellEditControl();
+        m_tricks->ProcessPendingEvents();
+
+        BOOST_CHECK( m_grid->IsCellEditControlEnabled() );
+        BOOST_CHECK( m_changedCells.empty() );
+        m_grid->CancelPendingChanges();
+        wxTheApp->ProcessPendingEvents();
     }
 }
 

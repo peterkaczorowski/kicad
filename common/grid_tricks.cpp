@@ -410,6 +410,7 @@ void GRID_TRICKS::onGridEditorCreated( wxGridEditorCreatedEvent& aEvent )
 
 void GRID_TRICKS::onGridEditorShown( wxGridEvent& aEvent )
 {
+    ++m_bulkEditorGeneration;
     m_bulkEditorInput = false;
     m_bulkEditorTextInitialized = false;
     m_bulkEditorKeyboardNavigation = false;
@@ -521,10 +522,24 @@ void GRID_TRICKS::onEditorDropdownOpened( wxCommandEvent& aEvent )
 
 void GRID_TRICKS::onEditorDropdownClosed( wxCommandEvent& aEvent )
 {
-    if( m_columnBulkEditEnabled )
-        finishEditor( false );
-    else
+    if( !m_columnBulkEditEnabled )
+    {
         aEvent.Skip();
+        return;
+    }
+
+    if( m_bulkEditorClosing || !m_grid->IsCellEditControlEnabled() )
+        return;
+
+    wxWeakRef<WX_GRID> grid( m_grid );
+    const unsigned int generation = m_bulkEditorGeneration;
+
+    CallAfter(
+            [this, grid, generation]()
+            {
+                if( grid && m_bulkEditorGeneration == generation && grid->IsCellEditControlEnabled() )
+                    finishEditor( false );
+            } );
 }
 
 
