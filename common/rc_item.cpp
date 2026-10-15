@@ -182,12 +182,12 @@ void RC_ITEM::GetJsonViolation( RC_JSON::VIOLATION& aViolation, UNITS_PROVIDER* 
 
     auto ii = aItemMap.find( GetMainItemID() );
 
-    if( ii != aItemMap.end() )
+    if( GetMainItemID() != niluuid && ii != aItemMap.end() )
         mainItem = ii->second;
 
     ii = aItemMap.find( GetAuxItemID() );
 
-    if( ii != aItemMap.end() )
+    if( GetAuxItemID() != niluuid && ii != aItemMap.end() )
         auxItem = ii->second;
 
     if( mainItem )
