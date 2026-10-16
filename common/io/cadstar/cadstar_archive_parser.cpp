@@ -125,6 +125,9 @@ void CADSTAR_ARCHIVE_PARSER::HEADER::Parse( XNODE* aNode, PARSER_CONTEXT* aConte
         {
             XNODE* subNode = cNode->GetChildren();
 
+            if( !subNode )
+                THROW_MISSING_NODE_IO_ERROR( wxT( "METRIC" ), wxT( "HEADER->RESOLUTION" ) );
+
             if( ( subNode->GetName() == wxT( "METRIC" ) )
                     && ( GetXmlAttributeIDString( subNode, 0 ) == wxT( "HUNDREDTH" ) )
                     && ( GetXmlAttributeIDString( subNode, 1 ) == wxT( "MICRON" ) ) )
