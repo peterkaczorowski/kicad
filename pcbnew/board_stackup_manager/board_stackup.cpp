@@ -473,6 +473,36 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
 {
     std::vector<VALIDATION_ERROR> errors;
 
+    // Use the proposed layers because pending UI/API changes may not yet be applied to the board.
+    // Exclude layers such as Edge.Cuts that have no corresponding physical stackup item
+    const LSET enabledLayers = aEnabledLayers & StackupAllowedBrdLayers();
+    const LSET copperLayers = aEnabledLayers & LSET::AllCuMask();
+    const int copperLayerCount = static_cast<int>( copperLayers.count() );
+
+    // Copper layer counts supported by the existing UI/API.
+    // The stackup UI's default-thickness calculation also assumes an even count
+    if ( copperLayerCount < 2 || copperLayerCount > MAX_CU_LAYERS || copperLayerCount % 2 != 0 )
+    {
+        errors.push_back( {
+            -1, 
+            -1,
+            wxS( "copper_layers" ),
+            wxString::Format(
+                   _( "Copper layer count must be an even number between 2 and %d." ),
+                   MAX_CU_LAYERS )
+        } );
+    }
+    else if( copperLayers != LSET::AllCuMask( copperLayerCount ) )
+    {
+        errors.push_back( {
+            -1, 
+            -1,
+            wxS( "copper_layers" ),
+            _( "Copper layers must include F.Cu and B.Cu, with any inner layers "
+               "numbered consecutively from In1.Cu." )
+        } );
+    }
+
     for( int itemIndex = 0; itemIndex < GetCount(); ++itemIndex )
     {
         // GetStackupLayer() is not const, so use the internal list directly
