@@ -21,6 +21,7 @@
 
 #include "board_stackup.h"
 #include <algorithm>
+#include <cmath>
 #include <base_units.h>
 #include <string_utils.h>
 #include <layer_ids.h>
@@ -502,8 +503,43 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                     itemIndex,
                     subLayerIndex,
                     wxS( "thickness" ),
-                    _( "Layer thickness must not be negative." )
+                    _( "Layer thickness must be nonnegative." )
                 } );
+            }
+
+            auto validateNonNegative = [&]( double aValue, const wxString& aField,
+                                            const wxString& aMessage )
+            {
+                if( !std::isfinite( aValue ) || aValue < 0.0 )
+                {
+                    errors.push_back( {
+                        itemIndex,
+                        subLayerIndex,
+                        aField,
+                        aMessage
+                    } );
+                }
+            };
+
+            if( item->HasEpsilonRValue() )
+            {
+                validateNonNegative( item->GetEpsilonR( subLayerIndex ),
+                                     wxS( "epsilon_r" ),
+                                     _( "Epsilon R must be finite and nonnegative." ) );
+            }
+
+            if( item->HasLossTangentValue() )
+            {
+                validateNonNegative( item->GetLossTangent( subLayerIndex ),
+                                     wxS( "loss_tangent" ),
+                                     _( "Loss tangent must be finite and nonnegative." ) );
+            }
+
+            if( item->HasSpecFreqValue() )
+            {
+                validateNonNegative( item->GetSpecFreq( subLayerIndex ),
+                                     wxS( "spec_frequency" ),
+                                     _( "Specified frequency must be finite and nonnegative." ) );
             }
         }
     }
