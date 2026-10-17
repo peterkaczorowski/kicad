@@ -503,6 +503,38 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
         } );
     }
 
+    struct EXPECTED_ITEM
+    {
+        BOARD_STACKUP_ITEM_TYPE m_Type;
+        PCB_LAYER_ID           m_Layer;
+    };
+
+    std::vector<EXPECTED_ITEM> expectedItems;
+
+    auto addExpectedLayer = [&]( BOARD_STACKUP_ITEM_TYPE aType, PCB_LAYER_ID aLayer )
+    {
+        if( enabledLayers[aLayer] )
+            expectedItems.push_back( { aType, aLayer } );
+    };
+
+    addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, F_SilkS );
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERPASTE, F_Paste );
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERMASK, F_Mask );
+
+    for( PCB_LAYER_ID layer : copperLayers.CuStack() )
+    {
+        expectedItems.push_back( { BS_ITEM_TYPE_COPPER, layer } );
+
+        if( layer != B_Cu )
+            expectedItems.push_back( { BS_ITEM_TYPE_DIELECTRIC, UNDEFINED_LAYER } );
+    }
+
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERMASK, B_Mask );
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERPASTE, B_Paste );
+    addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, B_SilkS );
+
+    size_t activeItemIndex = 0;
+
     for( int itemIndex = 0; itemIndex < GetCount(); ++itemIndex )
     {
         // GetStackupLayer() is not const, so use the internal list directly
@@ -521,6 +553,20 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
 
         if( !item->IsEnabled() )
             continue;
+
+        if( activeItemIndex >= expectedItems.size()
+            || item->GetType() != expectedItems[activeItemIndex].m_Type
+            || item->GetBrdLayerId() != expectedItems[activeItemIndex].m_Layer )
+        {
+            errors.push_back( {
+                    itemIndex,
+                    -1,
+                    wxS( "layers" ),
+                    _( "Stackup item does not match the expected layer sequence." )
+            } );
+        }
+
+        ++activeItemIndex;
 
         for( int subLayerIndex = 0;
             subLayerIndex < item->GetSublayersCount();
@@ -572,6 +618,16 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                                      _( "Specified frequency must be finite and nonnegative." ) );
             }
         }
+    }
+
+    if( activeItemIndex != expectedItems.size() )
+    {
+        errors.push_back( {
+                -1,
+                -1,
+                wxS( "layers" ),
+                _( "Stackup does not contain the expected number of active items." )
+        } );
     }
 
     return errors;
