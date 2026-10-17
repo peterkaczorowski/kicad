@@ -46,6 +46,27 @@ BLOCK_DRAG_ENDPOINT movedStart( PCB_SHAPE* aShape )
     return { aShape, true, aShape->GetStart() };
 }
 
+PCB_SHAPE* makeArc( BOARD& aBoard, const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd,
+                    PCB_LAYER_ID aLayer = Edge_Cuts )
+{
+    PCB_SHAPE* arc = new PCB_SHAPE( &aBoard, SHAPE_T::ARC );
+    arc->SetArcGeometry( aStart, aMid, aEnd );
+    arc->SetLayer( aLayer );
+    aBoard.Add( arc );
+    return arc;
+}
+
+const BLOCK_DRAG_ENDPOINT* find( const std::vector<BLOCK_DRAG_ENDPOINT>& aDependents, const PCB_SHAPE* aShape )
+{
+    for( const BLOCK_DRAG_ENDPOINT& dep : aDependents )
+    {
+        if( dep.shape == aShape )
+            return &dep;
+    }
+
+    return nullptr;
+}
+
 } // namespace
 
 
@@ -105,20 +126,135 @@ BOOST_AUTO_TEST_CASE( ToleranceIsEuclidean )
 }
 
 
-BOOST_AUTO_TEST_CASE( ArcCandidateIsSkipped )
+BOOST_AUTO_TEST_CASE( ArcCandidateFollowsWhole )
+{
+    BOARD board;
+
+    PCB_SHAPE* moved = makeSegment( board, VECTOR2I( 0, 0 ), VECTOR2I( 100000, 0 ) );
+    PCB_SHAPE* arc = makeArc( board, VECTOR2I( 0, 0 ), VECTOR2I( 50000, 50000 ), VECTOR2I( 100000, 0 ) );
+
+    std::vector<BLOCK_DRAG_ENDPOINT> dependents;
+
+    BLOCK_DRAG_DEPENDENT_RESULT result = BlockDragFindDependents( { arc }, { movedStart( moved ) }, false, dependents );
+
+    BOOST_REQUIRE( result == BLOCK_DRAG_DEPENDENT_RESULT::OK );
+    BOOST_REQUIRE_EQUAL( dependents.size(), 1 );
+    BOOST_CHECK_EQUAL( dependents[0].shape, arc );
+    BOOST_CHECK( dependents[0].follow == BLOCK_DRAG_FOLLOW::WHOLE );
+}
+
+
+BOOST_AUTO_TEST_CASE( FilletedCornerCarriesArcAndStretchesNextSegment )
+{
+    // A filleted corner: a straight edge, a corner arc, then the next edge. Dragging
+    // the first edge's joint carries the arc whole and moves the end of the far
+    // segment that touches it, while that segment's other end holds.
+    BOARD board;
+
+    // Quarter arc centred on (0, 100000), from (0,0) round to (100000,100000)
+    PCB_SHAPE* moved = makeSegment( board, VECTOR2I( -100000, 0 ), VECTOR2I( 0, 0 ) );
+    PCB_SHAPE* arc = makeArc( board, VECTOR2I( 0, 0 ), VECTOR2I( 70711, 29289 ), VECTOR2I( 100000, 100000 ) );
+    PCB_SHAPE* next = makeSegment( board, VECTOR2I( 100000, 100000 ), VECTOR2I( 100000, 400000 ) );
+
+    std::vector<BLOCK_DRAG_ENDPOINT> dependents;
+
+    BLOCK_DRAG_DEPENDENT_RESULT result =
+            BlockDragFindDependents( { arc, next }, { { moved, false, moved->GetEnd() } }, false, dependents );
+
+    BOOST_REQUIRE( result == BLOCK_DRAG_DEPENDENT_RESULT::OK );
+    BOOST_REQUIRE_EQUAL( dependents.size(), 2 );
+
+    const BLOCK_DRAG_ENDPOINT* arcDep = find( dependents, arc );
+    const BLOCK_DRAG_ENDPOINT* nextDep = find( dependents, next );
+
+    BOOST_REQUIRE( arcDep && nextDep );
+    BOOST_CHECK( arcDep->follow == BLOCK_DRAG_FOLLOW::WHOLE );
+    BOOST_CHECK( arcDep->isStart );
+
+    // The walk stops at the segment, which stretches, so its far end holds
+    BOOST_CHECK( nextDep->follow == BLOCK_DRAG_FOLLOW::STRETCH );
+    BOOST_CHECK( nextDep->isStart );
+}
+
+
+BOOST_AUTO_TEST_CASE( ClosedChainDoesNotCascadeIntoItself )
+{
+    // Four arcs joined end to end with no segment anywhere. The walk visits each one
+    // once and stops, so it cannot loop back to the arc it started from.
+    BOARD board;
+
+    PCB_SHAPE* moved = makeSegment( board, VECTOR2I( -100000, 0 ), VECTOR2I( 0, 0 ) );
+
+    // A full circle centred on (0, 150000), cut into four quarters, closing on (0,0)
+    PCB_SHAPE* a1 = makeArc( board, VECTOR2I( 0, 0 ), VECTOR2I( 106066, 43934 ), VECTOR2I( 150000, 150000 ) );
+    PCB_SHAPE* a2 = makeArc( board, VECTOR2I( 150000, 150000 ), VECTOR2I( 106066, 256066 ), VECTOR2I( 0, 300000 ) );
+    PCB_SHAPE* a3 = makeArc( board, VECTOR2I( 0, 300000 ), VECTOR2I( -106066, 256066 ), VECTOR2I( -150000, 150000 ) );
+    PCB_SHAPE* a4 = makeArc( board, VECTOR2I( -150000, 150000 ), VECTOR2I( -106066, 43934 ), VECTOR2I( 0, 0 ) );
+
+    std::vector<BLOCK_DRAG_ENDPOINT> dependents;
+
+    BLOCK_DRAG_DEPENDENT_RESULT result =
+            BlockDragFindDependents( { a1, a2, a3, a4 }, { { moved, false, moved->GetEnd() } }, false, dependents );
+
+    BOOST_REQUIRE( result == BLOCK_DRAG_DEPENDENT_RESULT::OK );
+
+    // Every arc follows, and each one exactly once. Checking for "at most once" would
+    // also pass if the walk found nothing at all
+    BOOST_REQUIRE_EQUAL( dependents.size(), 4 );
+
+    for( const PCB_SHAPE* arc : { a1, a2, a3, a4 } )
+    {
+        int seen = 0;
+
+        for( const BLOCK_DRAG_ENDPOINT& dep : dependents )
+        {
+            if( dep.shape == arc )
+            {
+                seen++;
+                BOOST_CHECK( dep.follow == BLOCK_DRAG_FOLLOW::WHOLE );
+            }
+        }
+
+        BOOST_CHECK_EQUAL( seen, 1 );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( LockedArcInTheChainRefuses )
+{
+    BOARD board;
+
+    PCB_SHAPE* moved = makeSegment( board, VECTOR2I( -100000, 0 ), VECTOR2I( 0, 0 ) );
+    PCB_SHAPE* arc = makeArc( board, VECTOR2I( 0, 0 ), VECTOR2I( 70711, 29289 ), VECTOR2I( 100000, 100000 ) );
+
+    arc->SetLocked( true );
+
+    std::vector<BLOCK_DRAG_ENDPOINT> dependents;
+
+    BLOCK_DRAG_DEPENDENT_RESULT result =
+            BlockDragFindDependents( { arc }, { { moved, false, moved->GetEnd() } }, false, dependents );
+
+    BOOST_CHECK( result == BLOCK_DRAG_DEPENDENT_RESULT::LOCKED );
+    BOOST_CHECK( dependents.empty() );
+}
+
+
+BOOST_AUTO_TEST_CASE( CircleCandidateIsStillSkipped )
 {
     BOARD board;
 
     PCB_SHAPE* moved = makeSegment( board, VECTOR2I( 0, 0 ), VECTOR2I( 100000, 0 ) );
 
-    PCB_SHAPE* arc = new PCB_SHAPE( &board, SHAPE_T::ARC );
-    arc->SetArcGeometry( VECTOR2I( 0, 0 ), VECTOR2I( 50000, 50000 ), VECTOR2I( 100000, 0 ) );
-    arc->SetLayer( moved->GetLayer() );
-    board.Add( arc );
+    PCB_SHAPE* circle = new PCB_SHAPE( &board, SHAPE_T::CIRCLE );
+    circle->SetStart( VECTOR2I( 0, 0 ) );
+    circle->SetEnd( VECTOR2I( 50000, 0 ) );
+    circle->SetLayer( moved->GetLayer() );
+    board.Add( circle );
 
     std::vector<BLOCK_DRAG_ENDPOINT> dependents;
 
-    BLOCK_DRAG_DEPENDENT_RESULT result = BlockDragFindDependents( { arc }, { movedStart( moved ) }, false, dependents );
+    BLOCK_DRAG_DEPENDENT_RESULT result =
+            BlockDragFindDependents( { circle }, { movedStart( moved ) }, false, dependents );
 
     BOOST_REQUIRE( result == BLOCK_DRAG_DEPENDENT_RESULT::OK );
     BOOST_CHECK( dependents.empty() );

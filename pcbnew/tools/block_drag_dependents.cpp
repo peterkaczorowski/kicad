@@ -23,6 +23,27 @@
 #include <footprint.h>
 #include <pcb_shape.h>
 
+#include <optional>
+#include <set>
+
+
+namespace
+{
+
+/// How a shape follows a moved joint, or nothing when it cannot follow. An arc
+/// travels whole, since moving one end alone would leave its centre behind.
+std::optional<BLOCK_DRAG_FOLLOW> followKind( const PCB_SHAPE& aShape )
+{
+    switch( aShape.GetShape() )
+    {
+    case SHAPE_T::SEGMENT: return BLOCK_DRAG_FOLLOW::STRETCH;
+    case SHAPE_T::ARC: return BLOCK_DRAG_FOLLOW::WHOLE;
+    default: return std::nullopt;
+    }
+}
+
+} // namespace
+
 
 BLOCK_DRAG_DEPENDENT_RESULT
 BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
@@ -39,9 +60,15 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
         return aFirst.SquaredDistance( aSecond ) <= tolSq;
     };
 
+    // Grows as each carried shape hands its far end on.
+    std::vector<BLOCK_DRAG_ENDPOINT> seeds( aMovedEndpoints.begin(), aMovedEndpoints.end() );
+
+    // Already moving, so their ends cannot be matched again.
+    std::set<const PCB_SHAPE*> carried;
+
     auto isMoved = [&]( const PCB_SHAPE* aShape, bool aIsStart )
     {
-        for( const BLOCK_DRAG_ENDPOINT& moved : aMovedEndpoints )
+        for( const BLOCK_DRAG_ENDPOINT& moved : seeds )
         {
             if( moved.shape == aShape && moved.isStart == aIsStart )
                 return true;
@@ -61,13 +88,20 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
         return false;
     };
 
-    for( const BLOCK_DRAG_ENDPOINT& moved : aMovedEndpoints )
+    // Indexed, because a carried shape appends its far end to the seeds as this runs.
+    for( size_t si = 0; si < seeds.size(); ++si )
     {
+        const BLOCK_DRAG_ENDPOINT        moved = seeds[si]; // by value, the vector may reallocate
         std::vector<BLOCK_DRAG_ENDPOINT> cluster;
 
         for( PCB_SHAPE* candidate : aCandidates )
         {
-            if( !candidate || candidate->GetShape() != SHAPE_T::SEGMENT )
+            if( !candidate )
+                continue;
+
+            std::optional<BLOCK_DRAG_FOLLOW> follow = followKind( *candidate );
+
+            if( !follow || carried.count( candidate ) )
                 continue;
 
             if( candidate->GetLayer() != moved.shape->GetLayer() )
@@ -83,7 +117,7 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
                     continue;
 
                 if( !isMoved( candidate, isStart ) )
-                    cluster.push_back( { candidate, isStart, pos } );
+                    cluster.push_back( { candidate, isStart, pos, *follow } );
             }
         }
 
@@ -108,8 +142,21 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
 
         for( const BLOCK_DRAG_ENDPOINT& member : cluster )
         {
-            if( !alreadyAccepted( member.shape, member.isStart ) )
-                aDependents.push_back( member );
+            if( alreadyAccepted( member.shape, member.isStart ) )
+                continue;
+
+            aDependents.push_back( member );
+
+            if( member.follow != BLOCK_DRAG_FOLLOW::WHOLE )
+                continue;
+
+            // Mark it carried before seeding, or its far end could match it again.
+            carried.insert( member.shape );
+
+            bool     farIsStart = !member.isStart;
+            VECTOR2I farPos = farIsStart ? member.shape->GetStart() : member.shape->GetEnd();
+
+            seeds.push_back( { member.shape, farIsStart, farPos, BLOCK_DRAG_FOLLOW::WHOLE } );
         }
     }
 

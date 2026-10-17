@@ -3303,10 +3303,22 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             const BLOCK_DRAG_ENDPOINT& dep = blockDependents[ii];
             VECTOR2I                   target = dep.position + aDelta;
 
-            if( dep.isStart )
+            if( dep.follow == BLOCK_DRAG_FOLLOW::WHOLE )
+            {
+                // Move it by the distance its joint has left to go, so a long drag cannot
+                // drift. Setting one endpoint instead would leave an arc's centre behind
+                VECTOR2I at = dep.isStart ? dep.shape->GetStart() : dep.shape->GetEnd();
+
+                dep.shape->Move( target - at );
+            }
+            else if( dep.isStart )
+            {
                 dep.shape->SetStart( target );
+            }
             else
+            {
                 dep.shape->SetEnd( target );
+            }
 
             aUpdated.push_back( dep.shape );
 
@@ -3544,8 +3556,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
         }
 
-        // The ends of moved and carried segments are the starting points for finding
-        // unselected graphics that should follow
+        // The ends of everything the block moves are the starting points for finding
+        // graphics that should follow. A carried arc seeds from both of its ends, and an
+        // item the gesture leaves out is as free to follow as one that was never selected
         std::vector<BLOCK_DRAG_ENDPOINT> movedEndpoints;
 
         for( auto& [targetPoints, behavior] : blockTargets )
@@ -3569,11 +3582,16 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         {
             PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( rigidItem );
 
-            if( !shape || shape->GetShape() != SHAPE_T::SEGMENT )
+            if( !shape )
                 continue;
 
-            movedEndpoints.push_back( { shape, true, shape->GetStart() } );
-            movedEndpoints.push_back( { shape, false, shape->GetEnd() } );
+            // A carried arc joins the chain at both of its ends, so selecting the arc of
+            // a filleted corner keeps its far joint together
+            if( shape->GetShape() != SHAPE_T::SEGMENT && shape->GetShape() != SHAPE_T::ARC )
+                continue;
+
+            movedEndpoints.push_back( { shape, true, shape->GetStart(), BLOCK_DRAG_FOLLOW::WHOLE } );
+            movedEndpoints.push_back( { shape, false, shape->GetEnd(), BLOCK_DRAG_FOLLOW::WHOLE } );
         }
 
         blockDependents.clear();
@@ -3909,6 +3927,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             for( const BLOCK_DRAG_ENDPOINT& dep : blockDependents )
             {
+                // The gesture already placed it, so it pins its joint and does not move again
                 CONSTRAINT_ANCHOR anchor = dep.isStart ? CONSTRAINT_ANCHOR::START : CONSTRAINT_ANCHOR::END;
 
                 blockConstraintAnchors.emplace_back( dep.shape, CONSTRAINT_MEMBER( dep.shape->m_Uuid, anchor ) );

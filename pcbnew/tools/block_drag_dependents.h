@@ -27,13 +27,29 @@
 class PCB_SHAPE;
 
 /**
- * One end of a graphic segment, either a moved seed or a discovered dependent.
+ * How a shape follows the endpoint it is joined to.
+ */
+enum class BLOCK_DRAG_FOLLOW
+{
+    /// Only this end moves, so the shape stretches. The name ENDPOINT is taken by a
+    /// macro in eda_item_flags.h.
+    STRETCH,
+
+    /// The whole shape moves, for a shape that moving one end alone would distort. Its
+    /// far end travels too, so the chain carries on from there.
+    WHOLE
+};
+
+/**
+ * One end of a graphic shape, used both for the ends that moved and for the ones found
+ * to follow them.
  */
 struct BLOCK_DRAG_ENDPOINT
 {
-    PCB_SHAPE* shape;
-    bool       isStart;
-    VECTOR2I   position;
+    PCB_SHAPE*        shape = nullptr;
+    bool              isStart = false;
+    VECTOR2I          position;
+    BLOCK_DRAG_FOLLOW follow = BLOCK_DRAG_FOLLOW::STRETCH;
 };
 
 enum class BLOCK_DRAG_DEPENDENT_RESULT
@@ -54,13 +70,14 @@ enum class BLOCK_DRAG_DEPENDENT_RESULT
  * match is ambiguous, so that endpoint is left alone and the tolerance stays too small
  * to close a gap the user left on purpose.
  *
- * The caller assembles aCandidates: the graphic segments of the editing scope that
- * the gesture is not moving. An object the gesture moves is excluded there, since
- * one being moved must not also be dragged by an endpoint, while a selected object
- * the gesture leaves out is as eligible as an unselected one. The scope
- * also decides footprint children: the board editor passes board drawings only,
- * the footprint editor passes the footprint's own children, and this module
- * accepts whatever it is given, including children with the parent lock clause.
+ * A shape that moving one end alone would distort follows WHOLE, and its far end starts
+ * the search again, so a chain of joined shapes follows as one group. The walk stops at
+ * the first shape that stretches, because that shape's far end stays where it is, and
+ * each carried shape is reached once.
+ *
+ * The caller builds aCandidates from the graphics of the editing scope that the gesture
+ * is not moving. That scope also settles footprint children: the board editor passes
+ * board drawings, and the footprint editor passes the footprint's own children.
  *
  * @return LOCKED when a shape that would follow, or its parent footprint, is locked and
  *         aOverrideLocks is false, with aDependents cleared.

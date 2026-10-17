@@ -195,9 +195,10 @@ BOOST_AUTO_TEST_CASE( LassoPickReplacesWithEnclosed )
 
     std::set<PCB_HANDLE_KEY> picked{ *key2 };
 
-    // A triangle whose bounding box contains all three points but whose area
-    // encloses only points 0 and 1, so containment is genuinely polygonal
-    SHAPE_LINE_CHAIN triangle( { VECTOR2I( -20, -20 ), VECTOR2I( 200, -20 ), VECTOR2I( 0, 80 ) }, true );
+    // All three points sit inside this triangle's bounding box, so only a real polygon
+    // test can leave point 2 at (100,100) out. The hypotenuse runs along x + y = 180,
+    // and point 2 sums to 200 while points 0 and 1 sum to 0 and 100
+    SHAPE_LINE_CHAIN triangle( { VECTOR2I( -20, -20 ), VECTOR2I( 200, -20 ), VECTOR2I( -20, 200 ) }, true );
 
     BlockDragLassoPick( { points.get() }, triangle, false, picked );
 
