@@ -468,6 +468,50 @@ bool BOARD_STACKUP::operator==( const BOARD_STACKUP& aOther ) const
 }
 
 
+std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET& aEnabledLayers ) const
+{
+    std::vector<VALIDATION_ERROR> errors;
+
+    for( int itemIndex = 0; itemIndex < GetCount(); ++itemIndex )
+    {
+        // GetStackupLayer() is not const, so use the internal list directly
+        const BOARD_STACKUP_ITEM* item = m_list[itemIndex]; // const because modification is not allowed in validation
+
+        if( !item )
+        {
+            errors.push_back( {
+                itemIndex, -1,
+                wxS( "item" ),
+                _( "Stackup item is missing." )
+            } );
+
+            continue;
+        }
+
+        if( !item->IsEnabled() )
+            continue;
+
+        for( int subLayerIndex = 0;
+            subLayerIndex < item->GetSublayersCount();
+            ++subLayerIndex )
+        {
+            if( item->IsThicknessEditable()
+                && item->GetThickness( subLayerIndex ) < 0 )
+            {
+                errors.push_back( {
+                    itemIndex,
+                    subLayerIndex,
+                    wxS( "thickness" ),
+                    _( "Layer thickness must not be negative." )
+                } );
+            }
+        }
+    }
+
+    return errors;
+}
+
+
 void BOARD_STACKUP::Serialize( kiapi::board::BoardStackup& stackup ) const
 {
     using namespace kiapi::board;
