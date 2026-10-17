@@ -65,12 +65,8 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem );
  * True when the item belongs to any geometric constraint on its board or inside one of
  * its footprints.
  *
- * This is deliberately membership, not solver-cluster analysis. Driving and
- * reference-only constraints count equally, and so does membership in a malformed or
- * unresolved constraint. Membership does not affect classification, the gesture uses
- * it to know which moved shapes need their constraint clusters re-solved.
- *
- * Each call scans every constraint on the board and its footprints.
+ * Plain membership, so every kind of constraint counts. It tells the gesture which
+ * moved shapes need their clusters solved again. Walks every constraint on each call.
  */
 bool BlockDragIsConstraintMember( const BOARD_ITEM& aItem );
 
