@@ -52,6 +52,7 @@ using namespace std::placeholders;
 #include <tools/generator_tool.h>
 #include <router/router_tool.h>
 #include <router/pns_router.h>
+#include <router/pns_block_dragger.h>
 #include <router/pns_drag_algo.h>
 #include <router/pns_kicad_iface.h>
 #include <dialogs/dialog_unit_entry.h>
@@ -3552,6 +3553,21 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 }
 
                 blockRouterActive = true;
+
+                // The dragger leaves an arc with both ends pinned where it is, so name it
+                // for the user, the way the router tool's own drag does
+                if( auto* blockDragger = dynamic_cast<PNS::BLOCK_DRAGGER*>( router->GetDragger() ) )
+                {
+                    size_t held = blockDragger->AnchoredLines().size();
+
+                    if( held > 0 )
+                    {
+                        frame()->ShowInfoBarWarning( wxString::Format(
+                                wxPLURAL( "%zu selected arc cannot move because both ends are fixed.",
+                                          "%zu selected arcs cannot move because both ends are fixed.", held ),
+                                held ) );
+                    }
+                }
 
                 // The router keeps carried copper at its board position until the route is
                 // fixed, and the selection overlay paints a selected item from that position.
