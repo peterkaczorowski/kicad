@@ -55,6 +55,7 @@ using namespace std::placeholders;
 #include <router/router_tool.h>
 #include <router/pns_router.h>
 #include <router/pns_block_dragger.h>
+#include <router/router_status_view_item.h>
 #include <router/pns_drag_algo.h>
 #include <router/pns_kicad_iface.h>
 #include <dialogs/dialog_unit_entry.h>
@@ -3068,6 +3069,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
     auto releaseBlockDragState = [&]()
     {
+        // The DRC status lives in the view's preview, which nothing else in this editor
+        // uses, so every exit from the gesture clears it
+        getView()->ClearPreview();
+
         for( BOARD_ITEM* moving : blockMoving )
         {
             if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( moving ) )
@@ -4258,6 +4263,29 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                         routerTool->Router()->Move( blockGrabStart + blockAppliedDelta, nullptr );
                 }
 
+                // Say it while the cursor is still down, so the user hears why before the
+                // release throws the gesture away
+                if( blockRouterActive )
+                {
+                    ROUTER_TOOL*    routerTool = m_toolMgr->GetTool<ROUTER_TOOL>();
+                    PNS::DRAG_ALGO* dragger = routerTool ? routerTool->Router()->GetDragger() : nullptr;
+                    bool            dragStatus = true;
+
+                    getView()->ClearPreview();
+
+                    if( dragger && dragger->GetForceMarkObstaclesMode( &dragStatus ) && !dragStatus )
+                    {
+                        wxString hint;
+                        hint.Printf( _( "(%s to commit anyway.)" ), KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) );
+
+                        ROUTER_STATUS_VIEW_ITEM* statusItem = new ROUTER_STATUS_VIEW_ITEM();
+                        statusItem->SetMessage( _( "The move violates DRC." ) );
+                        statusItem->SetHint( hint );
+                        statusItem->SetPosition( m_toolMgr->GetMousePosition() );
+                        getView()->AddToPreview( statusItem );
+                    }
+                }
+
                 getViewControls()->ForceCursorPosition( true, blockGrabStart + blockAppliedDelta );
                 updatePoints();
             }
@@ -4337,7 +4365,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 else if( !routerSessionOk || ( !routerStatusOk && !forceCommit ) )
                 {
                     // Forced placement skips the collision refusal and nothing else
-                    frame()->ShowInfoBarError( _( "The move violates DRC." ) );
+                    frame()->ShowInfoBarError( wxString::Format( _( "The move violates DRC. (%s to commit anyway.)" ),
+                                                                 KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) ) );
 
                     if( revertBlockDrag( false ) )
                         break;
@@ -4377,7 +4406,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
                     if( !routerCommitted )
                     {
-                        frame()->ShowInfoBarError( _( "The move violates DRC." ) );
+                        frame()->ShowInfoBarError(
+                                wxString::Format( _( "The move violates DRC. (%s to commit anyway.)" ),
+                                                  KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) ) );
 
                         if( revertBlockDrag( true ) )
                             break;
