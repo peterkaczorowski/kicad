@@ -4325,7 +4325,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 if( validationResult != BLOCK_DRAG_VALIDATION_RESULT::OK )
                 {
                     if( validationResult == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE )
-                        frame()->ShowInfoBarError( _( "The move would create a self-intersecting zone outline." ) );
+                        frame()->ShowInfoBarError( _( "The move would break a zone outline." ) );
                     else
                         frame()->ShowInfoBarError( _( "The move would break the board outline." ) );
 

@@ -131,6 +131,21 @@ BOOST_AUTO_TEST_CASE( ValidZoneMovePasses )
 }
 
 
+// RemoveNullSegments can leave a zone with two corners. It no longer encloses
+// anything, but it does not cross itself either, so it needs its own check
+BOOST_AUTO_TEST_CASE( CollapsedOutlineRejects )
+{
+    ZONE* zone = makeSquareZone();
+
+    BLOCK_DRAG_VALIDATION validation( board );
+    validation.CaptureBaseline( { zone } );
+
+    zone->Outline()->Outline( 0 ).Remove( 2, 3 );
+
+    BOOST_CHECK( validation.Validate() == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE );
+}
+
+
 BOOST_AUTO_TEST_CASE( BrokenOutlineRejectsAndRestores )
 {
     PCB_SHAPE* moved = makeClosedOutline();

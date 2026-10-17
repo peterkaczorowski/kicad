@@ -25,6 +25,33 @@
 #include <layer_ids.h>
 #include <zone.h>
 
+namespace
+{
+
+/**
+ * Whether a zone outline is sound enough to keep.
+ *
+ * IsSelfIntersecting() on its own accepts an outline that has collapsed below three
+ * corners, and it accepts holes that meet at a corner. It also calls every zone that
+ * has a hole self-intersecting, because it walks the outline and the holes as one
+ * list of segments.
+ */
+bool zoneOutlineIsSound( const SHAPE_POLY_SET& aOutline )
+{
+    if( aOutline.OutlineCount() == 0 || aOutline.IsSelfIntersecting() || aOutline.HasTouchingHoles() )
+        return false;
+
+    for( int ii = 0; ii < aOutline.OutlineCount(); ++ii )
+    {
+        if( aOutline.COutline( ii ).PointCount() < 3 )
+            return false;
+    }
+
+    return true;
+}
+
+} // namespace
+
 
 BLOCK_DRAG_VALIDATION::BLOCK_DRAG_VALIDATION( BOARD& aBoard ) :
         m_board( &aBoard ),
@@ -52,7 +79,7 @@ void BLOCK_DRAG_VALIDATION::CaptureBaseline( const std::vector<BOARD_ITEM*>& aCa
         if( item->Type() == PCB_ZONE_T )
         {
             ZONE* zone = static_cast<ZONE*>( item );
-            m_zones.emplace_back( zone, !zone->Outline()->IsSelfIntersecting() );
+            m_zones.emplace_back( zone, zoneOutlineIsSound( *zone->Outline() ) );
         }
 
         if( outlineMatters && item->IsOnLayer( Edge_Cuts ) )
@@ -68,7 +95,7 @@ BLOCK_DRAG_VALIDATION_RESULT BLOCK_DRAG_VALIDATION::Validate() const
 {
     for( const auto& [zone, wasValid] : m_zones )
     {
-        if( wasValid && zone->Outline()->IsSelfIntersecting() )
+        if( wasValid && !zoneOutlineIsSound( *zone->Outline() ) )
             return BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE;
     }
 

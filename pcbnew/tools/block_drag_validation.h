@@ -31,7 +31,7 @@ enum class BLOCK_DRAG_VALIDATION_RESULT
 {
     OK,
 
-    /// A carried zone's outline became self-intersecting.
+    /// A zone that came along lost its valid outline.
     INVALID_ZONE,
 
     /// The board outline was closed before the drag and the moved Edge.Cuts broke it.
@@ -41,11 +41,9 @@ enum class BLOCK_DRAG_VALIDATION_RESULT
 /**
  * Checks a Block Drag's result at release and says whether it may be kept.
  *
- * Reads only the board model. Capture the baseline before the first mutation, then
- * validate at release.
- * Pre-existing damage never rejects a gesture: a zone that was already
- * self-intersecting and an outline that was already broken are recorded at capture
- * and only newly introduced damage fails validation.
+ * Call CaptureBaseline() before anything moves, then Validate() at release. Geometry
+ * that was already broken before the drag is noted at capture time, so the user can
+ * still edit a board whose outline or zone was damaged beforehand.
  */
 class BLOCK_DRAG_VALIDATION
 {
