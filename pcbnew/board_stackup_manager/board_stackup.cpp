@@ -22,6 +22,7 @@
 #include "board_stackup.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <base_units.h>
 #include <string_utils.h>
 #include <layer_ids.h>
@@ -533,6 +534,10 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
     addExpectedLayer( BS_ITEM_TYPE_SOLDERPASTE, B_Paste );
     addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, B_SilkS );
 
+    const int maxThickness = std::numeric_limits<int>::max();
+    int totalThickness = 0;
+    bool thicknessOverflow = false;
+
     size_t activeItemIndex = 0;
     int expectedDielectricLayerId = 1;
 
@@ -621,15 +626,28 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
             subLayerIndex < item->GetSublayersCount();
             ++subLayerIndex )
         {
-            if( item->IsThicknessEditable()
-                && item->GetThickness( subLayerIndex ) < 0 )
+            if( item->IsThicknessEditable() )
             {
-                errors.push_back( {
-                    itemIndex,
-                    subLayerIndex,
-                    wxS( "thickness" ),
-                    _( "Layer thickness must be nonnegative." )
-                } );
+                const int thickness = item->GetThickness( subLayerIndex );
+
+                if( thickness < 0 )
+                {
+                    errors.push_back( {
+                        itemIndex,
+                        subLayerIndex,
+                        wxS( "thickness" ),
+                        _( "Layer thickness must be nonnegative." )
+                    } );
+                }
+                else if( thickness > maxThickness - totalThickness )
+                {
+                    // Check before adding because the board implementation stores total thickness as an int.
+                    thicknessOverflow = true;
+                }
+                else if( !thicknessOverflow )
+                {
+                    totalThickness += thickness;
+                }
             }
 
             auto validateNonNegative = [&]( double aValue, const wxString& aField,
@@ -702,6 +720,16 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                 -1,
                 wxS( "edge_connector" ),
                 _( "Unsupported edge connector type." )
+        } );
+    }
+
+    if( thicknessOverflow )
+    {
+        errors.push_back( {
+            -1,
+            -1,
+            wxS( "total_thickness" ),
+            _( "Total board thickness exceeds the maximum supported value." )
         } );
     }
 
