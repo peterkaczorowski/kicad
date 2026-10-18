@@ -51,5 +51,50 @@ BOOST_AUTO_TEST_CASE( AcceptsDefaultStackup )
     }
 }
 
+/**
+ * Test that a negative sublayer thickness produces exactly one error
+ * and that the error identifies the correct field, stackup item and sublayer.
+ */
+BOOST_AUTO_TEST_CASE( RejectsNegativeSublayerThickness )
+{
+    BOARD_DESIGN_SETTINGS settings( nullptr, "" );
+    settings.SetCopperLayerCount( 2 );
+
+    BOARD_STACKUP stackup;
+    stackup.BuildDefaultStackupList( &settings );
+
+    int dielectricIndex = -1;
+
+    for( int i = 0; i < stackup.GetCount(); ++i )
+    {
+        if( stackup.GetStackupLayer( i )->GetType() == BS_ITEM_TYPE_DIELECTRIC )
+        {
+            dielectricIndex = i;
+            break;
+        }
+    }
+
+    BOOST_REQUIRE( dielectricIndex >= 0 );
+
+    BOARD_STACKUP_ITEM* dielectric = stackup.GetStackupLayer( dielectricIndex );
+    dielectric->AddDielectricPrms( 1 );
+
+    const LSET enabledLayers = settings.GetEnabledLayers();
+
+    // Test that an additional dielectric sublayer with default values
+    // is accepted with its default values.
+    BOOST_REQUIRE( stackup.Validate( enabledLayers ).empty() );
+
+    dielectric->SetThickness( -1, 1 );
+
+    const auto errors = stackup.Validate( enabledLayers );
+    BOOST_REQUIRE_EQUAL( errors.size(), 1 );
+
+    const auto& error = errors.front();
+    BOOST_CHECK( error.m_FieldName == wxS( "thickness" ) );
+    BOOST_CHECK_EQUAL( error.m_StackupItemIndex, dielectricIndex );
+    BOOST_CHECK_EQUAL( error.m_SublayerIndex, 1 );
+}
+
 
 BOOST_AUTO_TEST_SUITE_END()
