@@ -534,6 +534,7 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
     addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, B_SilkS );
 
     size_t activeItemIndex = 0;
+    int expectedDielectricLayerId = 1;
 
     for( int itemIndex = 0; itemIndex < GetCount(); ++itemIndex )
     {
@@ -567,6 +568,42 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
         }
 
         ++activeItemIndex;
+
+        if( item->GetType() == BS_ITEM_TYPE_DIELECTRIC )
+        {
+            if( item->GetDielectricLayerId() != expectedDielectricLayerId )
+            {
+                errors.push_back( {
+                    itemIndex,
+                    -1,
+                    wxS( "dielectric_layer_id" ),
+                    _( "Dielectric layers must be consecutively numbered from 1." )
+                } );
+            }
+
+            ++expectedDielectricLayerId;
+        }
+
+        const int subLayersCount = item->GetSublayersCount();
+
+        if( subLayersCount < 1 )
+        {
+            errors.push_back( {
+                itemIndex,
+                -1,
+                wxS( "sublayers" ),
+                _( "Stackup item must have at least one sublayer." )
+            } );
+        }
+        else if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && subLayersCount != 1 )
+        {
+            errors.push_back( {
+                itemIndex,
+                -1,
+                wxS( "sublayers" ),
+                _( "Only dielectric layers may have multiple sublayers." )
+            } );
+        }
 
         for( int subLayerIndex = 0;
             subLayerIndex < item->GetSublayersCount();
