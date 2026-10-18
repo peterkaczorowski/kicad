@@ -1099,6 +1099,15 @@ public:
     const wxString GetLayerName( PCB_LAYER_ID aLayer ) const;
 
     /**
+     * Check the name syntax accepted by SetLayerName().
+     *
+     * An empty name is allowed to clear the custom name.
+     * Layer availability and name uniqueness are not checked,
+     * as they depend on the names of the other layers.
+     */
+    static bool IsValidLayerName( const wxString& aLayerName );
+
+    /**
      * Changes the name of the layer given by aLayer.
      * @param aLayer A layer, like B_Cu, etc.
      * @param aLayerName The new layer name

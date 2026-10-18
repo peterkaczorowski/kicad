@@ -584,6 +584,18 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
             ++expectedDielectricLayerId;
         }
 
+        // Match BOARD::SetLayerName() so validated dielectric layer names can be applied to the board.
+        // Dielectric items have no corresponding board layer to rename, so they have less constraints.
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && item->GetLayerName().Find( wxChar( '"' ) ) != wxNOT_FOUND )
+        {
+            errors.push_back( {
+                itemIndex,
+                -1,
+                wxS( "layer_name_quote_char" ),
+                _( "Layer names cannot contain quotation marks." )
+            } );
+        }
+
         const int subLayersCount = item->GetSublayersCount();
 
         if( subLayersCount < 1 )
@@ -591,7 +603,7 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
             errors.push_back( {
                 itemIndex,
                 -1,
-                wxS( "sublayers" ),
+                wxS( "sublayer_count" ),
                 _( "Stackup item must have at least one sublayer." )
             } );
         }
@@ -600,7 +612,7 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
             errors.push_back( {
                 itemIndex,
                 -1,
-                wxS( "sublayers" ),
+                wxS( "non_dielectric_sublayer_count" ),
                 _( "Only dielectric layers may have multiple sublayers." )
             } );
         }
@@ -653,6 +665,20 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                 validateNonNegative( item->GetSpecFreq( subLayerIndex ),
                                      wxS( "spec_frequency" ),
                                      _( "Specified frequency must be finite and nonnegative." ) );
+
+                const DIELECTRIC_MODEL model = item->GetDielectricModel( subLayerIndex );
+
+                // Only the constant and Djordjevic-Sarkar models are currently supported
+                if( model != DIELECTRIC_MODEL::CONSTANT
+                    && model != DIELECTRIC_MODEL::DJORDJEVIC_SARKAR )
+                {
+                    errors.push_back( {
+                        itemIndex,
+                        subLayerIndex,
+                        wxS( "dielectric_model" ),
+                        _( "Unsupported dielectric model." )
+                    } );
+                }
             }
         }
     }
@@ -664,6 +690,18 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                 -1,
                 wxS( "layers" ),
                 _( "Stackup does not contain the expected number of active items." )
+        } );
+    }
+
+    if( m_EdgeConnectorConstraints != BS_EDGE_CONNECTOR_NONE
+        && m_EdgeConnectorConstraints != BS_EDGE_CONNECTOR_IN_USE
+        && m_EdgeConnectorConstraints != BS_EDGE_CONNECTOR_BEVELLED )
+    {
+        errors.push_back( {
+                -1,
+                -1,
+                wxS( "edge_connector" ),
+                _( "Unsupported edge connector type." )
         } );
     }
 

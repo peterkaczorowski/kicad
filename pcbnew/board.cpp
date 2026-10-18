@@ -947,6 +947,13 @@ const wxString BOARD::GetLayerName( PCB_LAYER_ID aLayer ) const
 }
 
 
+bool BOARD::IsValidLayerName( const wxString& aLayerName )
+{
+    // no quote chars in the name allowed
+    return aLayerName.Find( wxChar( '"' ) ) == wxNOT_FOUND;
+}
+
+
 bool BOARD::SetLayerName( PCB_LAYER_ID aLayer, const wxString& aLayerName )
 {
     if( aLayerName.IsEmpty() )
@@ -957,8 +964,7 @@ bool BOARD::SetLayerName( PCB_LAYER_ID aLayer, const wxString& aLayerName )
     }
     else
     {
-        // no quote chars in the name allowed
-        if( aLayerName.Find( wxChar( '"' ) ) != wxNOT_FOUND )
+        if( !IsValidLayerName( aLayerName ) )
             return false;
 
         if( IsLayerEnabled( aLayer ) )
