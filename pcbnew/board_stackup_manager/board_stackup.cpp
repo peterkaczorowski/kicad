@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <base_units.h>
 #include <string_utils.h>
 #include <layer_ids.h>
@@ -887,6 +888,35 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
         default:
             return false;
         }
+    }
+
+    for( const BoardStackupLayer& layer : aInput.layers() )
+        {
+        // Reject values that cannot be converted to an internal item type.
+        switch( layer.type() )
+        {
+        case BSLT_UNDEFINED:
+        case BSLT_COPPER:
+        case BSLT_DIELECTRIC:
+        case BSLT_SOLDERPASTE:
+        case BSLT_SOLDERMASK:
+        case BSLT_SILKSCREEN:
+            break;
+
+        default:
+            return false;
+        }
+
+        auto item = std::make_unique<BOARD_STACKUP_ITEM>(
+                FromProtoEnum<BOARD_STACKUP_ITEM_TYPE, BoardStackupLayerType>(
+                        layer.type() ) );
+
+        item->SetEnabled( layer.enabled() );
+
+        // TODO: Decode the remaining layer properties.
+
+        decoded.Add( item.get() );
+        item.release();
     }
 
     // TODO(joelsa): Decode layers before committing the result.
