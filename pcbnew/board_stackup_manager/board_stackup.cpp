@@ -1004,7 +1004,50 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
             break;
         }
 
-        default: break;
+        case BS_ITEM_TYPE_SOLDERMASK:
+        {
+            if( !layer.has_soldermask() )
+                return false;
+
+            const BoardStackupSoldermaskLayer& soldermask = layer.soldermask();
+
+            auto maskThickness = soldermask.thickness().value_nm();
+
+            // The outer and soldermask thickness fields describe the same value.
+            if( !soldermask.has_thickness() )
+                maskThickness = thickness;
+            else if( layer.has_thickness() && maskThickness != thickness )
+                return false;
+
+            if( maskThickness < std::numeric_limits<int>::min() || maskThickness > std::numeric_limits<int>::max() )
+            {
+                return false;
+            }
+
+            item->SetMaterial( wxString::FromUTF8( soldermask.material_name().c_str() ) );
+            item->SetThickness( static_cast<int>( maskThickness ) );
+            item->SetEpsilonR( soldermask.epsilon_r() );
+            item->SetLossTangent( soldermask.loss_tangent() );
+            break;
+        }
+
+        case BS_ITEM_TYPE_SILKSCREEN:
+        {
+            if( !layer.has_silkscreen() )
+                return false;
+
+            const BoardStackupSilkscreenLayer& silkscreen = layer.silkscreen();
+
+            item->SetMaterial( wxString::FromUTF8( silkscreen.material_name().c_str() ) );
+            break;
+        }
+
+        default:
+            // The remaining item types have no corresponding details message.
+            if( layer.details_case() != BoardStackupLayer::DETAILS_NOT_SET )
+                return false;
+
+            break;
         }
 
         decoded.Add( item.get() );
