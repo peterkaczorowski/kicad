@@ -700,7 +700,46 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
         return tl::unexpected( error );
     }
 
-    // TODO(joelsa): Decode, validate, and apply the stackup.
+    // The proposed stackup stays in a separate object until it is validated
+    BOARD_STACKUP newStackup;
+
+    if( !newStackup.Deserialize( aCtx.Request.stackup() ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        error.set_error_message( "Malformed board stackup" );
+        return tl::unexpected( error );
+    }
+
+    // Replace physical layers with the ones from the newStackup while keeping layers like Edge.Cuts.
+    LSET enabled = board()->GetEnabledLayers() & ~BOARD_STACKUP::StackupAllowedBrdLayers();
+
+    for( const BOARD_STACKUP_ITEM* item : newStackup.GetList() )
+    {
+        if( item->IsEnabled() && IsValidLayer( item->GetBrdLayerId() ) )
+            enabled.set( item->GetBrdLayerId() );
+    }
+
+    const auto errors = newStackup.Validate( enabled );
+
+    if( !errors.empty() )
+    {
+        // The first error is reported to the API caller
+        const BOARD_STACKUP::VALIDATION_ERROR& first = errors.front();
+
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        error.set_error_message(
+                fmt::format( "Invalid board stackup: item {}, sublayer {}, {}: {}",
+                             first.m_StackupItemIndex, first.m_SublayerIndex,
+                             first.m_FieldName.ToStdString(),
+                             first.m_ErrorMessage.ToStdString() ) );
+        return tl::unexpected( error );
+    }
+
+    // TODO(joelsa):Apply the validated stackup.
+
+
     ApiResponseStatus error;
     error.set_status( ApiStatusCode::AS_UNIMPLEMENTED );
     error.set_error_message( "Board stackup updates are not yet implemented" );
