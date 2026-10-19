@@ -3045,6 +3045,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
     // State of the block drag gesture
     bool                                                       inBlockDrag = false;
+    bool                                                       blockKeyboardDrag = false;
     bool                                                       blockPressConsumed = false;
     bool                                                       blockRevertRestarts = false;
     bool                                                       blockRouterActive = false;
@@ -3144,6 +3145,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         blockAppliedDelta = VECTOR2I( 0, 0 );
         blockRevertRestarts = false;
         inBlockDrag = false;
+        blockKeyboardDrag = false;
         m_blockDragAbort = nullptr;
         grid.SetPointEditProfile( true );
         getViewControls()->ForceCursorPosition( false );
@@ -3392,7 +3394,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         return BLOCK_FRAME_RESULT::APPLIED;
     };
 
-    auto beginBlockDrag = [&]( const VECTOR2I& aOrigin ) -> bool
+    auto beginBlockDrag = [&]( const VECTOR2I& aOrigin, bool aPressInFlight ) -> bool
     {
         EDIT_POINTS* grabCollection = nullptr;
         EDIT_POINT*  grabPoint = nullptr;
@@ -3431,7 +3433,12 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         auto refuse = [&]( const wxString& aMessage ) -> bool
         {
             frame()->ShowInfoBarError( aMessage );
-            blockPressConsumed = true;
+
+            // Only a mouse press has the rest of a button press left to ignore. A
+            // keyboard start sets no flag here, so a refusal cannot eat the next click
+            if( aPressInFlight )
+                blockPressConsumed = true;
+
             return restorePicks();
         };
 
@@ -4218,12 +4225,33 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 getView()->Update( m_angleItem.get() );
         }
 
-        if( evt->IsDrag( BUT_LEFT ) && !inDrag && !blockPressConsumed && !inBlockDrag && blockAnchorEditingEnabled() )
+        // D over a picked handle starts the gesture from the keyboard, with the cursor
+        // free instead of held down. Every other use of D belongs to the edit tool
+        if( evt->IsAction( &PCB_ACTIONS::drag45Degree ) || evt->IsAction( &PCB_ACTIONS::dragFreeAngle ) )
         {
-            beginBlockDrag( evt->DragOrigin() );
+            // An edit already running owns D. Passing it on would start the edit tool's own
+            // drag of the same selection on top of this one, and that tool refilters the
+            // selection, which ends this gesture through its selection event
+            if( inDrag || inBlockDrag )
+                continue;
+
+            if( blockAnchorEditingEnabled() && beginBlockDrag( getViewControls()->GetCursorPosition( false ), false ) )
+            {
+                // Handled here, so the loop's catch-all does not pass it on as well
+                blockKeyboardDrag = true;
+                continue;
+            }
+
+            evt->SetPassEvent();
         }
 
-        if( evt->IsDrag( BUT_LEFT ) && !inDrag && !blockPressConsumed && inBlockDrag )
+        if( evt->IsDrag( BUT_LEFT ) && !inDrag && !blockPressConsumed && !inBlockDrag && blockAnchorEditingEnabled() )
+        {
+            beginBlockDrag( evt->DragOrigin(), true );
+        }
+
+        if( ( ( evt->IsDrag( BUT_LEFT ) && !blockPressConsumed ) || ( blockKeyboardDrag && evt->IsMotion() ) )
+            && !inDrag && inBlockDrag )
         {
             VECTOR2I pos = GetClampedCoords<double, int>( evt->Position(), COORDS_PADDING );
             LSET     snapLayers;
@@ -4291,13 +4319,16 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             if( frameResult == BLOCK_FRAME_RESULT::LOST_IDENTITY )
             {
-                // A picked identity vanished mid gesture. Restore, and let the rest of
-                // this button press go by rather than start over from the cleared picks
+                // A picked handle has gone mid gesture. Put the geometry back and let the
+                // rest of this button press pass, so the user does not start a new gesture
+                // from an empty pick set. Read the flag before the teardown clears it
+                bool pressInFlight = !blockKeyboardDrag;
+
                 if( revertBlockDrag( false ) )
                     break;
 
                 endBlockDrag( false );
-                blockPressConsumed = true;
+                blockPressConsumed = pressInFlight;
             }
             else
             {
@@ -4341,8 +4372,12 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 updatePoints();
             }
         }
-        else if( inBlockDrag && evt->IsMouseUp( BUT_LEFT ) )
+        else if( inBlockDrag && ( evt->IsMouseUp( BUT_LEFT ) || ( blockKeyboardDrag && evt->IsClick( BUT_LEFT ) ) ) )
         {
+            // This click stops here, so the selection tool only ever sees the press that
+            // armed its long press timer
+            m_selectionTool->StopDisambiguation();
+
             if( blockAppliedDelta == VECTOR2I( 0, 0 ) )
             {
                 // A gesture that changed nothing leaves no undo entry
@@ -5074,6 +5109,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 // switch and the other ways of cancelling keep their usual effect
                 bool escape = evt->IsCancel() && evt->GetCommandId() == (int) WXK_ESCAPE;
 
+                // Read the flag before the teardown clears it
+                bool pressInFlight = !blockKeyboardDrag;
+
                 if( escape )
                     evt->SetPassEvent( false );
 
@@ -5083,7 +5121,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 endBlockDrag( escape );
 
                 if( escape )
-                    blockPressConsumed = true;
+                    blockPressConsumed = pressInFlight;
             }
             else if( inDrag ) // Restore the last change
             {
