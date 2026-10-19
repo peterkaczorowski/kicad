@@ -1043,11 +1043,26 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
         }
 
         default:
-            // The remaining item types have no corresponding details message.
+            // Catch-all for item types without a corresponding details message.
             if( layer.details_case() != BoardStackupLayer::DETAILS_NOT_SET )
                 return false;
 
             break;
+        }
+
+        // Only apply color to editable items
+        if( layer.has_color() && item->IsColorEditable() )
+        {
+            const auto& color = layer.color();
+
+            // All color channels need to be finite and in the range [0.0, 1.0] to be valid.
+            for( double channel : { color.r(), color.g(), color.b(), color.a() } )
+            {
+                if( !std::isfinite( channel ) || channel < 0.0 || channel > 1.0 )
+                    return false;
+            }
+
+            item->SetColor( kiapi::common::UnpackColor( color ).ToHexString() );
         }
 
         decoded.Add( item.get() );
