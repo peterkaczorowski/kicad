@@ -441,8 +441,6 @@ void PANEL_SETUP_BOARD_STACKUP::onExportToClipboard( wxCommandEvent& event )
     if( !transferDataFromUIToStackup() )
         return;
 
-    m_panelFinish->TransferDataFromWindow( m_stackup );
-
     // Build a ASCII representation of stackup and copy it in the clipboard
     wxString report = BuildStackupReport( m_stackup, m_frame->GetUserUnits() );
 
@@ -1230,14 +1228,18 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
             wxTextCtrl* textCtrl = static_cast<wxTextCtrl*>( ui_item.m_EpsilonCtrl );
             wxString    txt = textCtrl->GetValue();
 
-            if( txt.ToDouble( &value ) && value >= 0.0 )
+            if( txt.ToDouble( &value ) || txt.ToCDouble( &value ) )
+            {
                 item->SetEpsilonR( value, sub_item );
-            else if( txt.ToCDouble( &value ) && value >= 0.0 )
-                item->SetEpsilonR( value, sub_item );
+            }
             else
             {
                 success = false;
-                error_msg << _( "Incorrect value for Epsilon R (Epsilon R must be positive or null if not used)" );
+
+                if( !error_msg.IsEmpty() )
+                    error_msg << wxT( "\n" );
+
+                error_msg << _( "Invalid value for Epsilon R." );
             }
         }
 
@@ -1246,11 +1248,7 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
             wxTextCtrl* textCtrl = static_cast<wxTextCtrl*>( ui_item.m_LossTgCtrl );
             wxString    txt = textCtrl->GetValue();
 
-            if( txt.ToDouble( &value ) && value >= 0.0 )
-            {
-                item->SetLossTangent( value, sub_item );
-            }
-            else if( txt.ToCDouble( &value ) && value >= 0.0 )
+            if( txt.ToDouble( &value ) || txt.ToCDouble( &value ) )
             {
                 item->SetLossTangent( value, sub_item );
             }
@@ -1261,7 +1259,7 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                 if( !error_msg.IsEmpty() )
                     error_msg << wxT( "\n" );
 
-                error_msg << _( "Incorrect value for Loss tg (Loss tg must be positive or null if not used)" );
+                error_msg << _( "Invalid value for Loss Tangent." );
             }
         }
 
@@ -1281,6 +1279,7 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
             {
                 switch( unitsIdx )
                 {
+<<<<<<< HEAD
                 case 3:  item->SetSpecFreq( freq * 1e9, sub_item ); break;
                 case 2:  item->SetSpecFreq( freq * 1e6, sub_item ); break;
                 case 1:  item->SetSpecFreq( freq * 1e3, sub_item ); break;
@@ -1293,6 +1292,27 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                 setFreqValue( value );
             }
             else if( txt.ToCDouble( &value ) && value >= 0.0 )
+=======
+                case 3:
+                    item->SetSpecFreq( freq * 1e9, sub_item );
+                    break;
+
+                case 2:
+                    item->SetSpecFreq( freq * 1e6, sub_item );
+                    break;
+
+                case 1:
+                    item->SetSpecFreq( freq * 1e3, sub_item );
+                    break;
+
+                default:
+                    item->SetSpecFreq( freq, sub_item );
+                    break;
+                }
+            };
+
+            if( txt.ToDouble( &value ) || txt.ToCDouble( &value ) )
+>>>>>>> e9ccfbddf2 (Pcbnew: Wire in new validation function into the setup dialog)
             {
                 setFreqValue( value );
             }
@@ -1303,7 +1323,11 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                 if( !error_msg.IsEmpty() )
                     error_msg << wxT( "\n" );
 
+<<<<<<< HEAD
                 error_msg << _( "Incorrect value for specified frequency (must be positive or null if not used)" );
+=======
+                error_msg << _( "Invalid value for Specified Frequency." );
+>>>>>>> e9ccfbddf2 (Pcbnew: Wire in new validation function into the setup dialog)
             }
         }
 
@@ -1341,16 +1365,6 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
 
             item->SetThickness( new_thickness, sub_item );
 
-            if( new_thickness < 0 )
-            {
-                success = false;
-
-                if( !error_msg.IsEmpty() )
-                    error_msg << wxT( "\n" );
-
-                error_msg << _( "A layer thickness is < 0. Fix it" );
-            }
-
             if( item->GetType() == BS_ITEM_TYPE_DIELECTRIC )
             {
                 // Dielectric thickness layer can have a locked thickness:
@@ -1382,6 +1396,48 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
     }
 
     m_stackup.m_HasDielectricConstrains = m_impedanceControlled->GetValue();
+
+    // Store pending finish options into a draft in order to validate it.
+    m_panelFinish->TransferDataFromWindow( m_stackup );
+
+    const auto errors = m_stackup.Validate( m_enabledLayers );
+
+    for( const auto& error : errors )
+    {
+        wxString message = error.m_ErrorMessage;
+
+        if( error.m_StackupItemIndex >= 0 )
+        {
+            const BOARD_STACKUP_ITEM* item =
+                    m_stackup.GetStackupLayer( error.m_StackupItemIndex );
+
+            if( item )
+            {
+                wxString layerName = item->GetType() == BS_ITEM_TYPE_DIELECTRIC
+                                             ? item->FormatDielectricLayerName()
+                                             : item->GetLayerName();
+
+                if( error.m_SublayerIndex >= 0 && item->GetSublayersCount() > 1 )
+                {
+                    layerName += wxString::Format(
+                            _( " (sublayer %d)" ), error.m_SublayerIndex + 1 );
+                }
+
+                message = wxString::Format( _( "%s: %s" ), layerName, message );
+            }
+        }
+
+        if( !error_msg.IsEmpty() )
+            error_msg << wxS( "\n" );
+
+        error_msg << message;
+    }
+
+    if( !errors.empty() )
+    {
+        wxMessageBox( error_msg, _( "Errors" ), wxOK | wxICON_ERROR, this );
+        return false;
+    }
 
     return true;
 }
