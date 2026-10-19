@@ -23,6 +23,14 @@
 #include <algorithm>
 #include <vector>
 
+#if defined( __unix__ ) || defined( __APPLE__ )
+#include <unistd.h>
+#endif
+
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+
 #include <api/api_handler_common.h>
 #include <api/api_handler_libraries.h>
 #include <libraries/library_table.h>
@@ -71,6 +79,20 @@ CLI::API_SERVER_COMMAND::API_SERVER_COMMAND() :
 int CLI::API_SERVER_COMMAND::doPerform( KIWAY& aKiway )
 {
     using namespace kiapi::common;
+
+#if defined( __unix__ ) || defined( __APPLE__ )
+    // Snapshot the parent PID so the main loop can detect reparenting (orphan) and
+    // exit. Guards against the host process dying abnormally (SIGKILL, OOM, segfault)
+    // without sending us SIGTERM, which would otherwise leave us looping forever
+    // holding board state on a stale socket.
+    pid_t originalParent = getppid();
+#endif
+
+#ifdef __linux__
+    // Have the kernel deliver SIGTERM as soon as the parent dies, rather than waiting
+    // for the next poll tick in the main loop.
+    prctl( PR_SET_PDEATHSIG, SIGTERM );
+#endif
 
     std::unique_ptr<KICAD_API_SERVER> server = std::make_unique<KICAD_API_SERVER>( false );
     API_HANDLER_COMMON                commonHandler;
@@ -696,6 +718,13 @@ int CLI::API_SERVER_COMMAND::doPerform( KIWAY& aKiway )
     {
         wxTheApp->ProcessPendingEvents();
         wxMilliSleep( 10 );
+
+#if defined( __unix__ ) || defined( __APPLE__ )
+        // Required on macOS (no PR_SET_PDEATHSIG) and a backstop on Linux for the
+        // race window where the parent dies before the prctl above is reached.
+        if( getppid() != originalParent )
+            break;
+#endif
     }
 
     std::signal( SIGINT, oldSigInt );
