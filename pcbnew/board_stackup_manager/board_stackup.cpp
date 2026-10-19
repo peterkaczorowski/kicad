@@ -881,12 +881,10 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
         case BECT_PLAIN:
         case BECT_BEVELED:
             decoded.m_EdgeConnectorConstraints =
-                    FromProtoEnum<BS_EDGE_CONNECTOR_CONSTRAINTS, BoardEdgeConnectorType>(
-                            connectorType );
+                    FromProtoEnum<BS_EDGE_CONNECTOR_CONSTRAINTS, BoardEdgeConnectorType>( connectorType );
             break;
 
-        default:
-            return false;
+        default: return false;
         }
     }
 
@@ -902,16 +900,13 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
         case BSLT_DIELECTRIC:
         case BSLT_SOLDERPASTE:
         case BSLT_SOLDERMASK:
-        case BSLT_SILKSCREEN:
-            break;
+        case BSLT_SILKSCREEN: break;
 
-        default:
-            return false;
+        default: return false;
         }
 
         auto item = std::make_unique<BOARD_STACKUP_ITEM>(
-                FromProtoEnum<BOARD_STACKUP_ITEM_TYPE, BoardStackupLayerType>(
-                        layer.type() ) );
+                FromProtoEnum<BOARD_STACKUP_ITEM_TYPE, BoardStackupLayerType>( layer.type() ) );
 
         item->SetEnabled( layer.enabled() );
 
@@ -944,35 +939,72 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
 
             item->SetDielectricLayerId( nextDielectricId );
 
-            // Only increment the dielectric ID if the layer is enabled, so that 
+            // Only increment the dielectric ID if the layer is enabled, so that
             // disabled layers do not affect the numbering of subsequent layers.
             if( item->IsEnabled() )
                 ++nextDielectricId;
 
             switch( dielectric.type() )
             {
-            case BSDT_NONE:
-                item->SetTypeName( wxEmptyString );
-                break;
+            case BSDT_NONE: item->SetTypeName( wxEmptyString ); break;
 
-            case BSDT_CORE:
-                item->SetTypeName( KEY_CORE );
-                break;
+            case BSDT_CORE: item->SetTypeName( KEY_CORE ); break;
 
-            case BSDT_PREPREG:
-                item->SetTypeName( KEY_PREPREG );
-                break;
+            case BSDT_PREPREG: item->SetTypeName( KEY_PREPREG ); break;
 
-            default:
-                return false;
+            default: return false;
             }
 
-            // TODO(joelsa): Decode dielectric sublayers.
+            if( dielectric.layer_size() == 0 )
+                return false;
+
+            for( int i = 0; i < dielectric.layer_size(); ++i )
+            {
+                const BoardStackupDielectricProperties& props = dielectric.layer( i );
+
+                auto sublayerThickness = props.thickness().value_nm();
+
+                // The outer thickness represents the same value as sublayer 0.
+                if( i == 0 )
+                {
+                    if( !props.has_thickness() )
+                        sublayerThickness = thickness;
+                    else if( layer.has_thickness() && sublayerThickness != thickness )
+                        return false;
+                }
+
+                if( sublayerThickness < std::numeric_limits<int>::min()
+                    || sublayerThickness > std::numeric_limits<int>::max() )
+                {
+                    return false;
+                }
+
+                switch( props.dielectric_model() )
+                {
+                case DM_CONSTANT:
+                case DM_DJORDJEVIC_SARKAR: break;
+
+                default: return false;
+                }
+
+                // The constructor already creates sublayer 0.
+                if( i > 0 )
+                    item->AddDielectricPrms( i );
+
+                item->SetMaterial( wxString::FromUTF8( props.material_name().c_str() ), i );
+                item->SetThickness( static_cast<int>( sublayerThickness ), i );
+                item->SetThicknessLocked( props.thickness_locked(), i );
+                item->SetEpsilonR( props.epsilon_r(), i );
+                item->SetLossTangent( props.loss_tangent(), i );
+                item->SetSpecFreq( props.spec_frequency(), i );
+                item->SetDielectricModel( FromProtoEnum<DIELECTRIC_MODEL, DielectricModel>( props.dielectric_model() ),
+                                          i );
+            }
+
             break;
         }
 
-        default:
-            break;
+        default: break;
         }
 
         decoded.Add( item.get() );
