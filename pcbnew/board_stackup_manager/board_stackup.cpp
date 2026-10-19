@@ -891,7 +891,7 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
     }
 
     for( const BoardStackupLayer& layer : aInput.layers() )
-        {
+    {
         // Reject values that cannot be converted to an internal item type.
         switch( layer.type() )
         {
@@ -913,7 +913,23 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
 
         item->SetEnabled( layer.enabled() );
 
-        // TODO: Decode the remaining layer properties.
+        const types::BoardLayer boardLayer = layer.layer();
+
+        if( !types::BoardLayer_IsValid( boardLayer ) || boardLayer == types::BL_UNKNOWN )
+            return false;
+
+        item->SetBrdLayerId( FromProtoEnum<PCB_LAYER_ID, types::BoardLayer>( boardLayer ) );
+
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC )
+            item->SetLayerName( wxString::FromUTF8( layer.user_name().c_str() ) );
+
+        const auto thickness = layer.thickness().value_nm();
+
+        // Protobuf has 64 bits, but the internal implementation uses int for thickness, so check for overflow
+        if( thickness < std::numeric_limits<int>::min() || thickness > std::numeric_limits<int>::max() )
+            return false;
+
+        item->SetThickness( static_cast<int>( thickness ) );
 
         decoded.Add( item.get() );
         item.release();
