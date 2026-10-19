@@ -858,8 +858,42 @@ bool BOARD_STACKUP::Deserialize( const google::protobuf::Any& aContainer )
 
 bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
 {
-    // Read-only for now
+    using namespace kiapi::board;
+
+    // Decode only into a working copy, and only commit the result if all layers are decoded successfully.
+    BOARD_STACKUP decoded;
+
+    if( aInput.has_finish() )
+        decoded.m_FinishType = wxString::FromUTF8( aInput.finish().type_name().c_str() );
+
+    decoded.m_HasDielectricConstrains = aInput.impedance().is_controlled();
+    decoded.m_EdgePlating = aInput.edge().plating().has_edge_plating();
+
+    if( aInput.edge().has_connector() )
+    {
+        const BoardEdgeConnectorType connectorType = aInput.edge().connector().type();
+
+        // FromProtoEnum() will return BS_EDGE_CONNECTOR_NONE for unknown values, so we need to check the value first
+        switch( connectorType )
+        {
+        case BECT_NONE:
+        case BECT_PLAIN:
+        case BECT_BEVELED:
+            decoded.m_EdgeConnectorConstraints =
+                    FromProtoEnum<BS_EDGE_CONNECTOR_CONSTRAINTS, BoardEdgeConnectorType>(
+                            connectorType );
+            break;
+
+        default:
+            return false;
+        }
+    }
+
+    // TODO(joelsa): Decode layers before committing the result.
     return false;
+
+    // *this = decoded;
+    // return true;
 }
 
 
