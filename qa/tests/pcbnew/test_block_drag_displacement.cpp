@@ -21,8 +21,11 @@
 
 #include <board.h>
 #include <pcb_shape.h>
+#include <geometry/shape_poly_set.h>
 #include <zone.h>
 #include <tool/edit_points.h>
+#include <tool/grid_helper.h>
+#include <tool/point_editor_behavior.h>
 #include <tools/block_drag_displacement.h>
 
 
@@ -52,6 +55,8 @@ BOOST_AUTO_TEST_SUITE( BlockDragDisplacementTests )
 // is snapped again against its own item's grid
 BOOST_AUTO_TEST_CASE( OneDisplacementReachesEveryPickedHandle )
 {
+    // These handles have no drag rule, so the grid is here only to be passed along
+    GRID_HELPER testGrid;
     BOARD board;
 
     ZONE*      zone = new ZONE( &board );
@@ -78,7 +83,7 @@ BOOST_AUTO_TEST_CASE( OneDisplacementReachesEveryPickedHandle )
     // grabbed item alone. Every point lands at its start plus exactly this offset.
     const VECTOR2I delta( 333, -77 );
 
-    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta ) );
+    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta, testGrid ) );
 
     BOOST_CHECK( zonePoints->Point( 0 ).GetPosition() == VECTOR2I( 333, -77 ) );
     BOOST_CHECK( zonePoints->Point( 2 ).GetPosition() == VECTOR2I( 1333, 923 ) );
@@ -91,13 +96,148 @@ BOOST_AUTO_TEST_CASE( OneDisplacementReachesEveryPickedHandle )
     // does not add to the first
     const VECTOR2I delta2( 10, 10 );
 
-    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta2 ) );
+    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta2, testGrid ) );
     BOOST_CHECK( zonePoints->Point( 0 ).GetPosition() == VECTOR2I( 10, 10 ) );
+}
+
+
+// An odd offset with even endpoints. The midpoint of two integers rounds, so setting the
+// edge's own position would shift both of its ends a nanometre off target. The handles
+// here are built the way the editor builds them, so every line carries the same drag rule
+// a real picked edge has.
+BOOST_AUTO_TEST_CASE( PickedEdgeWithItsPolicyMovesPerpendicular )
+{
+    GRID_HELPER testGrid;
+    BOARD       board;
+    ZONE*       zone = new ZONE( &board );
+    board.Add( zone );
+
+    SHAPE_POLY_SET& outline = *zone->Outline();
+    outline.NewOutline();
+    outline.Append( 0, 0 );
+    outline.Append( 100000, 0 );
+    outline.Append( 100000, 100000 );
+    outline.Append( 0, 100000 );
+
+    std::shared_ptr<EDIT_POINTS> points = std::make_shared<EDIT_POINTS>( zone );
+    POLYGON_POINT_EDIT_BEHAVIOR::BuildForPolyOutline( *points, outline );
+
+    BOOST_REQUIRE( points->LinesSize() >= 1 );
+    BOOST_REQUIRE_MESSAGE( points->Line( 0 ).GetDragPolicy() != nullptr, "every edge should come with a drag rule" );
+
+    // The first edge runs between corners 0 and 1, the horizontal bottom edge
+    std::set<PCB_HANDLE_KEY> picked;
+    picked.insert( *PCB_HANDLE_KEY::Make( *points, &points->Line( 0 ) ) );
+
+    std::vector<EDIT_POINTS*>          collections{ points.get() };
+    std::map<PCB_HANDLE_KEY, VECTOR2I> origins = BlockDragMoveOrigins( collections, picked );
+
+    // one edge key plus its two corners
+    BOOST_REQUIRE_EQUAL( origins.size(), 3 );
+
+    const VECTOR2I delta( 7000, 5000 );
+
+    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta, testGrid ) );
+
+    // The drag rule only lets the edge move at right angles to itself, so the part of the
+    // offset along the edge is dropped and the two corners keep their x
+    BOOST_CHECK_EQUAL( points->Point( 0 ).GetPosition().x, 0 );
+    BOOST_CHECK_EQUAL( points->Point( 1 ).GetPosition().x, 100000 );
+    BOOST_CHECK_EQUAL( points->Point( 0 ).GetPosition().y, 5000 );
+    BOOST_CHECK_EQUAL( points->Point( 1 ).GetPosition().y, 5000 );
+
+    // The corners this edge does not touch stay where they were
+    BOOST_CHECK( points->Point( 2 ).GetPosition() == VECTOR2I( 100000, 100000 ) );
+    BOOST_CHECK( points->Point( 3 ).GetPosition() == VECTOR2I( 0, 100000 ) );
+}
+
+
+// Only where the drag ends should matter. A picked edge's drag rule is rebuilt from the
+// current geometry every frame, so a cursor that wanders off and comes back is the case
+// that would show it drifting.
+BOOST_AUTO_TEST_CASE( PickedEdgeIsIndependentOfThePathTaken )
+{
+    GRID_HELPER testGrid;
+
+    auto run = [&]( const std::vector<VECTOR2I>& aPath )
+    {
+        BOARD board;
+        ZONE* zone = new ZONE( &board );
+        board.Add( zone );
+
+        SHAPE_POLY_SET& outline = *zone->Outline();
+        outline.NewOutline();
+        outline.Append( 0, 0 );
+        outline.Append( 100000, 0 );
+        outline.Append( 100000, 100000 );
+        outline.Append( 0, 100000 );
+
+        std::shared_ptr<EDIT_POINTS> points = std::make_shared<EDIT_POINTS>( zone );
+        POLYGON_POINT_EDIT_BEHAVIOR::BuildForPolyOutline( *points, outline );
+
+        std::set<PCB_HANDLE_KEY> picked;
+        picked.insert( *PCB_HANDLE_KEY::Make( *points, &points->Line( 0 ) ) );
+
+        std::vector<EDIT_POINTS*>          collections{ points.get() };
+        std::map<PCB_HANDLE_KEY, VECTOR2I> origins = BlockDragMoveOrigins( collections, picked );
+
+        for( const VECTOR2I& step : aPath )
+            BlockDragApplyDisplacement( collections, origins, step, testGrid );
+
+        std::vector<VECTOR2I> result;
+
+        for( unsigned ii = 0; ii < points->PointsSize(); ++ii )
+            result.push_back( points->Point( ii ).GetPosition() );
+
+        return result;
+    };
+
+    const VECTOR2I target( 7000, 5000 );
+
+    std::vector<VECTOR2I> direct = run( { target } );
+    std::vector<VECTOR2I> wandered = run( { VECTOR2I( 30000, -20000 ), VECTOR2I( -5000, 40000 ), target } );
+
+    BOOST_REQUIRE_EQUAL( direct.size(), wandered.size() );
+
+    for( size_t ii = 0; ii < direct.size(); ++ii )
+    {
+        BOOST_CHECK_MESSAGE( direct[ii] == wandered[ii],
+                             "corner " << ii << " landed at " << wandered[ii].x << "," << wandered[ii].y
+                                       << " by one path and " << direct[ii].x << "," << direct[ii].y << " by another" );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( PickedLineLandsExactlyOnAnOddDelta )
+{
+    // These handles have no drag rule, so the grid is here only to be passed along
+    GRID_HELPER testGrid;
+    BOARD       board;
+    ZONE*       zone = new ZONE( &board );
+    board.Add( zone );
+
+    std::shared_ptr<EDIT_POINTS> points = makeTriangle( zone );
+
+    std::set<PCB_HANDLE_KEY> picked;
+    picked.insert( *PCB_HANDLE_KEY::Make( *points, &points->Line( 0 ) ) );
+
+    std::vector<EDIT_POINTS*> collections{ points.get() };
+
+    std::map<PCB_HANDLE_KEY, VECTOR2I> origins = BlockDragMoveOrigins( collections, picked );
+
+    const VECTOR2I delta( 501, 500 );
+
+    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta, testGrid ) );
+
+    BOOST_CHECK( points->Point( 0 ).GetPosition() == VECTOR2I( 501, 500 ) );
+    BOOST_CHECK( points->Point( 1 ).GetPosition() == VECTOR2I( 1501, 500 ) );
 }
 
 
 BOOST_AUTO_TEST_CASE( PickedLineExpandsWithoutDoubleMove )
 {
+    // These handles have no drag rule, so the grid is here only to be passed along
+    GRID_HELPER testGrid;
     BOARD board;
     ZONE* zone = new ZONE( &board );
     board.Add( zone );
@@ -113,15 +253,20 @@ BOOST_AUTO_TEST_CASE( PickedLineExpandsWithoutDoubleMove )
 
     std::map<PCB_HANDLE_KEY, VECTOR2I> origins = BlockDragMoveOrigins( collections, picked );
 
-    // Endpoints 0 and 1 only, the line key itself is not in the map
-    BOOST_REQUIRE_EQUAL( origins.size(), 2 );
+    // Corners 0 and 1, plus the edge itself, which the frame drives through its drag
+    // rule once they are placed
+    BOOST_REQUIRE_EQUAL( origins.size(), 3 );
+
+    int lineKeys = 0;
 
     for( const auto& [key, origin] : origins )
-        BOOST_CHECK( !key.IsLine() );
+        lineKeys += key.IsLine() ? 1 : 0;
+
+    BOOST_CHECK_EQUAL( lineKeys, 1 );
 
     const VECTOR2I delta( 500, 500 );
 
-    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta ) );
+    BOOST_REQUIRE( BlockDragApplyDisplacement( collections, origins, delta, testGrid ) );
 
     BOOST_CHECK( points->Point( 0 ).GetPosition() == VECTOR2I( 500, 500 ) );
     BOOST_CHECK( points->Point( 1 ).GetPosition() == VECTOR2I( 1500, 500 ) );
@@ -131,6 +276,8 @@ BOOST_AUTO_TEST_CASE( PickedLineExpandsWithoutDoubleMove )
 
 BOOST_AUTO_TEST_CASE( MissingIdentityInvalidatesGesture )
 {
+    // These handles have no drag rule, so the grid is here only to be passed along
+    GRID_HELPER testGrid;
     BOARD board;
     ZONE* zone = new ZONE( &board );
     board.Add( zone );
@@ -152,7 +299,7 @@ BOOST_AUTO_TEST_CASE( MissingIdentityInvalidatesGesture )
 
     std::vector<EDIT_POINTS*> rebuilt{ after.get() };
 
-    BOOST_CHECK( !BlockDragApplyDisplacement( rebuilt, origins, VECTOR2I( 10, 10 ) ) );
+    BOOST_CHECK( !BlockDragApplyDisplacement( rebuilt, origins, VECTOR2I( 10, 10 ), testGrid ) );
 
     // Capture also refuses to start when a picked key has gone stale
     BOOST_CHECK( BlockDragMoveOrigins( rebuilt, picked ).empty() );

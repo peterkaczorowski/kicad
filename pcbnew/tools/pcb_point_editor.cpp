@@ -3267,7 +3267,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     // frame is this same call with the last offset the gesture accepted
     auto applyBlockFrame = [&]( const VECTOR2I& aDelta, std::vector<EDA_ITEM*>& aUpdated ) -> BLOCK_FRAME_RESULT
     {
-        if( !BlockDragApplyDisplacement( pickableCollections(), blockOrigins, aDelta ) || !collectBlockTargets() )
+        if( !BlockDragApplyDisplacement( pickableCollections(), blockOrigins, aDelta, grid ) || !collectBlockTargets() )
             return BLOCK_FRAME_RESULT::LOST_IDENTITY;
 
         for( auto& [targetPoints, behavior] : blockTargets )
@@ -4240,6 +4240,34 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                             .position;
             VECTOR2I delta = snapped - blockGrabStart;
             VECTOR2I accepted = blockAppliedDelta;
+
+            // Ctrl while moving does what it does in a single point drag, which is to
+            // change how a polygon or zone edge behaves. Ctrl at the release is the
+            // router's force placement, so the two are read at different times
+            POLYGON_LINE_MODE edgeMode =
+                    evt->Modifier( MD_CTRL ) ? POLYGON_LINE_MODE::FIXED_LENGTH : POLYGON_LINE_MODE::CONVERGING;
+
+            for( const auto& [key, origin] : blockOrigins )
+            {
+                if( !key.IsLine() )
+                    continue;
+
+                for( EDIT_POINTS* collection : pickableCollections() )
+                {
+                    EDIT_LINE* line = dynamic_cast<EDIT_LINE*>( key.Resolve( *collection ) );
+
+                    if( !line )
+                        continue;
+
+                    if( POLYGON_EDGE_DRAG_POLICY* policy = line->GetDragPolicy() )
+                    {
+                        if( policy->GetMode() != edgeMode )
+                            policy->SetMode( edgeMode );
+                    }
+
+                    break;
+                }
+            }
 
             std::vector<EDA_ITEM*> updatedItems;
             BLOCK_FRAME_RESULT     frameResult = applyBlockFrame( delta, updatedItems );

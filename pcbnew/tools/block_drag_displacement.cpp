@@ -61,6 +61,10 @@ std::map<PCB_HANDLE_KEY, VECTOR2I> BlockDragMoveOrigins( const std::vector<EDIT_
             continue;
         }
 
+        // The edge, which each frame drives through its own drag rule, plus its two
+        // corners, which the frame places first so that rule starts from known points.
+        origins.emplace( key, line->GetPosition() );
+
         for( EDIT_POINT* endpoint : { &line->GetOrigin(), &line->GetEnd() } )
         {
             std::optional<PCB_HANDLE_KEY> endpointKey = PCB_HANDLE_KEY::Make( *owner, endpoint );
@@ -77,16 +81,38 @@ std::map<PCB_HANDLE_KEY, VECTOR2I> BlockDragMoveOrigins( const std::vector<EDIT_
 
 
 bool BlockDragApplyDisplacement( const std::vector<EDIT_POINTS*>&          aCollections,
-                                 const std::map<PCB_HANDLE_KEY, VECTOR2I>& aOrigins, const VECTOR2I& aDelta )
+                                 const std::map<PCB_HANDLE_KEY, VECTOR2I>& aOrigins, const VECTOR2I& aDelta,
+                                 const GRID_HELPER& aGrid )
 {
+    // Corners first, measured from where they started, so an edge begins every frame
+    // from the same geometry and a long drag cannot drift.
     for( const auto& [key, origin] : aOrigins )
     {
+        if( key.IsLine() )
+            continue;
+
         EDIT_POINT* point = resolveInCollections( aCollections, key );
 
         if( !point )
             return false;
 
         point->SetPosition( origin + aDelta );
+    }
+
+    // Now let each picked edge follow its corners, which is what holds a zone edge
+    // square to its neighbours. The corners already sit exactly where they belong, and
+    // setting the edge's own position would nudge them by the rounding in a midpoint.
+    for( const auto& [key, origin] : aOrigins )
+    {
+        if( !key.IsLine() )
+            continue;
+
+        EDIT_POINT* point = resolveInCollections( aCollections, key );
+
+        if( !point )
+            return false;
+
+        point->ApplyRelation( aGrid );
     }
 
     return true;

@@ -28,13 +28,15 @@
 #include <tools/pcb_handle_key.h>
 
 class EDIT_POINTS;
+class GRID_HELPER;
 
 /**
  * Note every handle the drag will move, and where each one started.
  *
- * Picked line handles expand to their two endpoint handles, and an endpoint that is
- * both picked directly and reached through a line appears once, so nothing can move
- * twice. Line keys themselves do not appear in the result.
+ * A picked edge adds itself and its two corners. Each frame places the corners first
+ * and then drives the edge, so the edge follows the same rule it would follow if the
+ * user dragged it on its own. A corner picked both directly and through an edge is
+ * listed once, so it moves once.
  *
  * @return one entry per handle, or an empty map when a picked handle no longer
  *         resolves, which means the gesture cannot start.
@@ -45,14 +47,16 @@ std::map<PCB_HANDLE_KEY, VECTOR2I> BlockDragMoveOrigins( const std::vector<EDIT_
 /**
  * Put every handle at its starting position plus the drag's offset.
  *
- * Positions are computed from the captured originals, never incrementally, so
- * repeated motion events cannot accumulate drift. No point is re-snapped here, the
- * displacement arrives already resolved against the reference grid.
+ * Each position comes from the stored starting point, so a long drag with many mouse
+ * events cannot drift. The offset is already snapped to the grid by the caller. A
+ * picked edge's corners are placed like any other handle and the edge is then asked to
+ * follow them, which is what holds a zone edge square to its neighbours.
  *
  * @return false when a handle fails to resolve, in which case the caller drops the
  *         gesture and puts the original geometry back.
  */
 bool BlockDragApplyDisplacement( const std::vector<EDIT_POINTS*>&          aCollections,
-                                 const std::map<PCB_HANDLE_KEY, VECTOR2I>& aOrigins, const VECTOR2I& aDelta );
+                                 const std::map<PCB_HANDLE_KEY, VECTOR2I>& aOrigins, const VECTOR2I& aDelta,
+                                 const GRID_HELPER& aGrid );
 
 #endif // BLOCK_DRAG_DISPLACEMENT_H
