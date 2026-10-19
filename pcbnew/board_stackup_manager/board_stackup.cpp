@@ -890,6 +890,8 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
         }
     }
 
+    int nextDielectricId = 1;
+
     for( const BoardStackupLayer& layer : aInput.layers() )
     {
         // Reject values that cannot be converted to an internal item type.
@@ -930,6 +932,48 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
             return false;
 
         item->SetThickness( static_cast<int>( thickness ) );
+
+        switch( item->GetType() )
+        {
+        case BS_ITEM_TYPE_DIELECTRIC:
+        {
+            if( !layer.has_dielectric() )
+                return false;
+
+            const BoardStackupDielectricLayer& dielectric = layer.dielectric();
+
+            item->SetDielectricLayerId( nextDielectricId );
+
+            // Only increment the dielectric ID if the layer is enabled, so that 
+            // disabled layers do not affect the numbering of subsequent layers.
+            if( item->IsEnabled() )
+                ++nextDielectricId;
+
+            switch( dielectric.type() )
+            {
+            case BSDT_NONE:
+                item->SetTypeName( wxEmptyString );
+                break;
+
+            case BSDT_CORE:
+                item->SetTypeName( KEY_CORE );
+                break;
+
+            case BSDT_PREPREG:
+                item->SetTypeName( KEY_PREPREG );
+                break;
+
+            default:
+                return false;
+            }
+
+            // TODO(joelsa): Decode dielectric sublayers.
+            break;
+        }
+
+        default:
+            break;
+        }
 
         decoded.Add( item.get() );
         item.release();
