@@ -266,6 +266,9 @@ public:
     [[nodiscard]]
     std::vector<VALIDATION_ERROR> Validate( const LSET& aEnabledLayers ) const;
 
+    /// Exchange ownership of all stackup items and metadata without allocating.
+    void Swap( BOARD_STACKUP& aOther ) noexcept;
+
     ~BOARD_STACKUP() { RemoveAll(); }
 
     void Serialize( google::protobuf::Any &aContainer ) const override;

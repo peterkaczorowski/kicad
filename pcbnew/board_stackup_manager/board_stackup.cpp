@@ -24,6 +24,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <utility>
 #include <base_units.h>
 #include <string_utils.h>
 #include <layer_ids.h>
@@ -126,6 +127,10 @@ bool BOARD_STACKUP_ITEM::operator==( const BOARD_STACKUP_ITEM& aOther ) const
     if( m_LayerId           != aOther.m_LayerId ) return false;
     if( m_DielectricLayerId != aOther.m_DielectricLayerId ) return false;
     if( m_enabled           != aOther.m_enabled ) return false;
+
+    // Check size first, to avoid reading past the end of or ignoring extra items in the right-hand list.
+    if( m_DielectricPrmsList.size() != aOther.m_DielectricPrmsList.size() )
+        return false;
 
     if( !std::equal( std::begin( m_DielectricPrmsList ), std::end( m_DielectricPrmsList ),
                      std::begin( aOther.m_DielectricPrmsList ),
@@ -468,6 +473,17 @@ bool BOARD_STACKUP::operator==( const BOARD_STACKUP& aOther ) const
     }
 
     return true;
+}
+
+
+void BOARD_STACKUP::Swap( BOARD_STACKUP& aOther ) noexcept
+{
+    m_list.swap( aOther.m_list );
+    m_FinishType.swap( aOther.m_FinishType );
+    std::swap( m_HasDielectricConstrains, aOther.m_HasDielectricConstrains );
+    std::swap( m_HasThicknessConstrains, aOther.m_HasThicknessConstrains );
+    std::swap( m_EdgeConnectorConstraints, aOther.m_EdgeConnectorConstraints );
+    std::swap( m_EdgePlating, aOther.m_EdgePlating );
 }
 
 
@@ -847,7 +863,6 @@ void BOARD_STACKUP::Serialize( google::protobuf::Any& aContainer ) const
 
 bool BOARD_STACKUP::Deserialize( const google::protobuf::Any& aContainer )
 {
-    // Read-only for now
     kiapi::board::BoardStackup stackup;
 
     if( !aContainer.UnpackTo( &stackup ) )
@@ -1069,11 +1084,8 @@ bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
         item.release();
     }
 
-    // TODO(joelsa): Decode layers before committing the result.
-    return false;
-
-    // *this = decoded;
-    // return true;
+    Swap( decoded );
+    return true;
 }
 
 
