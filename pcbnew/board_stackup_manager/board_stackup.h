@@ -297,6 +297,9 @@ public:
     /// Delete all items in list and clear the list
     void RemoveAll();
 
+    /// Delete disabled items before applying a validated stackup to a board.
+    void RemoveDisabledLayers();
+
     /// @return the number of layers in the stackup
     int GetCount() const { return (int) m_list.size(); }
 

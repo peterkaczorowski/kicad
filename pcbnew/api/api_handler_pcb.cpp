@@ -135,6 +135,7 @@ API_HANDLER_PCB::API_HANDLER_PCB( std::shared_ptr<PCB_CONTEXT> aContext, PCB_EDI
     registerHandler<GetItems, GetItemsResponse>( &API_HANDLER_PCB::handleGetItems );
 
     registerHandler<SetBoardEnabledLayers, BoardEnabledLayersResponse>( &API_HANDLER_PCB::handleSetBoardEnabledLayers );
+    registerHandler<UpdateBoardStackup, BoardStackupResponse>( &API_HANDLER_PCB::handleUpdateBoardStackup );
     registerHandler<GetBoardDesignRules, BoardDesignRulesResponse>( &API_HANDLER_PCB::handleGetBoardDesignRules );
     registerHandler<SetBoardDesignRules, BoardDesignRulesResponse>( &API_HANDLER_PCB::handleSetBoardDesignRules );
     registerHandler<GetCustomDesignRules, CustomRulesResponse>( &API_HANDLER_PCB::handleGetCustomDesignRules );
@@ -677,6 +678,33 @@ HANDLER_RESULT<BoardEnabledLayersResponse> API_HANDLER_PCB::handleSetBoardEnable
     board::PackLayerSet( *response.mutable_layers(), enabled );
 
     return response;
+}
+
+
+HANDLER_RESULT<BoardStackupResponse>
+API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStackup>& aCtx )
+{
+    if( auto document = validateDocument( aCtx.Request.board() ); !document )
+        return tl::unexpected( document.error() );
+
+    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
+    // Removing a layer while a change is open would leave the staged change
+    // in an invalid state, so refuse to update the stackup in that case
+    if( !m_commits.empty() )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BUSY );
+        error.set_error_message( "Cannot update the stackup while a change is open" );
+        return tl::unexpected( error );
+    }
+
+    // TODO(joelsa): Decode, validate, and apply the stackup.
+    ApiResponseStatus error;
+    error.set_status( ApiStatusCode::AS_UNIMPLEMENTED );
+    error.set_error_message( "Board stackup updates are not yet implemented" );
+    return tl::unexpected( error );
 }
 
 

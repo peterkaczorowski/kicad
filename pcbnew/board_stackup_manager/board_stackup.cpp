@@ -1098,6 +1098,22 @@ void BOARD_STACKUP::RemoveAll()
 }
 
 
+void BOARD_STACKUP::RemoveDisabledLayers()
+{
+    // Explicitly delete disabled layers, because std::erase_if()
+    // will not call delete on the removed items.
+    std::erase_if( m_list,
+                   []( BOARD_STACKUP_ITEM* aItem )
+                   {
+                       if( aItem->IsEnabled() )
+                           return false;
+
+                       delete aItem;
+                       return true;
+                   } );
+}
+
+
 BOARD_STACKUP_ITEM* BOARD_STACKUP::GetStackupLayer( int aIndex )
 {
     if( aIndex < 0 || aIndex >= GetCount() )

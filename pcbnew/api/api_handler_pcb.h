@@ -73,6 +73,9 @@ private:
     HANDLER_RESULT<BoardEnabledLayersResponse> handleSetBoardEnabledLayers(
             const HANDLER_CONTEXT<SetBoardEnabledLayers>& aCtx );
 
+    HANDLER_RESULT<BoardStackupResponse> handleUpdateBoardStackup(
+            const HANDLER_CONTEXT<UpdateBoardStackup>& aCtx );
+
     HANDLER_RESULT<BoardDesignRulesResponse> handleGetBoardDesignRules(
             const HANDLER_CONTEXT<GetBoardDesignRules>& aCtx );
 
