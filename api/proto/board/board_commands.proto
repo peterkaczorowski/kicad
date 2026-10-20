@@ -47,9 +47,12 @@ message BoardStackupResponse
   kiapi.board.BoardStackup stackup = 1;
 }
 
-// Changes the stackup for the given board according to the contents of the message (**not yet implemented**)
-// WARNING: any existing content on layers that are removed by this call is deleted.  This operation cannot be undone.
-// Returns BoardStackupResponse with the updated stackup, in normalized form
+// Replaces the physical stackup for the given board; other board layers are preserved.
+// The stackup is validated before changing the board. Disabled entries are discarded.
+// This cannot be called while any API client has an open edit transaction.
+// WARNING: any existing content on layers that are removed by this call is deleted.
+// This operation cannot be undone.
+// Returns BoardStackupResponse with the updated stackup, in normalized form.
 message UpdateBoardStackup
 {
   kiapi.common.types.DocumentSpecifier board = 1;

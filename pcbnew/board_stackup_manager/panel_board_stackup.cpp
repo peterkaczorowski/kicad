@@ -1460,14 +1460,17 @@ bool PANEL_SETUP_BOARD_STACKUP::TransferDataFromWindow()
     LOCALE_IO dummy;
     brd_stackup.FormatBoardStackup( &old_stackup, m_board );
 
-    // copy enabled items to the new board stackup
-    brd_stackup.RemoveAll();
+    // Keep settings managed by the finish panel while preparing the replacement.
+    BOARD_STACKUP replacement( brd_stackup );
+    replacement.RemoveAll();
 
     for( BOARD_STACKUP_ITEM* item : m_stackup.GetList() )
     {
         if( item->IsEnabled() )
-            brd_stackup.Add( new BOARD_STACKUP_ITEM( *item ) );
+            replacement.Add( new BOARD_STACKUP_ITEM( *item ) );
     }
+
+    brd_stackup.Swap( replacement );
 
     STRING_FORMATTER new_stackup;
     brd_stackup.FormatBoardStackup( &new_stackup, m_board );
