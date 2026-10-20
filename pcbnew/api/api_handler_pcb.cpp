@@ -737,13 +737,42 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
         return tl::unexpected( error );
     }
 
-    // TODO(joelsa):Apply the validated stackup.
+    newStackup.RemoveDisabledLayers();
+    const int thickness = newStackup.BuildBoardThicknessFromStackup();
 
+    // Validation must finish before changing layers, which may delete board items.
+    if( enabled != board()->GetEnabledLayers() )
+    {
+        HANDLER_CONTEXT<SetBoardEnabledLayers> layerCtx = {
+            aCtx.ClientName, SetBoardEnabledLayers()
+        };
 
-    ApiResponseStatus error;
-    error.set_status( ApiStatusCode::AS_UNIMPLEMENTED );
-    error.set_error_message( "Board stackup updates are not yet implemented" );
-    return tl::unexpected( error );
+        *layerCtx.Request.mutable_board() = aCtx.Request.board();
+        layerCtx.Request.set_copper_layer_count( ( enabled & LSET::AllCuMask() ).count() );
+        board::PackLayerSet( *layerCtx.Request.mutable_layers(), enabled );
+
+        if( auto result = handleSetBoardEnabledLayers( layerCtx ); !result )
+            return tl::unexpected( result.error() );
+    }
+
+    for( const BOARD_STACKUP_ITEM* item : newStackup.GetList() )
+    {
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC )
+            board()->SetLayerName( item->GetBrdLayerId(), item->GetLayerName() );
+    }
+
+    BOARD_DESIGN_SETTINGS& settings = board()->GetDesignSettings();
+    settings.GetStackupDescriptor().Swap( newStackup );
+    settings.SetBoardThickness( thickness );
+    settings.m_HasStackup = true;
+
+    // Thickness changes affect backdrill lengths, so the drill model must be regenerated
+    board()->BumpDrillModelGeneration();
+    onModified();
+
+    BoardStackupResponse response;
+    board::PackBoardStackup( *board(), *response.mutable_stackup() );
+    return response;
 }
 
 
