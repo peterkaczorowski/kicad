@@ -4271,9 +4271,13 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     PNS::DRAG_ALGO* dragger = routerTool ? routerTool->Router()->GetDragger() : nullptr;
                     bool            dragStatus = true;
 
+                    // When the router is set to allow violations the release takes them anyway,
+                    // so a DRC warning here would ask the user for a Ctrl they do not need
+                    bool allowed = routerTool && routerTool->Router()->Settings().AllowDRCViolations();
+
                     getView()->ClearPreview();
 
-                    if( dragger && dragger->GetForceMarkObstaclesMode( &dragStatus ) && !dragStatus )
+                    if( !allowed && dragger && dragger->GetForceMarkObstaclesMode( &dragStatus ) && !dragStatus )
                     {
                         wxString hint;
                         hint.Printf( _( "(%s to commit anyway.)" ), KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) );
