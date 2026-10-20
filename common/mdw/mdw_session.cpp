@@ -181,6 +181,16 @@ bool MDW_SESSION::StartEventIngress()
 }
 
 
+void MDW_SESSION::DiscardBackendState()
+{
+    m_ingress.reset();
+    m_service.reset();
+    m_pubBridge.reset();
+    m_pubServer.reset();
+    m_authenticated = false;
+}
+
+
 bool MDW_SESSION::SubscribeEvents( wxString& aUrl, wxString& aTopicPrefix, std::uint64_t& aSeq )
 {
     if( !m_pubServer )

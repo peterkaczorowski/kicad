@@ -23,6 +23,8 @@
 
 #include <kiway_player.h>
 
+#include <wx/timer.h>
+
 class ACTION_TOOLBAR;
 class BITMAP_BUTTON;
 class EDA_BASE_FRAME;
@@ -266,6 +268,21 @@ private:
 
     void updatePcmButtonBadge();
 
+    /**
+     * Let the Design Workspace registry ask the user before an external client
+     * adds entries to the project tree menu. The registry denies every
+     * registration until a handler is installed, so without this no client can
+     * ever register an action.
+     */
+    void installWorkspaceConsentHandler();
+
+    /**
+     * Notice a workspace backend that died on its own and report it. The
+     * supervisor cannot be restarted from here because the session would keep
+     * using the replaced backend, so the session is only shown as offline.
+     */
+    void onWorkspaceWatchdog( wxTimerEvent& aEvent );
+
 private:
     bool                  m_openSavedWindows;
     bool                  m_restoredFromHistory;  ///< Set after restore to mark editors dirty
@@ -276,6 +293,7 @@ private:
     PROJECT_TREE_PANE*    m_projectTreePane;
     LOCAL_HISTORY_PANE*   m_historyPane;
     MDW_STATUS_PILL*      m_workspacePill = nullptr;
+    wxTimer               m_workspaceWatchdog;
 
     std::unique_ptr<MDW_NOTIFICATION_BRIDGE> m_workspaceNotifier;
     wxAuiNotebook*        m_notebook;

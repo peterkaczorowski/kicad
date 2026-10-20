@@ -53,6 +53,7 @@
 #include <dialogs/dialog_workspace_config.h>
 #include <dialogs/dialog_workspace_browser.h>
 #include <dialogs/dialog_workspace_history.h>
+#include <mdw/mdw_context_action_registry.h>
 #include <mdw/mdw_framework.h>
 #include <gestfich.h>
 #include <macros.h>
@@ -823,6 +824,42 @@ bool PROJECT_TREE_PANE::hasChangedFiles()
 }
 
 
+/*
+ * List the actions external clients have registered against workspace items.
+ *
+ * They are appended disabled. The KiCad API is request/reply with the external
+ * client as the requester, so nothing here can call an action's target_method
+ * back on the client that registered it; there is no reverse channel to any API
+ * client. Listing them still matters, because the user was asked to consent to
+ * a client adding entries and would otherwise never see what was added.
+ */
+static void appendClientContextActions( wxMenu* aMenu, MDW_CONTEXT_ACTION_REGISTRY& aRegistry )
+{
+    std::vector<MDW_CONTEXT_ACTION> actions = aRegistry.Actions();
+
+    if( actions.empty() )
+        return;
+
+    aMenu->AppendSeparator();
+
+    for( const MDW_CONTEXT_ACTION& action : actions )
+    {
+        if( action.label.IsEmpty() )
+            continue;
+
+        // The label came from another process, so an ampersand or a tab in it is
+        // neutralised rather than read as a mnemonic or an accelerator.
+        wxString label = action.label;
+        label.Replace( wxS( "&" ), wxS( "&&" ) );
+        label.Replace( wxS( "\t" ), wxS( " " ) );
+
+        wxString help = wxString::Format( _( "Registered by '%s'" ), action.client_identity );
+
+        aMenu->Append( wxID_ANY, label, help )->Enable( false );
+    }
+}
+
+
 void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
 {
     wxTreeItemId curr_item = Event.GetItem();
@@ -1143,6 +1180,11 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
                 ID_MDW_HISTORY, _( "View History..." ),
                 _( "Show the selected item's revision history" ) );
         historyItem->Enable( bound && selection.size() == 1 );
+
+        MDW_FRAMEWORK* framework = m_Parent->MdwFramework();
+
+        if( bound && framework )
+            appendClientContextActions( workspace_submenu, framework->ContextActions() );
 
         popup_menu.AppendSeparator();
         popup_menu.AppendSubMenu( workspace_submenu, _( "Design Workspace" ) );

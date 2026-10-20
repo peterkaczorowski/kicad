@@ -162,4 +162,63 @@ BOOST_AUTO_TEST_CASE( AuthenticateFailureLeavesSessionUnauthenticated )
 }
 
 
+/*
+ * A backend that dies on its own used to take the session down silently, because
+ * nothing ever noticed. These pin the two halves of the recovery: that an
+ * unasked-for exit is distinguished from a Shutdown, and that a respawn produces
+ * a working backend rather than just a live process.
+ */
+BOOST_AUTO_TEST_CASE( CrashIsDetectedAndTheBackendRespawns )
+{
+    MDW_BACKEND_SUPERVISOR supervisor( mockManifest() );
+
+    BOOST_REQUIRE( supervisor.Launch( wxS( "10.0" ), 5000 ) );
+    BOOST_REQUIRE( supervisor.Online() );
+    BOOST_CHECK( !supervisor.CrashDetected() );
+
+    const long pid = supervisor.ProcessId();
+    BOOST_REQUIRE( pid > 0 );
+
+    wxKill( pid, wxSIGKILL );
+
+    // The signal is asynchronous, so poll rather than assume the child is already
+    // reapable on the next line.
+    bool detected = false;
+
+    for( int i = 0; i < 50 && !detected; ++i )
+    {
+        detected = supervisor.CrashDetected();
+
+        if( !detected )
+            wxMilliSleep( 100 );
+    }
+
+    BOOST_REQUIRE( detected );
+    BOOST_CHECK( !supervisor.Online() );
+
+    BOOST_REQUIRE( supervisor.Restart( wxS( "10.0" ), 5000 ) );
+    BOOST_CHECK( supervisor.Online() );
+    BOOST_CHECK( supervisor.ProcessId() != pid );
+
+    // A respawn that cannot answer is not a recovery.
+    BOOST_CHECK( supervisor.Ping( 2000 ) );
+
+    supervisor.Shutdown();
+}
+
+
+BOOST_AUTO_TEST_CASE( ShutdownIsNotReportedAsACrash )
+{
+    MDW_BACKEND_SUPERVISOR supervisor( mockManifest() );
+
+    BOOST_REQUIRE( supervisor.Launch( wxS( "10.0" ), 5000 ) );
+    supervisor.Shutdown();
+
+    // The process is gone, but we asked for that, so nothing should try to
+    // resurrect it.
+    BOOST_CHECK( !supervisor.CrashDetected() );
+    BOOST_CHECK( !supervisor.Restart( wxS( "10.0" ), 5000 ) );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

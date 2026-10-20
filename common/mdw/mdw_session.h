@@ -136,6 +136,18 @@ public:
      */
     bool StartEventIngress();
 
+    /**
+     * Drop everything built around the dead backend so a replacement can be
+     * launched. The service captured the old MDW_BACKEND*, and the ingress and
+     * the client PUB server are bound to sockets inside a runtime directory the
+     * replacement process will not share, so all four have to go before the
+     * respawn rather than after it.
+     *
+     * An IPC client that had subscribed is not re-subscribed; its socket lived in
+     * the old runtime directory and it has to ask again.
+     */
+    void DiscardBackendState();
+
 private:
     wxString                                m_projectPath;
     MDW_PROJECT_BINDING                     m_binding;

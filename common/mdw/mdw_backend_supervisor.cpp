@@ -32,13 +32,25 @@
 #include <wx/utils.h>
 
 #include <chrono>
+#include <cstdint>
 #include <thread>
 
 #if defined( __unix__ ) || defined( __APPLE__ )
+#include <cerrno>
 #include <sys/wait.h>
 #endif
 
 static const wxChar* const MDW_TRACE = wxT( "KICAD_MDW" );
+
+
+/// The restart policy counts attempts on a monotonic clock, so wall-clock jumps
+/// cannot make a crash loop look like an idle backend.
+static std::int64_t monotonicNowMs()
+{
+    using namespace std::chrono;
+
+    return duration_cast<milliseconds>( steady_clock::now().time_since_epoch() ).count();
+}
 
 
 MDW_BACKEND_SUPERVISOR::MDW_BACKEND_SUPERVISOR( const MDW_BACKEND_MANIFEST& aManifest ) :
@@ -110,6 +122,8 @@ bool MDW_BACKEND_SUPERVISOR::spawnProcess()
 
 bool MDW_BACKEND_SUPERVISOR::Launch( const wxString& aKicadVersion, int aHandshakeTimeoutMs )
 {
+    m_shutdownRequested = false;
+
     if( !spawnProcess() )
         return false;
 
@@ -182,6 +196,7 @@ void MDW_BACKEND_SUPERVISOR::terminateProcess()
 
 void MDW_BACKEND_SUPERVISOR::Shutdown()
 {
+    m_shutdownRequested = true;
     m_online.store( false );
 
     if( m_backend )
@@ -192,4 +207,83 @@ void MDW_BACKEND_SUPERVISOR::Shutdown()
 
     terminateProcess();
     m_backend.reset();
+}
+
+
+bool MDW_BACKEND_SUPERVISOR::reapIfExited()
+{
+    if( m_pid <= 0 )
+        return false;
+
+#if defined( __unix__ ) || defined( __APPLE__ )
+    int   status = 0;
+    pid_t reaped = waitpid( static_cast<pid_t>( m_pid ), &status, WNOHANG );
+
+    // Zero says the child is still running and an interrupted wait says nothing
+    // either way, so only a collected child, or the ECHILD of one something else
+    // collected first, counts as gone.
+    if( reaped == 0 || ( reaped < 0 && errno != ECHILD ) )
+        return false;
+#else
+    if( wxProcess::Exists( m_pid ) )
+        return false;
+#endif
+
+    m_pid = 0;
+
+    return true;
+}
+
+
+bool MDW_BACKEND_SUPERVISOR::CrashDetected()
+{
+    if( m_shutdownRequested || !reapIfExited() )
+        return false;
+
+    m_online.store( false );
+
+    wxLogTrace( MDW_TRACE, wxS( "MDW backend %s exited without being asked to" ),
+                m_manifest.backend_id );
+
+    return true;
+}
+
+
+bool MDW_BACKEND_SUPERVISOR::Restart( const wxString& aKicadVersion, int aHandshakeTimeoutMs )
+{
+    if( m_gaveUp || m_shutdownRequested )
+        return false;
+
+    int delay = m_restartPolicy.NextDelayMs( monotonicNowMs() );
+
+    if( delay < 0 )
+    {
+        m_gaveUp = true;
+        m_online.store( false );
+
+        wxLogTrace( MDW_TRACE, wxS( "MDW backend %s restarted too often; leaving it offline" ),
+                    m_manifest.backend_id );
+
+        return false;
+    }
+
+    if( delay > 0 )
+        std::this_thread::sleep_for( std::chrono::milliseconds( delay ) );
+
+    // Whatever survives the dead process goes before the replacement starts. No
+    // Bye is sent; there is nothing left to answer it.
+    if( m_backend )
+    {
+        m_backend->Stop();
+        m_backend.reset();
+    }
+
+    terminateProcess();
+
+    // Launch() mints a new runtime directory, channel token and MDW_BACKEND, so
+    // on success the owning session must discard and rebuild everything it built
+    // from the old ones. MDW_WORKSPACE_SERVICE captured the previous MDW_BACKEND*,
+    // and the event ingress and client PUB server are bound to sockets inside the
+    // previous runtime directory that the new process knows nothing about.
+    return Launch( aKicadVersion, aHandshakeTimeoutMs );
 }

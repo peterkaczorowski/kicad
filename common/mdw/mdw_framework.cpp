@@ -116,6 +116,30 @@ void MDW_FRAMEWORK::CloseSession( const wxString& aProjectPath )
 }
 
 
+bool MDW_FRAMEWORK::RestartSession( const wxString& aProjectPath, const wxString& aKicadVersion,
+                                    int aTimeoutMs )
+{
+    MDW_SESSION* session = Session( aProjectPath );
+
+    if( !session || !session->Supervisor() )
+        return false;
+
+    // Everything derived from the dead backend goes first. The service holds its
+    // MDW_BACKEND* and the ingress is bound inside a runtime directory the
+    // replacement will not share, so keeping either across the respawn would
+    // leave the session dispatching into a process that no longer exists.
+    session->DiscardBackendState();
+
+    if( !session->Supervisor()->Restart( aKicadVersion, aTimeoutMs ) )
+        return false;
+
+    session->Authenticate( m_credentialStore, aTimeoutMs );
+    session->StartEventIngress();
+
+    return true;
+}
+
+
 void MDW_FRAMEWORK::Shutdown()
 {
     std::map<wxString, std::unique_ptr<MDW_SESSION>> sessions;

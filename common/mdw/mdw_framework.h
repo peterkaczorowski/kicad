@@ -70,6 +70,21 @@ public:
 
     void CloseSession( const wxString& aProjectPath );
 
+    /**
+     * Bring a session's backend back after it died on its own. The supervisor's
+     * restart policy decides whether another attempt is allowed and how long to
+     * wait for it, so calling this on every detected crash is what implements the
+     * backoff rather than a caller-side delay.
+     *
+     * On success the session has a fresh backend, is re-authenticated, and is
+     * receiving events again. On failure the session stays open and offline,
+     * which is what the pill reports.
+     *
+     * Blocking; must not run on the UI thread while the backoff is non-zero.
+     */
+    bool RestartSession( const wxString& aProjectPath, const wxString& aKicadVersion,
+                         int aTimeoutMs );
+
     void Shutdown();
 
 private:

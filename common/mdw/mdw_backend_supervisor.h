@@ -28,8 +28,8 @@
  * KiCad spawns a backend executable LSP-style and owns it end to end. The
  * supervisor generates the per-spawn socket urls and channel token, launches the
  * process, drives the handshake through an MDW_BACKEND proxy, exposes a liveness
- * ping, and tears the process down cleanly on shutdown. Restart backoff is
- * delegated to MDW_RESTART_POLICY.
+ * ping, notices a process that died on its own, and tears the process down
+ * cleanly on shutdown. Restart backoff is delegated to MDW_RESTART_POLICY.
  *
  * A supervisor is driven from a single control thread; its methods are not
  * internally synchronized against one another.
@@ -64,6 +64,31 @@ public:
     /// Send Bye then terminate the process, escalating SIGTERM to SIGKILL.
     void Shutdown();
 
+    /**
+     * Reap the spawned process if it has exited and report whether that exit was
+     * unexpected. Shutdown() is the only exit this supervisor asks for, so a
+     * process gone without one has crashed and the owner should either Restart()
+     * or treat the session as offline. Non-blocking, and cheap enough to poll.
+     */
+    bool CrashDetected();
+
+    /**
+     * Respawn after CrashDetected(), waiting out the backoff MDW_RESTART_POLICY
+     * schedules for this attempt. Returns false when the policy has given up on
+     * the backend or the fresh handshake fails, either of which leaves the
+     * supervisor offline.
+     *
+     * A relaunch replaces MDW_BACKEND and moves the runtime directory, so on
+     * success every object the owner derived from Backend(), RuntimeDir() or
+     * ChannelToken() is stale and must be rebuilt. Blocking; must not run on the
+     * UI thread.
+     */
+    bool Restart( const wxString& aKicadVersion, int aHandshakeTimeoutMs );
+
+    /// True once the restart policy refused a further attempt, which is
+    /// permanent for this supervisor.
+    bool GaveUp() const { return m_gaveUp; }
+
     /// One health probe. Returns true if the backend answered a ping.
     bool Ping( int aTimeoutMs );
 
@@ -85,6 +110,10 @@ private:
 
     void terminateProcess();
 
+    /// Collect the child if it has already exited, clearing m_pid so nothing
+    /// waits on it twice. False while it is still running.
+    bool reapIfExited();
+
     MDW_BACKEND_MANIFEST          m_manifest;
     wxString                      m_controlUrl;
     wxString                      m_channelToken;
@@ -93,6 +122,8 @@ private:
     std::atomic<bool>             m_online{ false };
     std::unique_ptr<MDW_BACKEND>  m_backend;
     MDW_RESTART_POLICY            m_restartPolicy;
+    bool                          m_shutdownRequested = false;
+    bool                          m_gaveUp = false;
 };
 
 #endif // MDW_BACKEND_SUPERVISOR_H

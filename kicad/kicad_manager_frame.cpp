@@ -50,6 +50,7 @@
 #include <kiplatform/ui.h>
 #include <kiplatform/policy.h>
 #include <build_version.h>
+#include <kidialog.h>
 #include <kiway.h>
 #include <kiway_mail.h>
 #include <launch_ext.h>
@@ -106,6 +107,18 @@
 
 #define ID_INIT_WATCHED_PATHS 52913
 
+// The watchdog needs an id of its own. EDA_BASE_FRAME connects the autosave
+// timer on this same frame, and a wxEVT_TIMER binding made with wxID_ANY would
+// be consulted first and swallow that timer's events.
+#define ID_WORKSPACE_WATCHDOG_TIMER 52914
+
+/// How often to look for a workspace backend that exited on its own.
+static constexpr int WORKSPACE_WATCHDOG_MS = 5000;
+
+/// Handshake budget for a respawned backend. The restart policy's own backoff is
+/// waited out inside Restart, so this covers only the fresh handshake.
+static constexpr int WORKSPACE_RESTART_TIMEOUT_MS = 8000;
+
 #define SEP()   wxFileName::GetPathSeparator()
 
 
@@ -157,6 +170,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
         m_showHistoryPanel( false ),
         m_projectTreePane( nullptr ),
         m_historyPane( nullptr ),
+        m_workspaceWatchdog( this, ID_WORKSPACE_WATCHDOG_TIMER ),
         m_launcher( nullptr ),
         m_lastToolbarIconSize( 0 ),
         m_pcmButton( nullptr ),
@@ -188,6 +202,10 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
 
     m_workspacePill = new MDW_STATUS_PILL( GetStatusBar() );
     m_workspacePill->PlaceInStatusBar( 2 );
+
+    Bind( wxEVT_TIMER, &KICAD_MANAGER_FRAME::onWorkspaceWatchdog, this, m_workspaceWatchdog.GetId() );
+
+    installWorkspaceConsentHandler();
     UpdateWorkspacePill();
 
     // Give an icon
@@ -328,6 +346,16 @@ KICAD_MANAGER_FRAME::~KICAD_MANAGER_FRAME()
     Pgm().GetBackgroundJobMonitor().UnregisterStatusBar( (KISTATUSBAR*) GetStatusBar() );
     Pgm().GetNotificationsManager().UnregisterStatusBar( (KISTATUSBAR*) GetStatusBar() );
     Pgm().UnregisterLibraryLoadStatusBar( (KISTATUSBAR*) GetStatusBar() );
+
+    m_workspaceWatchdog.Stop();
+    Unbind( wxEVT_TIMER, &KICAD_MANAGER_FRAME::onWorkspaceWatchdog, this, m_workspaceWatchdog.GetId() );
+
+    // The workspace framework outlives this frame, so the consent prompt it holds
+    // must not survive the window it would parent itself to. Clearing it puts the
+    // registry back to denying every registration, which is what a project
+    // manager with no window can honestly answer.
+    if( MDW_FRAMEWORK* framework = MdwFramework() )
+        framework->ContextActions().SetConsentHandler( nullptr );
 
     // Shutdown all running tools
     if( m_toolManager )
@@ -633,14 +661,94 @@ MDW_FRAMEWORK* KICAD_MANAGER_FRAME::MdwFramework() const
 }
 
 
+void KICAD_MANAGER_FRAME::installWorkspaceConsentHandler()
+{
+    MDW_FRAMEWORK* framework = MdwFramework();
+
+    if( !framework )
+        return;
+
+    framework->ContextActions().SetConsentHandler(
+            [this]( const wxString& aClientIdentity ) -> bool
+            {
+                wxString msg = wxString::Format(
+                        _( "The application '%s' wants to add its own commands to the "
+                           "Design Workspace menu." ),
+                        aClientIdentity );
+
+                KIDIALOG dlg( this, msg, _( "Design Workspace" ), wxYES_NO | wxICON_QUESTION );
+                dlg.SetYesNoLabels( _( "Allow" ), _( "Block" ) );
+                dlg.SetExtendedMessage( _( "Allow this only for applications you trust. The "
+                                           "answer is remembered until KiCad is closed." ) );
+
+                return dlg.ShowModal() == wxID_YES;
+            } );
+}
+
+
+void KICAD_MANAGER_FRAME::onWorkspaceWatchdog( wxTimerEvent& aEvent )
+{
+    MDW_FRAMEWORK* framework = MdwFramework();
+
+    if( !framework )
+        return;
+
+    MDW_SESSION* session = framework->Session( GetProjectFileName() );
+
+    if( !session || !session->Supervisor() )
+        return;
+
+    if( !session->Supervisor()->CrashDetected() )
+        return;
+
+    // The framework owns the respawn because only it can rebuild what the dead
+    // backend's service, ingress and credentials were built from.
+    const bool recovered = framework->RestartSession( GetProjectFileName(), GetBuildVersion(),
+                                                      WORKSPACE_RESTART_TIMEOUT_MS );
+
+    UpdateWorkspacePill();
+
+    if( recovered )
+    {
+        Pgm().GetNotificationsManager().CreateOrUpdate(
+                wxS( "mdw-backend-lost" ), _( "Design Workspace" ),
+                _( "The workspace backend stopped and has been reconnected." ) );
+        return;
+    }
+
+    // The policy gives up after repeated crashes in a short window, so stop
+    // polling rather than retrying a backend that will not stay up.
+    if( session->Supervisor()->GaveUp() )
+    {
+        m_workspaceWatchdog.Stop();
+
+        Pgm().GetNotificationsManager().CreateOrUpdate(
+                wxS( "mdw-backend-lost" ), _( "Design Workspace" ),
+                _( "The workspace backend keeps stopping. Reopen the project to try again." ) );
+        return;
+    }
+
+    Pgm().GetNotificationsManager().CreateOrUpdate(
+            wxS( "mdw-backend-lost" ), _( "Design Workspace" ),
+            _( "The workspace backend stopped unexpectedly and could not be restarted." ) );
+}
+
+
 void KICAD_MANAGER_FRAME::UpdateWorkspacePill()
 {
     if( !m_workspacePill )
         return;
 
-    MDW_SESSION* session = m_workspacePill->TrackSession(
-            MdwFramework(), GetProjectFileName(),
-            Pgm().GetCommonSettings()->m_Workspace.enable_integration );
+    bool enabled = Pgm().GetCommonSettings()->m_Workspace.enable_integration;
+
+    MDW_SESSION* session = m_workspacePill->TrackSession( MdwFramework(), GetProjectFileName(), enabled );
+
+    // A backend that dies takes its session with it silently, so poll for that
+    // while the integration is on. The tick is a reap check, not a round trip.
+    if( enabled )
+        m_workspaceWatchdog.Start( WORKSPACE_WATCHDOG_MS );
+    else
+        m_workspaceWatchdog.Stop();
 
     // Rebuild the notifier so it follows the current session, translating other
     // users' events into desktop notifications. Dropped when no session is live.
