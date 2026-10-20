@@ -3929,7 +3929,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
         if( !m_isFootprintEditor )
         {
-            for( BOARD_ITEM* moving : blockMoving )
+            // Use the wider scope, because the solver reaches items the gesture never
+            // touched, and undoing a footprint child gives that footprint all new
+            // children, which leaves every pointer held here dead
+            for( BOARD_ITEM* moving : validationScope )
             {
                 if( moving->GetParentFootprint() )
                     blockRevertRestarts = true;
