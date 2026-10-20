@@ -593,9 +593,7 @@ bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow*
 
     // Keyed on knockout geometry only; valid for this fill's passes (pre-knockout fill is rebuilt
     // below).
-    m_refillResultCache.clear();
-    m_preHatchSolidFillCache.clear();
-    m_sameNetApronCache.clear();
+    m_cache.clear();
 
     // The fill evaluates thermal-relief and clearance rules through the board's DRC engine on
     // worker threads.  Interactive callers always supply an initialized engine, but headless
@@ -1378,6 +1376,11 @@ bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow*
         }
     }
 
+    auto no_dependency = []( const std::pair<ZONE*, PCB_LAYER_ID>&, const std::pair<ZONE*, PCB_LAYER_ID>& ) -> bool
+    {
+        return false;
+    };
+
     if( iterativeRefill
             && ( !zonesWithRemovedIslandLayers.empty() || !sameNetOverlapSeeds.empty() ) )
     {
@@ -1396,11 +1399,6 @@ bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow*
             zone->CacheTriangulation( layer );
             zone->SetFillFlag( layer, true );
             return 1;
-        };
-
-        auto no_dependency = []( const std::pair<ZONE*, PCB_LAYER_ID>&, const std::pair<ZONE*, PCB_LAYER_ID>& ) -> bool
-        {
-            return false;
         };
 
         for( int iteration = 0; iteration < maxIterations; ++iteration )
@@ -1789,6 +1787,15 @@ bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow*
         }
     }
 
+    run_fill_waves(
+            toFill,
+            [&]( const std::pair<ZONE*, PCB_LAYER_ID>& aFillItem )
+            {
+                removeUselessThermalSpokes( aFillItem.first, aFillItem.second );
+                return 1;
+            },
+            tesselate_lambda, no_dependency, /*aAnyDependencies*/ false );
+
     for( ZONE* zone : aZones )
         zone->CalculateFilledArea();
 
@@ -1985,13 +1992,14 @@ bool ZONE_FILLER::Fill( const std::vector<ZONE*>& aZones, bool aCheck, wxWindow*
  * Add a knockout for a pad or via.  The knockout is 'aGap' larger than the pad (which might be
  * either the thermal clearance or the electrical clearance).
  */
-void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, SHAPE_POLY_SET& aHoles )
+void ZONE_FILLER::addKnockout( const BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, SHAPE_POLY_SET& aHoles,
+                               ERROR_LOC aErrorLoc )
 {
-    if( aItem->Type() == PCB_PAD_T && static_cast<PAD*>( aItem )->GetShape( aLayer ) == PAD_SHAPE::CUSTOM )
+    if( aItem->Type() == PCB_PAD_T && static_cast<const PAD*>( aItem )->GetShape( aLayer ) == PAD_SHAPE::CUSTOM )
     {
-        PAD* pad = static_cast<PAD*>( aItem );
+        const PAD*     pad = static_cast<const PAD*>( aItem );
         SHAPE_POLY_SET poly;
-        pad->TransformShapeToPolygon( poly, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
+        pad->TransformShapeToPolygon( poly, aLayer, aGap, m_maxError, aErrorLoc );
 
         // the pad shape in zone can be its convex hull or the shape itself
         if( pad->GetCustomShapeInZoneOpt() == CUSTOM_SHAPE_ZONE_MODE::CONVEXHULL )
@@ -2011,7 +2019,7 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
     }
     else
     {
-        aItem->TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
+        aItem->TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, aErrorLoc );
     }
 }
 
@@ -2019,7 +2027,7 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
 /**
  * Add a knockout for a pad's hole.
  */
-void ZONE_FILLER::addHoleKnockout( PAD* aPad, int aGap, SHAPE_POLY_SET& aHoles )
+void ZONE_FILLER::addHoleKnockout( const PAD* aPad, int aGap, SHAPE_POLY_SET& aHoles )
 {
     aPad->TransformHoleToPolygon( aHoles, aGap, m_maxError, ERROR_OUTSIDE );
 }
@@ -2030,15 +2038,15 @@ void ZONE_FILLER::addHoleKnockout( PAD* aPad, int aGap, SHAPE_POLY_SET& aHoles )
  * Add a knockout for a graphic item.  The knockout is 'aGap' larger than the item (which
  * might be either the electrical clearance or the board edge clearance).
  */
-void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
-                               bool aIgnoreLineWidth, SHAPE_POLY_SET& aHoles )
+void ZONE_FILLER::addKnockout( const BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, bool aIgnoreLineWidth,
+                               SHAPE_POLY_SET& aHoles )
 {
     switch( aItem->Type() )
     {
     case PCB_FIELD_T:
     case PCB_TEXT_T:
     {
-        PCB_TEXT* text = static_cast<PCB_TEXT*>( aItem );
+        const PCB_TEXT* text = static_cast<const PCB_TEXT*>( aItem );
 
         if( text->IsVisible() )
         {
@@ -2061,7 +2069,7 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
 
     case PCB_SHAPE_T:
     {
-        PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( aItem );
+        const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( aItem );
 
         shape->TransformWithLineEndingsToPolygon( aHoles, aGap, m_maxError, ERROR_OUTSIDE, aIgnoreLineWidth );
         break;
@@ -2076,7 +2084,7 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
 
     case PCB_BARCODE_T:
     {
-        PCB_BARCODE* barcode = static_cast<PCB_BARCODE*>( aItem );
+        const PCB_BARCODE* barcode = static_cast<const PCB_BARCODE*>( aItem );
         barcode->GetBoundingHull( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
         break;
     }
@@ -2087,7 +2095,7 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
     case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     {
-        PCB_DIMENSION_BASE* dim = static_cast<PCB_DIMENSION_BASE*>( aItem );
+        const PCB_DIMENSION_BASE* dim = static_cast<const PCB_DIMENSION_BASE*>( aItem );
 
         dim->TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE, false );
         dim->PCB_TEXT::TransformShapeToPolygon( aHoles, aLayer, aGap, m_maxError, ERROR_OUTSIDE );
@@ -2105,9 +2113,9 @@ void ZONE_FILLER::addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap,
  * in spokes, which must be done later.
  */
 void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aFill,
-                                          std::vector<BOARD_ITEM*>& aThermalConnectionPads,
-                                          std::vector<PAD*>&        aNoConnectionPads,
-                                          std::vector<BOARD_ITEM*>& aSolidConnectionItems )
+                                          std::vector<const BOARD_ITEM*>& aThermalConnectionPads,
+                                          std::vector<const PAD*>&        aNoConnectionPads,
+                                          std::vector<const BOARD_ITEM*>& aSolidConnectionItems )
 {
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
     ZONE_CONNECTION        connection;
@@ -2130,129 +2138,77 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
 
     for( const INDEXED_ITEM& padHit : padHits )
     {
+        const PAD* pad = static_cast<const PAD*>( padHit.m_item );
+
+        // NPTH pads with a drill hole affect all copper layers even when they carry no copper on that layer
+        // (e.g. layers limited to "*.Mask"). The physical hole still requires a clearance knockout, so skip only pads
+        // that are truly irrelevant to this layer.
+        bool npthWithHole = pad->GetAttribute() == PAD_ATTRIB::NPTH && pad->GetDrillSize().x > 0;
+
+        if( !pad->IsOnLayer( aLayer ) && !npthWithHole )
+            continue;
+
+        BOX2I padBBox = pad->GetBoundingBox();
+        padBBox.Inflate( m_worstClearance );
+
+        if( !padBBox.Intersects( aZone->GetBoundingBox() ) )
+            continue;
+
+        // Deduplicate coincident pads (skip custom pads - they have complex shapes)
+        PAD_SHAPE padShapeType = pad->GetShape( aLayer );
+
+        if( padShapeType != PAD_SHAPE::CUSTOM )
         {
-            PAD* pad = static_cast<PAD*>( padHit.m_item );
+            // For circular pads: use max of drill and pad size; otherwise just pad size
+            VECTOR2I padSize = pad->GetSize( aLayer );
+            VECTOR2I effectiveSize;
 
-            // NPTH pads with a drill hole affect all copper layers even when they carry no copper
-            // on that layer (e.g. layers limited to "*.Mask"). The physical hole still requires
-            // a clearance knockout, so skip only pads that are truly irrelevant to this layer.
-            bool npthWithHole = pad->GetAttribute() == PAD_ATTRIB::NPTH
-                                && pad->GetDrillSize().x > 0;
-
-            if( !pad->IsOnLayer( aLayer ) && !npthWithHole )
-                continue;
-
-            BOX2I padBBox = pad->GetBoundingBox();
-            padBBox.Inflate( m_worstClearance );
-
-            if( !padBBox.Intersects( aZone->GetBoundingBox() ) )
-                continue;
-
-            // Deduplicate coincident pads (skip custom pads - they have complex shapes)
-            PAD_SHAPE padShapeType = pad->GetShape( aLayer );
-
-            if( padShapeType != PAD_SHAPE::CUSTOM )
+            if( padShapeType == PAD_SHAPE::CIRCLE )
             {
-                // For circular pads: use max of drill and pad size; otherwise just pad size
-                VECTOR2I padSize = pad->GetSize( aLayer );
-                VECTOR2I effectiveSize;
-
-                if( padShapeType == PAD_SHAPE::CIRCLE )
-                {
-                    int drill = std::max( pad->GetDrillSize().x, pad->GetDrillSize().y );
-                    int maxDim = std::max( { padSize.x, padSize.y, drill } );
-                    effectiveSize = VECTOR2I( maxDim, maxDim );
-                }
-                else
-                {
-                    effectiveSize = padSize;
-                }
-
-                PAD_KNOCKOUT_KEY padKey{ pad->GetPosition(), effectiveSize,
-                                         static_cast<int>( padShapeType ),
-                                         pad->GetOrientation(), pad->GetNetCode() };
-
-                if( !processedPads.insert( padKey ).second )
-                    continue;
-            }
-
-            bool noConnection = pad->GetNetCode() != aZone->GetNetCode();
-
-            if( !aZone->IsTeardropArea() )
-            {
-                if( aZone->GetNetCode() == 0
-                    || pad->GetZoneLayerOverride( aLayer ) == ZLO_FORCE_NO_ZONE_CONNECTION )
-                {
-                    noConnection = true;
-                }
-            }
-
-            // Check if the pad is backdrilled or post-machined on this layer
-            if( pad->IsBackdrilledOrPostMachined( aLayer ) )
-                noConnection = true;
-
-            if( noConnection )
-            {
-                // collect these for knockout in buildCopperItemClearances()
-                aNoConnectionPads.push_back( pad );
-                continue;
-            }
-
-            // For hatch zones, respect the zone connection type just like solid zones
-            // Pads with THERMAL connection get thermal rings; FULL connections get no knockout;
-            // NONE connections get handled later in buildCopperItemClearances.
-            if( aZone->GetFillMode() == ZONE_FILL_MODE::HATCH_PATTERN )
-            {
-                constraint = bds.m_DRCEngine->EvalZoneConnection( pad, aZone, aLayer );
-                connection = constraint.m_ZoneConnection;
-
-                if( connection == ZONE_CONNECTION::THERMAL && !pad->CanFlashLayer( aLayer ) )
-                    connection = ZONE_CONNECTION::NONE;
-
-                switch( connection )
-                {
-                case ZONE_CONNECTION::THERMAL:
-                {
-                    padShape = pad->GetEffectiveShape( aLayer, FLASHING::ALWAYS_FLASHED );
-
-                    if( aFill.Collide( padShape.get(), 0 ) )
-                    {
-                        // Get the thermal relief gap
-                        constraint = bds.m_DRCEngine->EvalRules( THERMAL_RELIEF_GAP_CONSTRAINT, pad,
-                                                                  aZone, aLayer );
-                        int thermalGap = constraint.GetValue().Min();
-
-                        // Knock out the thermal gap only - the thermal ring will be added separately
-                        aThermalConnectionPads.push_back( pad );
-                        addKnockout( pad, aLayer, thermalGap, holes );
-                    }
-
-                    break;
-                }
-
-                case ZONE_CONNECTION::NONE:
-                    // Will be handled by buildCopperItemClearances
-                    aNoConnectionPads.push_back( pad );
-                    break;
-
-                case ZONE_CONNECTION::FULL:
-                default:
-                    // No knockout - pad connects directly to the hatch
-                    break;
-                }
-
-                continue;
-            }
-
-            if( aZone->IsTeardropArea() )
-            {
-                connection = ZONE_CONNECTION::FULL;
+                int drill = std::max( pad->GetDrillSize().x, pad->GetDrillSize().y );
+                int maxDim = std::max( { padSize.x, padSize.y, drill } );
+                effectiveSize = VECTOR2I( maxDim, maxDim );
             }
             else
             {
-                constraint = bds.m_DRCEngine->EvalZoneConnection( pad, aZone, aLayer );
-                connection = constraint.m_ZoneConnection;
+                effectiveSize = padSize;
             }
+
+            PAD_KNOCKOUT_KEY padKey{ pad->GetPosition(), effectiveSize, static_cast<int>( padShapeType ),
+                                     pad->GetOrientation(), pad->GetNetCode() };
+
+            if( !processedPads.insert( padKey ).second )
+                continue;
+        }
+
+        bool noConnection = pad->GetNetCode() != aZone->GetNetCode();
+
+        if( !aZone->IsTeardropArea() )
+        {
+            if( aZone->GetNetCode() == 0 || pad->GetZoneLayerOverride( aLayer ) == ZLO_FORCE_NO_ZONE_CONNECTION )
+            {
+                noConnection = true;
+            }
+        }
+
+        // Check if the pad is backdrilled or post-machined on this layer
+        if( pad->IsBackdrilledOrPostMachined( aLayer ) )
+            noConnection = true;
+
+        if( noConnection )
+        {
+            // collect these for knockout in buildCopperItemClearances()
+            aNoConnectionPads.push_back( pad );
+            continue;
+        }
+
+        // For hatch zones, respect the zone connection type just like solid zones
+        // Pads with THERMAL connection get thermal rings; FULL connections get no knockout;
+        // NONE connections get handled later in buildCopperItemClearances.
+        if( aZone->GetFillMode() == ZONE_FILL_MODE::HATCH_PATTERN )
+        {
+            constraint = bds.m_DRCEngine->EvalZoneConnection( pad, aZone, aLayer );
+            connection = constraint.m_ZoneConnection;
 
             if( connection == ZONE_CONNECTION::THERMAL && !pad->CanFlashLayer( aLayer ) )
                 connection = ZONE_CONNECTION::NONE;
@@ -2260,49 +2216,95 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
             switch( connection )
             {
             case ZONE_CONNECTION::THERMAL:
+            {
                 padShape = pad->GetEffectiveShape( aLayer, FLASHING::ALWAYS_FLASHED );
 
                 if( aFill.Collide( padShape.get(), 0 ) )
                 {
+                    // Get the thermal relief gap
                     constraint = bds.m_DRCEngine->EvalRules( THERMAL_RELIEF_GAP_CONSTRAINT, pad, aZone, aLayer );
-                    padClearance = constraint.GetValue().Min();
+                    int thermalGap = constraint.GetValue().Min();
 
+                    // Knock out the thermal gap only - the thermal ring will be added separately
                     aThermalConnectionPads.push_back( pad );
-                    addKnockout( pad, aLayer, padClearance, holes );
+                    addKnockout( pad, aLayer, thermalGap, holes );
                 }
 
                 break;
+            }
 
             case ZONE_CONNECTION::NONE:
-                constraint = bds.m_DRCEngine->EvalRules( PHYSICAL_CLEARANCE_CONSTRAINT, pad, aZone, aLayer );
-
-                if( constraint.GetValue().Min() > aZone->GetLocalClearance().value() )
-                    padClearance = constraint.GetValue().Min();
-                else
-                    padClearance = aZone->GetLocalClearance().value();
-
-                if( pad->FlashLayer( aLayer ) )
-                {
-                    addKnockout( pad, aLayer, padClearance, holes );
-                }
-                else if( pad->GetDrillSize().x > 0 )
-                {
-                    constraint = bds.m_DRCEngine->EvalRules( PHYSICAL_HOLE_CLEARANCE_CONSTRAINT, pad, aZone, aLayer );
-
-                    if( constraint.GetValue().Min() > padClearance )
-                        holeClearance = constraint.GetValue().Min();
-                    else
-                        holeClearance = padClearance;
-
-                    pad->TransformHoleToPolygon( holes, holeClearance, m_maxError, ERROR_OUTSIDE );
-                }
-
+                // Will be handled by buildCopperItemClearances
+                aNoConnectionPads.push_back( pad );
                 break;
 
+            case ZONE_CONNECTION::FULL:
             default:
-                // No knockout
-                continue;
+                // No knockout - pad connects directly to the hatch
+                break;
             }
+
+            continue;
+        }
+
+        if( aZone->IsTeardropArea() )
+        {
+            connection = ZONE_CONNECTION::FULL;
+        }
+        else
+        {
+            constraint = bds.m_DRCEngine->EvalZoneConnection( pad, aZone, aLayer );
+            connection = constraint.m_ZoneConnection;
+        }
+
+        if( connection == ZONE_CONNECTION::THERMAL && !pad->CanFlashLayer( aLayer ) )
+            connection = ZONE_CONNECTION::NONE;
+
+        switch( connection )
+        {
+        case ZONE_CONNECTION::THERMAL:
+            padShape = pad->GetEffectiveShape( aLayer, FLASHING::ALWAYS_FLASHED );
+
+            if( aFill.Collide( padShape.get(), 0 ) )
+            {
+                constraint = bds.m_DRCEngine->EvalRules( THERMAL_RELIEF_GAP_CONSTRAINT, pad, aZone, aLayer );
+                padClearance = constraint.GetValue().Min();
+
+                aThermalConnectionPads.push_back( pad );
+                addKnockout( pad, aLayer, padClearance, holes );
+            }
+
+            break;
+
+        case ZONE_CONNECTION::NONE:
+            constraint = bds.m_DRCEngine->EvalRules( PHYSICAL_CLEARANCE_CONSTRAINT, pad, aZone, aLayer );
+
+            if( constraint.GetValue().Min() > aZone->GetLocalClearance().value() )
+                padClearance = constraint.GetValue().Min();
+            else
+                padClearance = aZone->GetLocalClearance().value();
+
+            if( pad->FlashLayer( aLayer ) )
+            {
+                addKnockout( pad, aLayer, padClearance, holes );
+            }
+            else if( pad->GetDrillSize().x > 0 )
+            {
+                constraint = bds.m_DRCEngine->EvalRules( PHYSICAL_HOLE_CLEARANCE_CONSTRAINT, pad, aZone, aLayer );
+
+                if( constraint.GetValue().Min() > padClearance )
+                    holeClearance = constraint.GetValue().Min();
+                else
+                    holeClearance = padClearance;
+
+                pad->TransformHoleToPolygon( holes, holeClearance, m_maxError, ERROR_OUTSIDE );
+            }
+
+            break;
+
+        default:
+            // No knockout
+            continue;
         }
     }
 
@@ -2311,12 +2313,12 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
     // FULL connects directly to the webbing, NONE is handled in buildCopperItemClearances.
     if( aZone->GetFillMode() == ZONE_FILL_MODE::HATCH_PATTERN )
     {
-        for( PCB_TRACK* track : m_board->Tracks() )
+        for( const PCB_TRACK* track : m_board->Tracks() )
         {
             if( track->Type() != PCB_VIA_T )
                 continue;
 
-            PCB_VIA* via = static_cast<PCB_VIA*>( track );
+            const PCB_VIA* via = static_cast<const PCB_VIA*>( track );
 
             if( !via->IsOnLayer( aLayer ) )
                 continue;
@@ -2425,13 +2427,85 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
 }
 
 
+void ZONE_FILLER::removeUselessThermalSpokes( ZONE* aZone, PCB_LAYER_ID aLayer )
+{
+    std::span<const SHAPE_LINE_CHAIN>  spokes;
+    std::span<const BOARD_ITEM* const> pads;
+    {
+        std::lock_guard<std::mutex> lock( m_cacheMutex );
+        const ZONE_LAYER_STATE&     entry = m_cache[{ aZone, aLayer }];
+        pads = entry.ThermalConnectionPads;
+        spokes = entry.ThermalSpokes;
+    }
+
+    if( spokes.empty() )
+        return;
+
+    SHAPE_POLY_SET withAllSpokes = aZone->GetFilledPolysList( aLayer )->CloneDropTriangulation();
+
+    // Multiple spokes for the same pad overlap around the center of the pad.  Here the pads are subtracted.  Then
+    // different spokes become separate polygons unless they are connected by the zone.
+    SHAPE_POLY_SET padHoles;
+    const int      epsilon = pcbIUScale.mmToIU( 0.001 );
+    for( const BOARD_ITEM* item : pads )
+        addKnockout( item, aLayer, -epsilon, padHoles, ERROR_INSIDE );
+    withAllSpokes.BooleanSubtract( padHoles );
+
+    // A polygon that is completely inside a spoke is removed.
+    SHAPE_POLY_SET spokesInflated;
+
+    for( const SHAPE_LINE_CHAIN& spoke : spokes )
+    {
+        SHAPE_POLY_SET inflated( spoke );
+        inflated.Inflate( epsilon, CORNER_STRATEGY::ALLOW_ACUTE_CORNERS, epsilon );
+        for( const SHAPE_POLY_SET::POLYGON& part : inflated.CPolygons() )
+            spokesInflated.AddOutline( part[0] );
+    }
+
+    POLY_YSTRIPES_INDEX spokeIndex;
+    spokeIndex.Build( spokesInflated );
+    auto entirelyInSpoke = [&]( const SHAPE_POLY_SET::POLYGON& candidate ) -> bool
+                           {
+                               // The index of the polygon that all the points fit in so far.
+                               std::optional<int> soFar;
+
+                               for( VECTOR2I point : candidate[0].CPoints() )
+                               {
+                                   std::vector<int> matches;
+                                   spokeIndex.Contains( point, /*aAccuracy*/ 0, /*aMatches*/ &matches );
+
+                                   if( matches.size() != 1 )
+                                       return false;
+
+                                   if( !soFar.has_value() )
+                                       soFar = matches[0];
+                                   else if( *soFar != matches[0] )
+                                       return false;
+                               }
+                               return true;
+                           };
+
+    SHAPE_POLY_SET filtered;
+
+    for( const SHAPE_POLY_SET::POLYGON& candidate : withAllSpokes.CPolygons() )
+    {
+        if( !entirelyInSpoke( candidate ) )
+            // The RemoveOutline method involves moving all the polygons beyond the one to be removed.  So the parts to
+            // keep are copied into a new array instead of the parts to discard being removed from the old one.
+            filtered.AddPolygon( candidate );
+    }
+    filtered.Fracture();
+    filtered.UpdateTriangulationDataHash();
+    aZone->SetFilledPolysList( aLayer, filtered );
+}
+
+
 /**
  * Removes clearance from the shape for copper items which share the zone's layer but are
  * not connected to it.
  */
 void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLayer,
-                                             const std::vector<PAD*>& aNoConnectionPads,
-                                             SHAPE_POLY_SET& aHoles,
+                                             const std::vector<const PAD*>& aNoConnectionPads, SHAPE_POLY_SET& aHoles,
                                              bool aIncludeZoneClearances )
 {
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
@@ -2473,7 +2547,7 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
     // Add non-connected pad clearances
     //
     auto knockoutPadClearance =
-            [&]( PAD* aPad )
+            [&]( const PAD* aPad )
             {
                 int  init_gap = evalRulesForItems( PHYSICAL_CLEARANCE_CONSTRAINT, aZone, aPad, aLayer );
                 int  gap = init_gap;
@@ -2518,7 +2592,7 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
                 }
             };
 
-    for( PAD* pad : aNoConnectionPads )
+    for( const PAD* pad : aNoConnectionPads )
     {
         if( checkForCancel( m_progressReporter ) )
             return;
@@ -3153,11 +3227,11 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
     CORNER_STRATEGY fastCornerStrategy = CORNER_STRATEGY::CHAMFER_ALL_CORNERS;
     CORNER_STRATEGY cornerStrategy = CORNER_STRATEGY::ROUND_ALL_CORNERS;
 
-    std::vector<BOARD_ITEM*>     thermalConnectionPads;
-    std::vector<PAD*>            noConnectionPads;
-    std::vector<BOARD_ITEM*>     solidConnectionItems;
-    std::deque<SHAPE_LINE_CHAIN> thermalSpokes;
-    SHAPE_POLY_SET               clearanceHoles;
+    std::vector<const BOARD_ITEM*> thermalConnectionPads;
+    std::vector<const PAD*>        noConnectionPads;
+    std::vector<const BOARD_ITEM*> solidConnectionItems;
+    std::vector<SHAPE_LINE_CHAIN>  thermalSpokes;
+    SHAPE_POLY_SET                 clearanceHoles;
 
     aFillPolys = aSmoothedOutline;
     DUMP_POLYS_TO_COPPER_LAYER( aFillPolys, In1_Cu, wxT( "smoothed-outline" ) );
@@ -3247,15 +3321,6 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
     if( m_progressReporter && m_progressReporter->IsCancelled() )
         return false;
 
-    // When iterative refill is enabled, zone-to-zone clearances are not included in
-    // clearanceHoles (they're applied later to allow pre-knockout caching).  But we still
-    // need to account for them when testing spoke endpoints, otherwise spokes will be kept
-    // that point into areas that will be knocked out by higher-priority zones.
-    SHAPE_POLY_SET zoneClearances;
-
-    if( iterativeRefill )
-        buildDifferentNetZoneClearances( aZone, aLayer, zoneClearances );
-
     SHAPE_POLY_SET debugSpokes;
 
     // The spoke test area costs a clone, two booleans and a deflate/inflate cycle. Build it
@@ -3266,9 +3331,6 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
         // because the "real" subtract-clearance-holes has to be done after the spokes are added.
         SHAPE_POLY_SET testAreas = aFillPolys.CloneDropTriangulation();
         testAreas.BooleanSubtract( clearanceHoles );
-
-        if( zoneClearances.OutlineCount() > 0 )
-            testAreas.BooleanSubtract( zoneClearances );
 
         DUMP_POLYS_TO_COPPER_LAYER( testAreas, In4_Cu, wxT( "minus-clearance-holes" ) );
 
@@ -3394,12 +3456,12 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
 
         // Drop the hatch hole around each fully connected via so it stays on the webbing.
         // Feed only the hole-drop set, not the fill, so wider vias are left untouched.
-        for( BOARD_ITEM* item : solidConnectionItems )
+        for( const BOARD_ITEM* item : solidConnectionItems )
         {
             if( item->Type() != PCB_VIA_T || !item->IsOnLayer( aLayer ) )
                 continue;
 
-            PCB_VIA* via = static_cast<PCB_VIA*>( item );
+            const PCB_VIA* via = static_cast<const PCB_VIA*>( item );
 
             SHAPE_POLY_SET disc;
             TransformCircleToPolygon( disc, via->GetPosition(), via->GetWidth( aLayer ) / 2, m_maxError,
@@ -3420,7 +3482,7 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
             solid.BooleanSubtract( clearanceHoles );
 
             std::lock_guard<std::mutex> lock( m_cacheMutex );
-            m_preHatchSolidFillCache[{ aZone, aLayer }] = solid;
+            m_cache[{ aZone, aLayer }].PreHatchSolidFill = solid;
         }
 
         if( !addHatchFillTypeOnZone( aZone, aLayer, aDebugLayer, aFillPolys, ringsToProtect ) )
@@ -3465,10 +3527,10 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
      * islands
      */
 
-    for( BOARD_ITEM* item : thermalConnectionPads )
+    for( const BOARD_ITEM* item : thermalConnectionPads )
     {
         if( item->Type() == PCB_PAD_T )
-            addHoleKnockout( static_cast<PAD*>( item ), 0, clearanceHoles );
+            addHoleKnockout( static_cast<const PAD*>( item ), 0, clearanceHoles );
     }
 
     aFillPolys.BooleanIntersection( aMaxExtents );
@@ -3492,11 +3554,15 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
 
         {
             std::lock_guard<std::mutex> lock( m_cacheMutex );
-            m_preKnockoutFillCache[{ aZone, aLayer }] = aFillPolys;
-            m_sameNetApronCache[{ aZone, aLayer }] = sameNetApron;
+            ZONE_LAYER_STATE&           entry = m_cache[{ aZone, aLayer }];
+            entry.PreKnockoutFill = aFillPolys;
+            entry.SameNetApron = sameNetApron;
         }
 
-        // Reuse the zone clearances already computed for spoke endpoint testing
+        // Now apply zone-to-zone knockouts for different-net zones
+        SHAPE_POLY_SET zoneClearances;
+        buildDifferentNetZoneClearances( aZone, aLayer, zoneClearances );
+
         if( zoneClearances.OutlineCount() > 0 )
         {
             aFillPolys.BooleanSubtract( zoneClearances );
@@ -3529,6 +3595,14 @@ bool ZONE_FILLER::fillCopperZone( const ZONE* aZone, PCB_LAYER_ID aLayer, PCB_LA
     dropSubResolutionOutlines( aFillPolys, m_maxError );
 
     aFillPolys.Fracture();
+
+    {
+        std::lock_guard<std::mutex> lock( m_cacheMutex );
+        ZONE_LAYER_STATE&           entry = m_cache[{ aZone, aLayer }];
+        entry.ThermalConnectionPads = std::move( thermalConnectionPads );
+        entry.ThermalSpokes = std::move( thermalSpokes );
+    }
+
     return true;
 }
 
@@ -3689,8 +3763,8 @@ bool ZONE_FILLER::fillSingleZone( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_S
  * Function buildThermalSpokes
  */
 void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
-                                      const std::vector<BOARD_ITEM*>& aSpokedPadsList,
-                                      std::deque<SHAPE_LINE_CHAIN>& aSpokesList )
+                                      const std::vector<const BOARD_ITEM*>& aSpokedPadsList,
+                                      std::vector<SHAPE_LINE_CHAIN>&        aSpokesList )
 {
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
     BOX2I                  zoneBB = aZone->GetBoundingBox();
@@ -3706,7 +3780,7 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
     // The boundary may be off by MaxError
     int epsilon = bds.m_MaxError;
 
-    for( BOARD_ITEM* item : aSpokedPadsList )
+    for( const BOARD_ITEM* item : aSpokedPadsList )
     {
         // We currently only connect to pads, not pad holes
         if( !item->IsOnLayer( aLayer ) )
@@ -3714,13 +3788,13 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
 
         int       thermalReliefGap = 0;
         int       spoke_w = 0;
-        PAD*      pad = nullptr;
-        PCB_VIA*  via = nullptr;
+        const PAD*     pad = nullptr;
+        const PCB_VIA* via = nullptr;
         bool      circular = false;
 
         if( item->Type() == PCB_PAD_T )
         {
-            pad = static_cast<PAD*>( item );
+            pad = static_cast<const PAD*>( item );
             VECTOR2I padSize = pad->GetSize( aLayer );
 
             if( pad->GetShape( aLayer) == PAD_SHAPE::CIRCLE
@@ -3731,7 +3805,7 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
         }
         else if( item->Type() == PCB_VIA_T )
         {
-            via = static_cast<PCB_VIA*>( item );
+            via = static_cast<const PCB_VIA*>( item );
             circular = true;
         }
 
@@ -4063,32 +4137,29 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
         aSpokesList[ii].GenerateBBoxCache();
 }
 
-
 void ZONE_FILLER::buildHatchZoneThermalRings( const ZONE* aZone, PCB_LAYER_ID aLayer,
-                                              const SHAPE_POLY_SET& aSmoothedOutline,
-                                              const std::vector<BOARD_ITEM*>& aThermalConnectionPads,
-                                              SHAPE_POLY_SET& aFillPolys,
-                                              SHAPE_POLY_SET& aThermalRings )
+                                              const SHAPE_POLY_SET&                 aSmoothedOutline,
+                                              const std::vector<const BOARD_ITEM*>& aThermalConnectionPads,
+                                              SHAPE_POLY_SET& aFillPolys, SHAPE_POLY_SET& aThermalRings )
 {
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
     DRC_CONSTRAINT         constraint;
 
-    for( BOARD_ITEM* item : aThermalConnectionPads )
+    for( const BOARD_ITEM* item : aThermalConnectionPads )
     {
         if( !item->IsOnLayer( aLayer ) )
             continue;
 
-        PAD*     pad = nullptr;
-        PCB_VIA* via = nullptr;
-        bool     isCircular = false;
-        int      thermalGap = 0;
-        int      spokeWidth = 0;
-        VECTOR2I position;
-        int      padRadius = 0;
+        const PAD* pad = nullptr;
+        bool       isCircular = false;
+        int        thermalGap = 0;
+        int        spokeWidth = 0;
+        VECTOR2I   position;
+        int        padRadius = 0;
 
         if( item->Type() == PCB_PAD_T )
         {
-            pad = static_cast<PAD*>( item );
+            pad = static_cast<const PAD*>( item );
             VECTOR2I padSize = pad->GetSize( aLayer );
             position = pad->ShapePos( aLayer );
 
@@ -4110,7 +4181,7 @@ void ZONE_FILLER::buildHatchZoneThermalRings( const ZONE* aZone, PCB_LAYER_ID aL
         }
         else if( item->Type() == PCB_VIA_T )
         {
-            via = static_cast<PCB_VIA*>( item );
+            const PCB_VIA* const via = static_cast<const PCB_VIA*>( item );
             position = via->GetPosition();
             isCircular = true;
             padRadius = via->GetWidth( aLayer ) / 2;
@@ -4610,14 +4681,14 @@ bool ZONE_FILLER::refillZoneFromCache( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_P
     auto cacheKey = std::make_pair( static_cast<const ZONE*>( aZone ), aLayer );
 
     {
-        std::lock_guard<std::mutex> lock( m_cacheMutex );
-        auto it = m_preKnockoutFillCache.find( cacheKey );
+        std::lock_guard<std::mutex>          lock( m_cacheMutex );
+        const std::optional<SHAPE_POLY_SET>& it = m_cache[cacheKey].PreKnockoutFill;
 
-        if( it == m_preKnockoutFillCache.end() )
+        if( !it.has_value() )
             return false;
 
         // Restore the cached pre-knockout fill
-        aFillPolys = it->second;
+        aFillPolys = *it;
     }
 
     // Subtract the FILLED area of higher-priority zones (with clearance for different nets).
@@ -4757,11 +4828,10 @@ bool ZONE_FILLER::refillZoneFromCache( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_P
 
     {
         std::lock_guard<std::mutex> lock( m_cacheMutex );
-        auto                        it = m_refillResultCache.find( cacheKey );
-
-        if( it != m_refillResultCache.end() && it->second.first == knockoutHash )
+        if( const std::optional<std::pair<HASH_128, SHAPE_POLY_SET>>& it = m_cache[cacheKey].RefillResult;
+            it.has_value() && it->first == knockoutHash )
         {
-            aFillPolys = it->second.second;
+            aFillPolys = it->second;
             return true;
         }
     }
@@ -4783,10 +4853,8 @@ bool ZONE_FILLER::refillZoneFromCache( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_P
 
         {
             std::lock_guard<std::mutex> lock( m_cacheMutex );
-            auto                        ait = m_sameNetApronCache.find( cacheKey );
-
-            if( ait != m_sameNetApronCache.end() )
-                sameNetApron = ait->second;
+            if( const std::optional<SHAPE_POLY_SET>& ait = m_cache[cacheKey].SameNetApron; ait.has_value() )
+                sameNetApron = *ait;
         }
 
         // The apron may only buffer where copper can still go, so it takes the same knockouts
@@ -4807,10 +4875,8 @@ bool ZONE_FILLER::refillZoneFromCache( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_P
 
         {
             std::lock_guard<std::mutex> lock( m_cacheMutex );
-            auto                        sit = m_preHatchSolidFillCache.find( cacheKey );
-
-            if( sit != m_preHatchSolidFillCache.end() )
-                solidExtent = sit->second;
+            if( const std::optional<SHAPE_POLY_SET>& sit = m_cache[cacheKey].PreHatchSolidFill; sit.has_value() )
+                solidExtent = *sit;
         }
 
         SHAPE_POLY_SET knockouts = diffNetKnockouts;
@@ -4833,7 +4899,7 @@ bool ZONE_FILLER::refillZoneFromCache( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_P
 
     {
         std::lock_guard<std::mutex> lock( m_cacheMutex );
-        m_refillResultCache[cacheKey] = { knockoutHash, aFillPolys };
+        m_cache[cacheKey].RefillResult = { knockoutHash, aFillPolys };
     }
 
     return true;

@@ -178,15 +178,17 @@ public:
      * @param aPt       The point to test.
      * @param aAccuracy Distance threshold for edge-proximity fallback. Values <= 1 skip
      *                  the edge test for performance.
+     * @param aMatches  The indices of the shapes that contain the point are written to it when it is not null.
      * @return true if the point is inside any outline or (when aAccuracy > 1) within
      *         aAccuracy distance of any edge.
      */
-    bool Contains( const VECTOR2I& aPt, int aAccuracy = 0 ) const
+    bool Contains( const VECTOR2I& aPt, int aAccuracy = 0, std::vector<int>* aMatches = nullptr ) const
     {
         if( m_edges.empty() )
             return false;
 
         int stripe = yToStripe( static_cast<int64_t>( aPt.y ) );
+        bool found = false;
 
         if( stripe >= 0 && stripe < m_stripeCount )
         {
@@ -219,7 +221,14 @@ public:
             for( int i = 0; i < m_outlineCount; i++ )
             {
                 if( crossings[i] & 1 )
-                    return true;
+                {
+                    found = true;
+
+                    if( aMatches != nullptr )
+                        aMatches->push_back( i );
+                    else
+                        return true;
+                }
             }
         }
 
@@ -244,12 +253,19 @@ public:
                     SEG edge( seg.p1, seg.p2 );
 
                     if( edge.SquaredDistance( aPt ) <= accuracySq )
-                        return true;
+                    {
+                        found = true;
+
+                        if( aMatches != nullptr )
+                            aMatches->push_back( idx );
+                        else
+                            return true;
+                    }
                 }
             }
         }
 
-        return false;
+        return found;
     }
 
 private:

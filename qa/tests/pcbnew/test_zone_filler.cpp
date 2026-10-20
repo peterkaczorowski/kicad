@@ -727,22 +727,31 @@ BOOST_FIXTURE_TEST_CASE( RegressionViaZoneNetShort, ZONE_FILL_TEST_FIXTURE )
 }
 
 
-/**
- * Test that hatch zone thermal reliefs maintain connectivity even when the hatch gap
- * is larger than the thermal ring diameter.
- *
- * The test board has:
- * - A hatch zone with large gap (6mm) and thermal relief settings
- * - A pad with thermal relief connection to the zone
- * - A track that should be connected to the pad via the zone
- *
- * Without the fix, the thermal ring around the pad could be entirely inside a hatch hole,
- * leaving it electrically isolated from the zone webbing.
- */
-BOOST_FIXTURE_TEST_CASE( HatchZoneThermalConnectivity, ZONE_FILL_TEST_FIXTURE )
+static const std::vector<wxString> ThermalConnectivityTests = {
+    // When 2 zone outlines include the same area, the lower priority one may fill in the area because the higher
+    // priority net does not exist there.  Then the pads connected to the lower priority net should have thermal
+    // reliefs.
+    "issue24175",
+    /**
+     * Test that hatch zone thermal reliefs maintain connectivity even when the hatch gap
+     * is larger than the thermal ring diameter.
+     *
+     * The test board has:
+     * - A hatch zone with large gap (6mm) and thermal relief settings
+     * - A pad with thermal relief connection to the zone
+     * - A track that should be connected to the pad via the zone
+     *
+     * Without the fix, the thermal ring around the pad could be entirely inside a hatch hole,
+     * leaving it electrically isolated from the zone webbing.
+     */
+    "hatch_thermal_connectivity/hatch_thermal_connectivity",
+};
+
+
+BOOST_DATA_TEST_CASE_F( ZONE_FILL_TEST_FIXTURE, ThermalConnectivity,
+                        boost::unit_test::data::make( ThermalConnectivityTests ), relPath )
 {
-    KI_TEST::LoadBoard( m_settingsManager, "hatch_thermal_connectivity/hatch_thermal_connectivity",
-                        m_board );
+    KI_TEST::LoadBoard( m_settingsManager, relPath, m_board );
 
     KI_TEST::FillZones( m_board.get() );
 
@@ -2966,52 +2975,39 @@ BOOST_FIXTURE_TEST_CASE( HatchZoneViaConnectionRespectsSetting, ZONE_FILL_TEST_F
     // FULL connection skips both the knockout and the ring addition, so the THERMAL fill
     // should be measurably larger than the FULL fill.
 
-    double fullFillArea    = 0.0;
-    double thermalFillArea = 0.0;
+    auto fillArea =
+            [&]( ZONE_CONNECTION aConnection ) -> double
+            {
+                PCB_VIA* via = makeVia();
+                ZONE*    zone = makeHatchZone( aConnection );
+
+                initDRC();
+                KI_TEST::FillZones( m_board.get() );
+
+                BOOST_REQUIRE_MESSAGE( zone->HasFilledPolysForLayer( F_Cu ),
+                                       "Zone should have fill on F.Cu with connection" );
+
+                SHAPE_POLY_SET fill = *zone->GetFilledPolysList( F_Cu );
+
+                // The pad is subtracted from the fill only when thermals are used.  It is added back.  So the areas can
+                // be compared.
+                via->TransformShapeToPolygon( fill, F_Cu, 0, m_board->GetDesignSettings().m_MaxError, ERROR_OUTSIDE );
+                fill.Fracture();
+                double area = 0.0;
+                for( int i = 0; i < fill.OutlineCount(); i++ )
+                    area += std::abs( fill.Outline( i ).Area() );
+
+                m_board->Remove( via );
+                m_board->Remove( zone );
+                delete via;
+                delete zone;
+                return area;
+            };
 
     // Test 1: FULL connection
-    {
-        PCB_VIA* via  = makeVia();
-        ZONE*    zone = makeHatchZone( ZONE_CONNECTION::FULL );
-
-        initDRC();
-        KI_TEST::FillZones( m_board.get() );
-
-        BOOST_REQUIRE_MESSAGE( zone->HasFilledPolysForLayer( F_Cu ),
-                               "Zone should have fill on F.Cu with FULL connection" );
-
-        const std::shared_ptr<SHAPE_POLY_SET>& fill = zone->GetFilledPolysList( F_Cu );
-
-        for( int i = 0; i < fill->OutlineCount(); i++ )
-            fullFillArea += std::abs( fill->Outline( i ).Area() );
-
-        m_board->Remove( via );
-        m_board->Remove( zone );
-        delete via;
-        delete zone;
-    }
-
+    double fullFillArea = fillArea( ZONE_CONNECTION::FULL );
     // Test 2: THERMAL connection
-    {
-        PCB_VIA* via  = makeVia();
-        ZONE*    zone = makeHatchZone( ZONE_CONNECTION::THERMAL );
-
-        initDRC();
-        KI_TEST::FillZones( m_board.get() );
-
-        BOOST_REQUIRE_MESSAGE( zone->HasFilledPolysForLayer( F_Cu ),
-                               "Zone should have fill on F.Cu with THERMAL connection" );
-
-        const std::shared_ptr<SHAPE_POLY_SET>& fill = zone->GetFilledPolysList( F_Cu );
-
-        for( int i = 0; i < fill->OutlineCount(); i++ )
-            thermalFillArea += std::abs( fill->Outline( i ).Area() );
-
-        m_board->Remove( via );
-        m_board->Remove( zone );
-        delete via;
-        delete zone;
-    }
+    double thermalFillArea = fillArea( ZONE_CONNECTION::THERMAL );
 
     // The THERMAL fill should have more area than the FULL fill because a thermal ring was
     // added around the via, filling hatch holes that would otherwise be open.
