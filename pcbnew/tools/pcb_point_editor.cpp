@@ -4225,6 +4225,18 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 getView()->Update( m_angleItem.get() );
         }
 
+        // A running gesture holds a staged commit, and with copper in it a live router
+        // session. Refuse any command that would edit the board underneath it. Undo is
+        // already held off for as long as the gesture runs
+        if( inBlockDrag && evt->Category() == TC_COMMAND
+            && ( evt->IsAction( &ACTIONS::cut ) || evt->IsAction( &ACTIONS::copy ) || evt->IsAction( &ACTIONS::paste )
+                 || evt->IsAction( &ACTIONS::pasteSpecial ) || evt->IsAction( &ACTIONS::doDelete )
+                 || evt->IsAction( &ACTIONS::deleteTool ) || ZONE_FILLER_TOOL::IsZoneFillAction( evt ) ) )
+        {
+            wxBell();
+            continue;
+        }
+
         // D over a picked handle starts the gesture from the keyboard, with the cursor
         // free instead of held down. Every other use of D belongs to the edit tool
         if( evt->IsAction( &PCB_ACTIONS::drag45Degree ) || evt->IsAction( &PCB_ACTIONS::dragFreeAngle ) )
