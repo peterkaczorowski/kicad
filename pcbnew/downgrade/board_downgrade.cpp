@@ -113,6 +113,7 @@ static constexpr int VER_FOOTPRINT_HEIGHT = 20261017;
 static constexpr int VER_LINKED_PLACEMENT = 20261018;
 static constexpr int VER_IMAGE_ROTATION = 20261025;
 static constexpr int VER_IMAGE_OPACITY = 20261025;
+static constexpr int VER_CU_ONLY_PAD = 20261027;
 
 // The board format these rules were written against. When SEXPR_BOARD_FILE_VERSION moves past
 // it, ClassifyBoardForDowngrade asserts in debug builds until the new format is covered.
@@ -124,7 +125,7 @@ static constexpr int VER_IMAGE_OPACITY = 20261025;
 // 3. Otherwise add a VER_ constant above, a BOARD_RULE row that counts and strips the feature,
 //    and a dated row in BOARD_TOKENS or BOARD_VALUES for each new node head or bareword value.
 // 4. Set this constant to the new version.
-static constexpr int BOARD_DOWNGRADE_COVERED = 20261025;
+static constexpr int BOARD_DOWNGRADE_COVERED = 20261027;
 
 
 static bool isEllipse( const BOARD_ITEM* aItem )
@@ -1435,6 +1436,23 @@ static int countCustomFpStackups( const BOARD* aBoard )
     {
         if( fp->GetStackupMode() != FOOTPRINT_STACKUP::EXPAND_INNER_LAYERS )
             count++;
+    }
+
+    return count;
+}
+
+
+static int countCuOnlyPads( const BOARD* aBoard )
+{
+    int count = 0;
+
+    for( const FOOTPRINT* fp : aBoard->Footprints() )
+    {
+        for( const PAD* pad : fp->Pads() )
+        {
+            if( pad->GetAttribute() == PAD_ATTRIB::CU_ONLY )
+                count++;
+        }
     }
 
     return count;
@@ -2813,6 +2831,15 @@ static std::vector<BOARD_RULE> boardRules()
         { FIRST_FP_AFFINE_TRANSFORM, DOWNGRADE_BUCKET::BLOCK, _( "Scaled footprints" ),
           _( "The target cannot represent a scaled footprint." ),
           countScaledFootprints, nullptr },
+        {
+                VER_CU_ONLY_PAD,
+                // Theoretically, can degrade to SMD/CONN but it affects Gerbers attributes
+                DOWNGRADE_BUCKET::BLOCK,
+                _( "Copper-only pads" ),
+                _( "The target cannot represent copper-only pads." ),
+                countCuOnlyPads,
+                nullptr,
+        },
     };
     // clang-format on
 }
@@ -3077,6 +3104,7 @@ static constexpr DATED_TOKEN BOARD_VALUES[] = {
     { "via_stitch", VER_VIA_STITCH },
     { "via_stack", VER_VIA_STACK },
     { "pad_prop_pressfit", VER_PRESSFIT },
+    { "copper_only", VER_CU_ONLY_PAD },
     { "buried", VER_VIA_SPLIT },
 };
 

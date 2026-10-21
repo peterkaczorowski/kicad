@@ -67,6 +67,7 @@ public:
         SMD,
         NPTH,
         CONNECTOR,
+        CU_ONLY,
         PASTE,
         MASK,
     };
@@ -242,6 +243,19 @@ public:
                                                 } );
             break;
         }
+        case PAD_MASTER_PROVIDER::TYPE::CU_ONLY:
+        {
+            pad->SetAttribute( PAD_ATTRIB::CU_ONLY );
+            pad->SetLayerSet( { F_Cu } );
+            pad->SetShape( PADSTACK::ALL_LAYERS, PAD_SHAPE::CIRCLE );
+
+            const VECTOR2D size = VECTOR2D{
+                pcbIUScale.mmToIU( DEFAULT_PAD_SMD_WIDTH_MM ),
+                pcbIUScale.mmToIU( DEFAULT_PAD_SMD_WIDTH_MM ),
+            };
+            pad->SetSize( PADSTACK::ALL_LAYERS, size );
+            break;
+        }
         // No Default: handle every case explicitly
         case PAD_MASTER_PROVIDER::TYPE::AUTO:
         {
@@ -318,6 +332,8 @@ public:
         }
         if( aPad.GetAttribute() == PAD_ATTRIB::CONN )
             return TYPE::CONNECTOR;
+        if( aPad.GetAttribute() == PAD_ATTRIB::CU_ONLY )
+            return TYPE::CU_ONLY;
         if( aPad.GetAttribute() == PAD_ATTRIB::NPTH )
             return TYPE::NPTH;
 

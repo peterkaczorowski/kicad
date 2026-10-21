@@ -22,6 +22,7 @@
 
 #include "kiway_holder.h"
 #include "mail_type.h"
+#include "padstack.h"
 #include <base_units.h>
 #include <bitmaps.h>
 #include <board_commit.h>
@@ -52,6 +53,7 @@
 #include <advanced_config.h>    // for pad property feature management
 #include <algorithm>
 #include <frame_type.h>
+#include <lseq.h>
 #include <kiway.h>
 #include <kiway_player.h>
 #include <pth_hole_size.h>
@@ -99,8 +101,9 @@ static PAD_ATTRIB code_type[] =
     PAD_ATTRIB::SMD,
     PAD_ATTRIB::CONN,
     PAD_ATTRIB::NPTH,
-    PAD_ATTRIB::SMD                  // Aperture pad :type SMD with no copper layers,
+    PAD_ATTRIB::SMD,                // Aperture pad :type SMD with no copper layers,
                                     // only on tech layers (usually only on paste layer
+    PAD_ATTRIB::CU_ONLY,
 };
 
 
@@ -110,6 +113,7 @@ static PAD_ATTRIB code_type[] =
 #define CONN_DLG_TYPE 2
 #define NPTH_DLG_TYPE 3
 #define APERTURE_DLG_TYPE 4
+#define CU_ONLY_DLG_TYPE 5
 
 
 void PCB_BASE_FRAME::ShowPadPropertiesDialog( PAD& aPad )
@@ -799,10 +803,11 @@ void DIALOG_PAD_PROPERTIES::initValues()
     {
         switch( m_previewPad->GetAttribute() )
         {
-        case PAD_ATTRIB::PTH:    m_padType->SetSelection( PTH_DLG_TYPE ); break;
-        case PAD_ATTRIB::SMD:    m_padType->SetSelection( SMD_DLG_TYPE ); break;
-        case PAD_ATTRIB::CONN:   m_padType->SetSelection( CONN_DLG_TYPE ); break;
-        case PAD_ATTRIB::NPTH:   m_padType->SetSelection( NPTH_DLG_TYPE ); break;
+        case PAD_ATTRIB::PTH:       m_padType->SetSelection( PTH_DLG_TYPE ); break;
+        case PAD_ATTRIB::SMD:       m_padType->SetSelection( SMD_DLG_TYPE ); break;
+        case PAD_ATTRIB::CONN:      m_padType->SetSelection( CONN_DLG_TYPE ); break;
+        case PAD_ATTRIB::NPTH:      m_padType->SetSelection( NPTH_DLG_TYPE ); break;
+        case PAD_ATTRIB::CU_ONLY:   m_padType->SetSelection( CU_ONLY_DLG_TYPE ); break;
         }
     }
 
@@ -1278,6 +1283,16 @@ void DIALOG_PAD_PROPERTIES::UpdateLayersDropdown()
     case APERTURE_DLG_TYPE:
         m_rbCopperLayersSel->Append( _( "None" ) );
         break;
+    case CU_ONLY_DLG_TYPE:
+        m_cuOnlyLayers.clear();
+
+        for( PCB_LAYER_ID layer : m_board->GetEnabledLayers().CuStack() )
+        {
+            m_cuOnlyLayers.push_back( layer );
+            m_rbCopperLayersSel->Append( m_board->GetLayerName( layer ) );
+        }
+
+        break;
     }
 
     m_backDrillTopLayer->Clear();
@@ -1305,6 +1320,7 @@ void DIALOG_PAD_PROPERTIES::PadTypeSelected( wxCommandEvent& event )
     case PTH_DLG_TYPE:      hasHole = true;  hasConnection = true;  break;
     case SMD_DLG_TYPE:      hasHole = false; hasConnection = true;  break;
     case CONN_DLG_TYPE:     hasHole = false; hasConnection = true;  break;
+    case CU_ONLY_DLG_TYPE:  hasHole = false; hasConnection = true;  break;
     case NPTH_DLG_TYPE:     hasHole = true;  hasConnection = false; break;
     case APERTURE_DLG_TYPE: hasHole = false; hasConnection = false; break;
     }
@@ -1379,6 +1395,7 @@ void DIALOG_PAD_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
     case PTH_DLG_TYPE:      /* PTH */      hasHole = true;  hasConnection = true;  break;
     case SMD_DLG_TYPE:      /* SMD */      hasHole = false; hasConnection = true;  break;
     case CONN_DLG_TYPE:     /* CONN */     hasHole = false; hasConnection = true;  break;
+    case CU_ONLY_DLG_TYPE:  /* Cu only */  hasHole = false; hasConnection = true;  break;
     case NPTH_DLG_TYPE:     /* NPTH */     hasHole = true;  hasConnection = false; break;
     case APERTURE_DLG_TYPE: /* Aperture */ hasHole = false; hasConnection = false; break;
     }
@@ -1448,6 +1465,7 @@ void DIALOG_PAD_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 
     case SMD_DLG_TYPE:
     case CONN_DLG_TYPE:
+    case CU_ONLY_DLG_TYPE:
     case APERTURE_DLG_TYPE:
         m_stackupImagesBook->ChangeSelection( 3 );
         break;
@@ -1523,6 +1541,30 @@ void DIALOG_PAD_PROPERTIES::updatePadLayersList( std::optional<LSET> layer_mask,
 
         break;
 
+    case CU_ONLY_DLG_TYPE:
+    {
+        // Choose the first copper layer only
+        effective_mask = layer_mask.value_or( LSET( { F_Cu } ) );
+
+        LSEQ cuLayers = effective_mask.CuStack();
+
+        if( cuLayers.empty() )
+            cuLayers.push_back( F_Cu );
+
+        auto it = std::find( m_cuOnlyLayers.begin(), m_cuOnlyLayers.end(), cuLayers.front() );
+
+        if( it != m_cuOnlyLayers.end() )
+        {
+            m_rbCopperLayersSel->SetSelection(
+                    static_cast<int>( std::distance( m_cuOnlyLayers.begin(), it ) ) );
+        }
+        else
+        {
+            m_rbCopperLayersSel->SetSelection( 0 );
+        }
+
+        break;
+    }
     case NPTH_DLG_TYPE:
         effective_mask = layer_mask.value_or( PAD::UnplatedHoleMask() );
 
@@ -2186,6 +2228,7 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     case PAD_ATTRIB::PTH:
     case PAD_ATTRIB::CONN:
     case PAD_ATTRIB::SMD:
+    case PAD_ATTRIB::CU_ONLY:
         break;
 
     case PAD_ATTRIB::NPTH:
@@ -2271,6 +2314,19 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
         {
         case 0: padLayerMask.set( F_Cu ); break;
         case 1: padLayerMask.set( B_Cu ); break;
+        }
+
+        break;
+
+    case CU_ONLY_DLG_TYPE:
+        if( copperLayersChoice >= 0
+            && copperLayersChoice < static_cast<int>( m_cuOnlyLayers.size() ) )
+        {
+            padLayerMask.set( m_cuOnlyLayers[copperLayersChoice] );
+        }
+        else
+        {
+            padLayerMask.set( F_Cu );
         }
 
         break;
