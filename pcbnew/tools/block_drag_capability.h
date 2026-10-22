@@ -1,0 +1,80 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright The KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef BLOCK_DRAG_CAPABILITY_H
+#define BLOCK_DRAG_CAPABILITY_H
+
+#include <vector>
+
+class BOARD_ITEM;
+
+/**
+ * How one selected item takes part in a block drag.
+ *
+ * Every item in an expanded selection gets exactly one of these.
+ *
+ * The matrix governs Block Drag participation only. The pre-existing bounding box
+ * scaler for all-shape selections is separate shipping functionality and is
+ * deliberately not filtered by it, so a shape that is rigid-only here, such as an
+ * arc, still scales through that box.
+ */
+enum class BLOCK_DRAG_CAPABILITY
+{
+    /// Shows handles. Picked handles deform the item, otherwise it translates rigidly.
+    DEFORMABLE,
+
+    /// Moves with the block using its own move operation.
+    RIGID,
+
+    /// Moves with the block through the router, which repairs the copper at the edge
+    /// of the block.
+    ROUTER,
+
+    /// Stops the drag with a message before anything moves.
+    UNSUPPORTED
+};
+
+/**
+ * Classify one board item for a block drag.
+ *
+ * A footprint holder board has no router, which is how the footprint editor is told
+ * apart. Pads are RIGID there, and copper and whole footprints are UNSUPPORTED. Those
+ * last rows are a guard, since that selection cannot hold them. On a board, the
+ * graphics and zones inside a footprint are RIGID, so they travel without deforming.
+ *
+ * Expand groups with BlockDragExpandSelection() first. A group container on its own is
+ * UNSUPPORTED. A generator is RIGID only when its Move() takes all of its members with
+ * it.
+ */
+BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem );
+
+/**
+ * Replace group containers with their members, through nested groups, and drop
+ * duplicates.
+ *
+ * The returned list contains no PCB_GROUP_T containers. Generators are group
+ * subclasses but are single carried objects, they are not expanded. An item that is
+ * selected both directly and through a group appears once. Order of the input is
+ * preserved for directly selected items, members of an expanded group follow the
+ * group's position in the input. A footprint's own children are dropped when the
+ * footprint is in the result too, since the footprint carries them.
+ */
+std::vector<BOARD_ITEM*> BlockDragExpandSelection( const std::vector<BOARD_ITEM*>& aSelection );
+
+#endif // BLOCK_DRAG_CAPABILITY_H

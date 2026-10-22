@@ -510,6 +510,7 @@ set( PCBNEW_CLASS_SRCS
     api/pcb_context.cpp
 
     tools/array_tool.cpp
+    tools/block_drag_capability.cpp
     tools/board_editor_control.cpp
     tools/board_inspection_tool.cpp
     tools/board_reannotate_tool.cpp

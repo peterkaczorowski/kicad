@@ -61,6 +61,7 @@ set( QA_PCBNEW_SRCS
     test_graphics_load_save.cpp
     test_graphic_extend.cpp
     test_graphic_trim.cpp
+    test_block_drag_capability.cpp
     test_graphics_import_mgr.cpp
     test_group_load_save.cpp
     test_group_mirror.cpp
