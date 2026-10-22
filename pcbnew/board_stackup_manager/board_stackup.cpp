@@ -24,6 +24,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <base_units.h>
 #include <string_utils.h>
@@ -606,16 +607,21 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
             ++expectedDielectricLayerId;
         }
 
-        // Match BOARD::SetLayerName() so validated dielectric layer names can be applied to the board.
-        // Dielectric items have no corresponding board layer to rename, so they have less constraints.
-        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && item->GetLayerName().Find( wxChar( '"' ) ) != wxNOT_FOUND )
+        // The BrdLayerId of dielectric items is UNDEFINED_LAYER, so only copper, mask,
+        // paste and silkscreen items must satisfy the layer name rules. An empty item name is
+        // allowed because BuildDefaultStackupList() leaves it empty, and BOARD::SetLayerName()
+        // keeps the current name of the board layer when given an empty name.
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && !item->GetLayerName().IsEmpty() )
         {
-            errors.push_back( {
-                itemIndex,
-                -1,
-                wxS( "layer_name_quote_char" ),
-                _( "Layer names cannot contain quotation marks." )
-            } );
+            if( std::optional<wxString> nameError = BOARD::ValidateLayerName( item->GetLayerName() ) )
+            {
+                errors.push_back( {
+                    itemIndex,
+                    -1,
+                    wxS( "layer_name" ),
+                    *nameError
+                } );
+            }
         }
 
         const int subLayersCount = item->GetSublayersCount();

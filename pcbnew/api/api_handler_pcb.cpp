@@ -19,6 +19,7 @@
  */
 
 #include <magic_enum.hpp>
+#include <map>
 #include <memory>
 #include <pgm_base.h>
 #include <properties/property.h>
@@ -735,6 +736,38 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
                              first.m_FieldName.ToStdString(),
                              first.m_ErrorMessage.ToStdString() ) );
         return tl::unexpected( error );
+    }
+
+    // Layers are referenced by their name in board files, so names must be unique across all enabled
+    // layers, including non-physical layers such as Edge.Cuts.
+    std::map<PCB_LAYER_ID, wxString> layerNames;
+
+    for( PCB_LAYER_ID layer : enabled )
+        layerNames[layer] = board()->GetLayerName( layer );
+
+    for( const BOARD_STACKUP_ITEM* item : newStackup.GetList() )
+    {
+        if( !item->IsEnabled() || item->GetType() == BS_ITEM_TYPE_DIELECTRIC )
+            continue;
+
+        // SetLayerName() restores the default name when called with an empty name
+        layerNames[item->GetBrdLayerId()] =
+                item->GetLayerName().IsEmpty() ? LSET::Name( item->GetBrdLayerId() ) : item->GetLayerName();
+    }
+
+    std::map<wxString, PCB_LAYER_ID> layersByName;
+
+    for( const auto& [layer, name] : layerNames )
+    {
+        if( auto [it, inserted] = layersByName.emplace( name, layer ); !inserted )
+        {
+            ApiResponseStatus error;
+            error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+            error.set_error_message( fmt::format( "Invalid board stackup: layer name '{}' is used by both {} and {}",
+                                                  name.ToStdString(), LSET::Name( it->second ).ToStdString(),
+                                                  LSET::Name( layer ).ToStdString() ) );
+            return tl::unexpected( error );
+        }
     }
 
     newStackup.RemoveDisabledLayers();

@@ -96,5 +96,58 @@ BOOST_AUTO_TEST_CASE( RejectsNegativeSublayerThickness )
     BOOST_CHECK_EQUAL( error.m_SublayerIndex, 1 );
 }
 
+/**
+ * Test that layer names rejected by the board setup dialog are also rejected
+ * by stackup validation, and that the error correctlyidentifies the stackup item.
+ */
+BOOST_AUTO_TEST_CASE( RejectsInvalidLayerName )
+{
+    BOARD_DESIGN_SETTINGS settings( nullptr, "" );
+    settings.SetCopperLayerCount( 2 );
+
+    BOARD_STACKUP stackup;
+    stackup.BuildDefaultStackupList( &settings );
+
+    const LSET enabledLayers = settings.GetEnabledLayers();
+
+    int copperIndex = -1;
+
+    for( int i = 0; i < stackup.GetCount(); ++i )
+    {
+        if( stackup.GetStackupLayer( i )->GetType() == BS_ITEM_TYPE_COPPER )
+        {
+            copperIndex = i;
+            break;
+        }
+    }
+
+    BOOST_REQUIRE( copperIndex >= 0 );
+
+    BOARD_STACKUP_ITEM* copper = stackup.GetStackupLayer( copperIndex );
+
+    for( const wxString& name : { wxS( "signal" ), wxS( "In1/Cu" ), wxS( "F\"Cu" ) } )
+    {
+        BOOST_TEST_CONTEXT( "Layer name: " << name.ToStdString() )
+        {
+            copper->SetLayerName( name );
+
+            const auto errors = stackup.Validate( enabledLayers );
+            BOOST_REQUIRE_EQUAL( errors.size(), 1 );
+
+            const auto& error = errors.front();
+            BOOST_CHECK( error.m_FieldName == wxS( "layer_name" ) );
+            BOOST_CHECK_EQUAL( error.m_StackupItemIndex, copperIndex );
+            BOOST_CHECK_EQUAL( error.m_SublayerIndex, -1 );
+        }
+    }
+
+    copper->SetLayerName( wxS( "Top" ) );
+    BOOST_CHECK( stackup.Validate( enabledLayers ).empty() );
+
+    // Leaving a layer name empty keeps the default name of the board layer
+    copper->SetLayerName( wxEmptyString );
+    BOOST_CHECK( stackup.Validate( enabledLayers ).empty() );
+}
+
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -947,10 +947,33 @@ const wxString BOARD::GetLayerName( PCB_LAYER_ID aLayer ) const
 }
 
 
-bool BOARD::IsValidLayerName( const wxString& aLayerName )
+std::optional<wxString> BOARD::ValidateLayerName( const wxString& aLayerName )
 {
-    // no quote chars in the name allowed
-    return aLayerName.Find( wxChar( '"' ) ) == wxNOT_FOUND;
+    // Check name for legality:
+    // 1) Cannot be blank.
+    // 2) Cannot have blanks.
+    // 3) Cannot have " chars
+    // 4) Cannot be 'signal'
+    // 5) Must be unique. This cannot be checked here because this function doesnt know the 
+    //    names of the other layers.
+    // 6) Cannot have illegal chars in filenames ( some filenames are built from layer names )
+    //    like : % $ \ " / :
+
+    if( aLayerName.IsEmpty() )
+        return _( "Layer must have a name." );
+
+    // Some output file names are built from layer names, so characters that are
+    // forbidden in file names (including the quote char) are rejected here.
+    wxString badchars = wxFileName::GetForbiddenChars( wxPATH_DOS );
+    badchars.Append( '%' );
+
+    if( aLayerName.find_first_of( badchars ) != wxString::npos )
+        return wxString::Format( _( "%s are forbidden in layer names." ), badchars );
+
+    if( aLayerName == wxT( "signal" ) )
+        return _( "Layer name \"signal\" is reserved." );
+
+    return std::nullopt;
 }
 
 
@@ -958,13 +981,15 @@ bool BOARD::SetLayerName( PCB_LAYER_ID aLayer, const wxString& aLayerName )
 {
     if( aLayerName.IsEmpty() )
     {
-        // If the name is empty, we clear the user name.
+        // If the name is empty, we clear the user name to restore the default.
         m_layers[aLayer].m_userName.clear();
         recalcOpposites();
     }
     else
     {
-        if( !IsValidLayerName( aLayerName ) )
+        // Only the file format constraint is enforced here, because importers apply
+        // foreign layer names that need not satisfy ValidateLayerName().
+        if( aLayerName.Find( wxChar( '"' ) ) != wxNOT_FOUND )
             return false;
 
         if( IsLayerEnabled( aLayer ) )

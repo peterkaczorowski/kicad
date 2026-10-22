@@ -148,6 +148,9 @@ message BoardStackupLayer
 
   // The name of the layer shown in the KiCad GUI, which may be a default value like "F.Cu" or may
   // have been customized by the user.  This field does not apply to dielectric layers.
+  // In an update, leaving a name empty will restore the default name. Otherwise the name must not be "signal",
+  // must not contain characters that are forbidden in file names, like '%', and must be unique across all
+  // enabled board layers.
   string user_name = 8;
 }
 
