@@ -949,12 +949,12 @@ const wxString BOARD::GetLayerName( PCB_LAYER_ID aLayer ) const
 
 std::optional<wxString> BOARD::ValidateLayerName( const wxString& aLayerName )
 {
-    // Check name for legality:
+    // Check name for legality:
     // 1) Cannot be blank.
     // 2) Cannot have blanks.
     // 3) Cannot have " chars
     // 4) Cannot be 'signal'
-    // 5) Must be unique. This cannot be checked here because this function doesnt know the 
+    // 5) Must be unique. This cannot be checked here because this function doesn't know the
     //    names of the other layers.
     // 6) Cannot have illegal chars in filenames ( some filenames are built from layer names )
     //    like : % $ \ " / :

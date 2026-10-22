@@ -249,10 +249,10 @@ public:
 
     struct VALIDATION_ERROR
     {
-        int m_StackupItemIndex = -1;    ///< Zero-based stackup item index, or -1 for a global error.
-        int m_SublayerIndex = -1;       ///< Zero-based sublayer index, or -1 when not applicable.
-        wxString m_FieldName;           ///< Stable, untranslated identifier of the invalid field.
-        wxString m_ErrorMessage;        ///< Human-readable, translatable error message.
+        int      m_StackupItemIndex = -1; ///< Zero-based stackup item index, or -1 for a global error.
+        int      m_SublayerIndex = -1;    ///< Zero-based sublayer index, or -1 when not applicable.
+        wxString m_FieldName;             ///< Stable, untranslated identifier of the invalid field.
+        wxString m_ErrorMessage;          ///< Human-readable, translatable error message.
     };
 
     /**

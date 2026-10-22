@@ -1305,9 +1305,7 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                     item->SetSpecFreq( freq * 1e3, sub_item );
                     break;
 
-                default:
-                    item->SetSpecFreq( freq, sub_item );
-                    break;
+                default: item->SetSpecFreq( freq, sub_item ); break;
                 }
             };
 
@@ -1408,19 +1406,16 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
 
         if( error.m_StackupItemIndex >= 0 )
         {
-            const BOARD_STACKUP_ITEM* item =
-                    m_stackup.GetStackupLayer( error.m_StackupItemIndex );
+            const BOARD_STACKUP_ITEM* item = m_stackup.GetStackupLayer( error.m_StackupItemIndex );
 
             if( item )
             {
-                wxString layerName = item->GetType() == BS_ITEM_TYPE_DIELECTRIC
-                                             ? item->FormatDielectricLayerName()
-                                             : item->GetLayerName();
+                wxString layerName = item->GetType() == BS_ITEM_TYPE_DIELECTRIC ? item->FormatDielectricLayerName()
+                                                                                : item->GetLayerName();
 
                 if( error.m_SublayerIndex >= 0 && item->GetSublayersCount() > 1 )
                 {
-                    layerName += wxString::Format(
-                            _( " (sublayer %d)" ), error.m_SublayerIndex + 1 );
+                    layerName += wxString::Format( _( " (sublayer %d)" ), error.m_SublayerIndex + 1 );
                 }
 
                 message = wxString::Format( _( "%s: %s" ), layerName, message );

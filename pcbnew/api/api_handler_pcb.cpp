@@ -792,9 +792,7 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
     // Validation must finish before changing layers, which may delete board items.
     if( enabled != board()->GetEnabledLayers() )
     {
-        HANDLER_CONTEXT<SetBoardEnabledLayers> layerCtx = {
-            aCtx.ClientName, SetBoardEnabledLayers()
-        };
+        HANDLER_CONTEXT<SetBoardEnabledLayers> layerCtx = { aCtx.ClientName, SetBoardEnabledLayers() };
 
         *layerCtx.Request.mutable_board() = aCtx.Request.board();
         layerCtx.Request.set_copper_layer_count( ( enabled & LSET::AllCuMask() ).count() );
