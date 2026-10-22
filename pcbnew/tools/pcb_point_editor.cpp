@@ -43,6 +43,7 @@ using namespace std::placeholders;
 #include <tools/pcb_selection_tool.h>
 #include <tools/pcb_point_editor.h>
 #include <tools/pcb_grid_helper.h>
+#include <tools/block_drag_capability.h>
 #include <tools/generator_tool.h>
 #include <dialogs/dialog_unit_entry.h>
 #include <board_commit.h>
@@ -1849,9 +1850,13 @@ public:
             m_originalWidths[shape] = static_cast<double>( shape->GetWidth() );
     }
 
+    // Gap in board units that keeps the box handles clear of the shapes' own handles
+    void SetInflation( int aInflation ) { m_inflation = aInflation; }
+
     void MakePoints( EDIT_POINTS& aPoints ) override
     {
         BOX2I bbox = getBoundingBox();
+        bbox.Inflate( m_inflation );
         VECTOR2I tl = bbox.GetOrigin();
         VECTOR2I br = bbox.GetEnd();
 
@@ -1870,6 +1875,7 @@ public:
     bool UpdatePoints( EDIT_POINTS& aPoints ) override
     {
         BOX2I bbox = getBoundingBox();
+        bbox.Inflate( m_inflation );
         VECTOR2I tl = bbox.GetOrigin();
         VECTOR2I br = bbox.GetEnd();
 
@@ -1922,6 +1928,13 @@ public:
         VECTOR2I tr = aPoints.Point( RECT_TOP_RIGHT ).GetPosition();
         VECTOR2I bl = aPoints.Point( RECT_BOT_LEFT ).GetPosition();
         VECTOR2I br = aPoints.Point( RECT_BOT_RIGHT ).GetPosition();
+
+        // Take the gap back out before pinning, so the minimum size is measured on the
+        // real box and a corner the user did not touch scales by exactly one
+        tl += VECTOR2I( m_inflation, m_inflation );
+        tr += VECTOR2I( -m_inflation, m_inflation );
+        bl += VECTOR2I( m_inflation, -m_inflation );
+        br -= VECTOR2I( m_inflation, m_inflation );
 
         RECTANGLE_POINT_EDIT_BEHAVIOR::PinEditedCorner( aEditedPoint, aPoints, tl, tr, bl, br );
 
@@ -2020,6 +2033,7 @@ private:
     BOARD_ITEM*                            m_parent;
     std::optional<VECTOR2I>                m_pinned;
     std::unordered_map<PCB_SHAPE*, double> m_originalWidths;
+    int                                    m_inflation = 0;
 };
 
 
@@ -2036,7 +2050,9 @@ PCB_POINT_EDITOR::PCB_POINT_EDITOR() :
         m_inPointEditorTool( false ),
         m_angleSnapPos( VECTOR2I( 0, 0 ) ),
         m_stickyDisplacement( VECTOR2I( 0, 0 ) ),
-        m_angleSnapActive( false )
+        m_angleSnapActive( false ),
+        m_blockHoveredPoint( nullptr ),
+        m_blockHoveredOwner( nullptr )
 {}
 
 
@@ -2058,6 +2074,8 @@ void PCB_POINT_EDITOR::Reset( RESET_REASON aReason )
 
     m_editedPoint = nullptr;
     m_hoveredPoint = nullptr;
+    clearBlockHandles();
+
     m_angleItem.reset();
     m_editPoints.reset();
     m_altConstraint.reset();
@@ -2181,34 +2199,48 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
     if( !aItem )
         return points;
 
-    // Reset the behaviour and we'll make a new one
-    m_editorBehavior = nullptr;
+    bool rejected = false;
+    m_editorBehavior = makeBehavior( aItem, rejected );
+
+    if( rejected )
+        points.reset();
+
+    if( m_editorBehavior && points )
+        m_editorBehavior->MakePoints( *points );
+
+    return points;
+}
+
+
+std::unique_ptr<POINT_EDIT_BEHAVIOR> PCB_POINT_EDITOR::makeBehavior( EDA_ITEM* aItem, bool& aRejected )
+{
+    std::unique_ptr<POINT_EDIT_BEHAVIOR> behavior;
 
     switch( aItem->Type() )
     {
     case PCB_REFERENCE_IMAGE_T:
     {
         PCB_REFERENCE_IMAGE& refImage = static_cast<PCB_REFERENCE_IMAGE&>( *aItem );
-        m_editorBehavior = std::make_unique<REFERENCE_IMAGE_POINT_EDIT_BEHAVIOR>( refImage.GetReferenceImage(),
-                                                                                  pcbIUScale.mmToIU( 1.0 ) );
+        behavior = std::make_unique<REFERENCE_IMAGE_POINT_EDIT_BEHAVIOR>( refImage.GetReferenceImage(),
+                                                                          pcbIUScale.mmToIU( 1.0 ) );
         break;
     }
     case PCB_BARCODE_T:
     {
         PCB_BARCODE& barcode = static_cast<PCB_BARCODE&>( *aItem );
-        m_editorBehavior = std::make_unique<BARCODE_POINT_EDIT_BEHAVIOR>( barcode );
+        behavior = std::make_unique<BARCODE_POINT_EDIT_BEHAVIOR>( barcode );
         break;
     }
     case PCB_GRID_ITEM_T:
     {
         PCB_GRID_ITEM& grid = static_cast<PCB_GRID_ITEM&>( *aItem );
-        m_editorBehavior = std::make_unique<GRID_POINT_EDIT_BEHAVIOR>( grid );
+        behavior = std::make_unique<GRID_POINT_EDIT_BEHAVIOR>( grid );
         break;
     }
     case PCB_TEXTBOX_T:
     {
         PCB_TEXTBOX& textbox = static_cast<PCB_TEXTBOX&>( *aItem );
-        m_editorBehavior = std::make_unique<TEXTBOX_POINT_EDIT_BEHAVIOR>( textbox );
+        behavior = std::make_unique<TEXTBOX_POINT_EDIT_BEHAVIOR>( textbox );
         break;
     }
     case PCB_SHAPE_T:
@@ -2217,37 +2249,25 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
 
         switch( shape->GetShape() )
         {
-        case SHAPE_T::SEGMENT:
-            m_editorBehavior = std::make_unique<EDA_SEGMENT_POINT_EDIT_BEHAVIOR>( *shape );
-            break;
+        case SHAPE_T::SEGMENT: behavior = std::make_unique<EDA_SEGMENT_POINT_EDIT_BEHAVIOR>( *shape ); break;
 
-        case SHAPE_T::RECTANGLE:
-            m_editorBehavior = std::make_unique<RECTANGLE_POINT_EDIT_BEHAVIOR>( *shape );
-            break;
+        case SHAPE_T::RECTANGLE: behavior = std::make_unique<RECTANGLE_POINT_EDIT_BEHAVIOR>( *shape ); break;
 
         case SHAPE_T::ARC:
-            m_editorBehavior = std::make_unique<EDA_ARC_POINT_EDIT_BEHAVIOR>( *shape, m_arcEditMode,
-                                                                              *getViewControls(),
-                                                                              pcbIUScale );
+            behavior = std::make_unique<EDA_ARC_POINT_EDIT_BEHAVIOR>( *shape, m_arcEditMode, *getViewControls(),
+                                                                      pcbIUScale );
             break;
 
-        case SHAPE_T::CIRCLE:
-            m_editorBehavior = std::make_unique<EDA_CIRCLE_POINT_EDIT_BEHAVIOR>( *shape );
-            break;
+        case SHAPE_T::CIRCLE: behavior = std::make_unique<EDA_CIRCLE_POINT_EDIT_BEHAVIOR>( *shape ); break;
 
-        case SHAPE_T::POLY:
-            m_editorBehavior = std::make_unique<EDA_POLYGON_POINT_EDIT_BEHAVIOR>( *shape );
-            break;
+        case SHAPE_T::POLY: behavior = std::make_unique<EDA_POLYGON_POINT_EDIT_BEHAVIOR>( *shape ); break;
 
         case SHAPE_T::BEZIER:
-            m_editorBehavior = std::make_unique<EDA_BEZIER_POINT_EDIT_BEHAVIOR>( *shape,
-                                                                                 shape->GetMaxError() );
+            behavior = std::make_unique<EDA_BEZIER_POINT_EDIT_BEHAVIOR>( *shape, shape->GetMaxError() );
             break;
 
         case SHAPE_T::ELLIPSE:
-        case SHAPE_T::ELLIPSE_ARC:
-            m_editorBehavior = std::make_unique<EDA_ELLIPSE_POINT_EDIT_BEHAVIOR>( *shape );
-            break;
+        case SHAPE_T::ELLIPSE_ARC: behavior = std::make_unique<EDA_ELLIPSE_POINT_EDIT_BEHAVIOR>( *shape ); break;
 
         default:        // suppress warnings
             break;
@@ -2271,9 +2291,16 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
         }
 
         if( shapesOnly )
-            m_editorBehavior = std::make_unique<SHAPE_GROUP_POINT_EDIT_BEHAVIOR>( *group );
+        {
+            std::unique_ptr<SHAPE_GROUP_POINT_EDIT_BEHAVIOR> groupBehavior =
+                    std::make_unique<SHAPE_GROUP_POINT_EDIT_BEHAVIOR>( *group );
+            groupBehavior->SetInflation( bboxHandleInflation() );
+            behavior = std::move( groupBehavior );
+        }
         else
-            points.reset();
+        {
+            aRejected = true;
+        }
 
         break;
     }
@@ -2284,7 +2311,7 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
 
         // No support for point-editing of a rotated table
         if( cell->GetShape() == SHAPE_T::RECTANGLE )
-            m_editorBehavior = std::make_unique<PCB_TABLECELL_POINT_EDIT_BEHAVIOR>( *cell );
+            behavior = std::make_unique<PCB_TABLECELL_POINT_EDIT_BEHAVIOR>( *cell );
 
         break;
     }
@@ -2301,7 +2328,7 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
             if( !IsCopperLayer( activeLayer ) )
                 activeLayer = IsFrontLayer( activeLayer ) ? F_Cu : B_Cu;
 
-            m_editorBehavior = std::make_unique<PAD_POINT_EDIT_BEHAVIOR>( pad, activeLayer );
+            behavior = std::make_unique<PAD_POINT_EDIT_BEHAVIOR>( pad, activeLayer );
         }
         break;
     }
@@ -2309,7 +2336,7 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
     case PCB_ZONE_T:
     {
         ZONE& zone = static_cast<ZONE&>( *aItem );
-        m_editorBehavior = std::make_unique<ZONE_POINT_EDIT_BEHAVIOR>( zone );
+        behavior = std::make_unique<ZONE_POINT_EDIT_BEHAVIOR>( zone );
         break;
     }
 
@@ -2318,13 +2345,13 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
         if( dynamic_cast<PCB_GENERATOR_POLY*>( aItem ) )
         {
             PCB_GENERATOR_POLY* generator = static_cast<PCB_GENERATOR_POLY*>( aItem );
-            m_editorBehavior = std::make_unique<GENERATOR_POLY_POINT_EDIT_BEHAVIOR>( *generator );
+            behavior = std::make_unique<GENERATOR_POLY_POINT_EDIT_BEHAVIOR>( *generator );
             break;
         }
         else
         {
             PCB_GENERATOR* generator = static_cast<PCB_GENERATOR*>( aItem );
-            m_editorBehavior = std::make_unique<GENERATOR_POINT_EDIT_BEHAVIOR>( *generator );
+            behavior = std::make_unique<GENERATOR_POINT_EDIT_BEHAVIOR>( *generator );
         }
         break;
     }
@@ -2333,45 +2360,196 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
     case PCB_DIM_ORTHOGONAL_T:
     {
         PCB_DIM_ALIGNED& dimension = static_cast<PCB_DIM_ALIGNED&>( *aItem );
-        m_editorBehavior = std::make_unique<ALIGNED_DIMENSION_POINT_EDIT_BEHAVIOR>( dimension );
+        behavior = std::make_unique<ALIGNED_DIMENSION_POINT_EDIT_BEHAVIOR>( dimension );
         break;
     }
 
     case PCB_DIM_CENTER_T:
     {
         PCB_DIM_CENTER& dimension = static_cast<PCB_DIM_CENTER&>( *aItem );
-        m_editorBehavior = std::make_unique<DIM_CENTER_POINT_EDIT_BEHAVIOR>( dimension );
+        behavior = std::make_unique<DIM_CENTER_POINT_EDIT_BEHAVIOR>( dimension );
         break;
     }
 
     case PCB_DIM_RADIAL_T:
     {
         PCB_DIM_RADIAL& dimension = static_cast<PCB_DIM_RADIAL&>( *aItem );
-        m_editorBehavior = std::make_unique<DIM_RADIAL_POINT_EDIT_BEHAVIOR>( dimension );
+        behavior = std::make_unique<DIM_RADIAL_POINT_EDIT_BEHAVIOR>( dimension );
         break;
     }
 
     case PCB_DIM_LEADER_T:
     {
         PCB_DIM_LEADER& dimension = static_cast<PCB_DIM_LEADER&>( *aItem );
-        m_editorBehavior = std::make_unique<DIM_LEADER_POINT_EDIT_BEHAVIOR>( dimension );
+        behavior = std::make_unique<DIM_LEADER_POINT_EDIT_BEHAVIOR>( dimension );
         break;
     }
 
-    default:
-        points.reset();
-        break;
+    default: aRejected = true; break;
     }
 
-    if( m_editorBehavior )
-        m_editorBehavior->MakePoints( *points );
+    return behavior;
+}
 
-    return points;
+
+int PCB_POINT_EDITOR::bboxHandleInflation() const
+{
+    // The gap only matters when the shapes show their own handles next to the box
+    if( !blockAnchorEditingEnabled() )
+        return 0;
+
+    // About 10 screen pixels of clearance at any zoom
+    return KiROUND( getView()->ToWorld( 10.0 ) );
+}
+
+
+bool PCB_POINT_EDITOR::blockAnchorEditingEnabled() const
+{
+    // Both editors read one setting, the way the footprint editor already reads the
+    // flip direction out of the board editor's settings
+    PCBNEW_SETTINGS* cfg = frame()->GetPcbNewSettings();
+
+    return cfg && cfg->m_AreaAnchorPointSelection;
+}
+
+
+void PCB_POINT_EDITOR::buildBlockHandles( const PCB_SELECTION& aSelection )
+{
+    clearBlockHandles();
+
+    std::vector<BOARD_ITEM*> items;
+
+    for( EDA_ITEM* selItem : aSelection )
+    {
+        if( selItem->IsBOARD_ITEM() )
+            items.push_back( static_cast<BOARD_ITEM*>( selItem ) );
+    }
+
+    std::vector<BOARD_ITEM*> expanded = BlockDragExpandSelection( items );
+
+    m_expandedSelection.insert( expanded.begin(), expanded.end() );
+
+    // A lone object that is not a group already shows its handles through m_editPoints
+    if( aSelection.Size() == 1 && aSelection.Front()->Type() != PCB_GROUP_T )
+        return;
+
+    for( BOARD_ITEM* item : expanded )
+    {
+        if( BlockDragCapability( *item ) != BLOCK_DRAG_CAPABILITY::DEFORMABLE )
+            continue;
+
+        bool                                 rejected = false;
+        std::unique_ptr<POINT_EDIT_BEHAVIOR> behavior = makeBehavior( item, rejected );
+
+        if( !behavior )
+            continue;
+
+        BLOCK_HANDLE_ENTRY entry;
+        entry.behavior = std::move( behavior );
+        entry.points = std::make_shared<EDIT_POINTS>( item );
+        entry.behavior->MakePoints( *entry.points );
+        getView()->Add( entry.points.get() );
+        m_blockHandles.push_back( std::move( entry ) );
+    }
+}
+
+
+void PCB_POINT_EDITOR::clearBlockHandles()
+{
+    if( KIGFX::VIEW* view = getView() )
+    {
+        for( BLOCK_HANDLE_ENTRY& entry : m_blockHandles )
+        {
+            if( view->HasItem( entry.points.get() ) )
+                view->Remove( entry.points.get() );
+        }
+    }
+
+    m_blockHandles.clear();
+    m_blockHoveredPoint = nullptr;
+    m_blockHoveredOwner = nullptr;
+    m_expandedSelection.clear();
+}
+
+
+void PCB_POINT_EDITOR::updateBlockHandlePoints()
+{
+    for( BLOCK_HANDLE_ENTRY& entry : m_blockHandles )
+    {
+        // A collection can be rebuilt in place, so a stored hover pointer goes stale
+        if( m_blockHoveredOwner == entry.points.get() )
+        {
+            if( m_blockHoveredPoint )
+                m_blockHoveredPoint->SetHover( false );
+
+            m_blockHoveredPoint = nullptr;
+            m_blockHoveredOwner = nullptr;
+        }
+
+        if( !entry.behavior->UpdatePoints( *entry.points ) )
+        {
+            EDA_ITEM* parent = entry.points->GetParent();
+
+            if( getView()->HasItem( entry.points.get() ) )
+                getView()->Remove( entry.points.get() );
+
+            entry.points = std::make_shared<EDIT_POINTS>( parent );
+            entry.behavior->MakePoints( *entry.points );
+            getView()->Add( entry.points.get() );
+        }
+        else
+        {
+            getView()->Update( entry.points.get() );
+        }
+    }
+}
+
+
+void PCB_POINT_EDITOR::updateBlockHandleHover( const VECTOR2I& aPosition )
+{
+    EDIT_POINT*  hovered = nullptr;
+    EDIT_POINTS* owner = nullptr;
+
+    for( BLOCK_HANDLE_ENTRY& entry : m_blockHandles )
+    {
+        if( EDIT_POINT* point = entry.points->FindPoint( aPosition, getView() ) )
+        {
+            hovered = point;
+            owner = entry.points.get();
+            break;
+        }
+    }
+
+    if( hovered == m_blockHoveredPoint )
+        return;
+
+    if( m_blockHoveredPoint )
+    {
+        m_blockHoveredPoint->SetHover( false );
+
+        if( m_blockHoveredOwner )
+            getView()->Update( m_blockHoveredOwner );
+    }
+
+    m_blockHoveredPoint = hovered;
+    m_blockHoveredOwner = owner;
+
+    if( m_blockHoveredPoint )
+    {
+        m_blockHoveredPoint->SetHover();
+        getView()->Update( m_blockHoveredOwner );
+    }
 }
 
 
 void PCB_POINT_EDITOR::updateEditedPoint( const TOOL_EVENT& aEvent )
 {
+    if( aEvent.IsMotion() )
+        updateBlockHandleHover( aEvent.Position() );
+
+    if( !m_editPoints )
+        return;
+
     EDIT_POINT* point;
     EDIT_POINT* hovered = nullptr;
 
@@ -2436,7 +2614,12 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     BOARD_ITEM* item = static_cast<BOARD_ITEM*>( selection.Front() );
     bool        overrideLocks = editFrame->GetOverrideLocks();
 
-    if( !item || ( item->IsLocked() && !overrideLocks ) )
+    // A locked item at the front of the selection would hide the handles of everything
+    // else. With block handles the per item test refuses the drag by name, which tells
+    // the user which item is in the way
+    bool blockHandlesPossible = selection.Size() > 1 && blockAnchorEditingEnabled();
+
+    if( !item || ( item->IsLocked() && !overrideLocks && !blockHandlesPossible ) )
         return 0;
 
     Activate();
@@ -2490,13 +2673,12 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             if( !pinned.empty() )
                 pin = pinned.front();
 
-            m_editorBehavior = std::make_unique<SHAPE_GROUP_POINT_EDIT_BEHAVIOR>( std::move( shapes ), item, pin );
+            std::unique_ptr<SHAPE_GROUP_POINT_EDIT_BEHAVIOR> groupBehavior =
+                    std::make_unique<SHAPE_GROUP_POINT_EDIT_BEHAVIOR>( std::move( shapes ), item, pin );
+            groupBehavior->SetInflation( bboxHandleInflation() );
+            m_editorBehavior = std::move( groupBehavior );
             m_editPoints = std::make_shared<EDIT_POINTS>( item );
             m_editorBehavior->MakePoints( *m_editPoints );
-        }
-        else
-        {
-            return 0;
         }
     }
     else
@@ -2505,13 +2687,16 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         m_editPoints = makePoints( item );
     }
 
-    if( !m_editPoints )
+    if( blockAnchorEditingEnabled() )
+        buildBlockHandles( selection );
+
+    if( !m_editPoints && m_blockHandles.empty() )
         return 0;
 
     PCB_SHAPE* graphicItem = dynamic_cast<PCB_SHAPE*>( item );
 
     // Only add the angle_item if we are editing a polygon or zone
-    if( item->Type() == PCB_ZONE_T || ( graphicItem && graphicItem->GetShape() == SHAPE_T::POLY ) )
+    if( m_editPoints && ( item->Type() == PCB_ZONE_T || ( graphicItem && graphicItem->GetShape() == SHAPE_T::POLY ) ) )
     {
         m_angleItem = std::make_unique<KIGFX::PREVIEW::ANGLE_ITEM>( m_editPoints );
     }
@@ -2523,7 +2708,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     m_radiusHelper = new RECT_RADIUS_TEXT_ITEM( pcbIUScale, editFrame->GetUserUnits() );
     m_preview.Add( m_radiusHelper );
 
-    getView()->Add( m_editPoints.get() );
+    if( m_editPoints )
+        getView()->Add( m_editPoints.get() );
 
     if( m_angleItem )
         getView()->Add( m_angleItem.get() );
@@ -2534,59 +2720,56 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     bool isConstrained = false;
     bool haveSnapLineDirections = false;
 
-    auto updateSnapLineDirections =
-            [&]()
-            {
-                std::vector<VECTOR2I> directions;
+    auto updateSnapLineDirections = [&]()
+    {
+        std::vector<VECTOR2I> directions;
 
-                if( inDrag && m_editedPoint )
-                {
-                    EDIT_RELATION* relation = nullptr;
+        if( inDrag && m_editedPoint )
+        {
+            EDIT_RELATION* relation = nullptr;
 
-                    if( m_altConstraint )
-                        relation = m_altConstraint.get();
-                    else if( m_editedPoint->IsConstrained() )
-                        relation = m_editedPoint->GetRelation();
+            if( m_altConstraint )
+                relation = m_altConstraint.get();
+            else if( m_editedPoint->IsConstrained() )
+                relation = m_editedPoint->GetRelation();
 
-                    directions = getConstraintDirections( relation );
-                }
+            directions = getConstraintDirections( relation );
+        }
 
-                if( directions.empty() )
-                {
-                    grid.SetSnapLineDirections( {} );
-                    grid.SetSnapLineEnd( std::nullopt );
-                    haveSnapLineDirections = false;
-                }
-                else
-                {
-                    VECTOR2I origin = m_altConstraint ? m_altConstrainer.GetPosition() : m_original.GetPosition();
+        if( directions.empty() )
+        {
+            grid.SetSnapLineDirections( {} );
+            grid.SetSnapLineEnd( std::nullopt );
+            haveSnapLineDirections = false;
+        }
+        else
+        {
+            VECTOR2I origin = m_altConstraint ? m_altConstrainer.GetPosition() : m_original.GetPosition();
 
-                    grid.SetSnapLineDirections( directions );
-                    grid.SetSnapLineOrigin( origin );
-                    grid.SetSnapLineEnd( std::nullopt );
-                    haveSnapLineDirections = true;
-                }
-            };
+            grid.SetSnapLineDirections( directions );
+            grid.SetSnapLineOrigin( origin );
+            grid.SetSnapLineEnd( std::nullopt );
+            haveSnapLineDirections = true;
+        }
+    };
 
     BOARD_COMMIT commit( editFrame );
 
-    auto installFeasibilityCallback =
-            [&]()
-            {
-                grid.SetFeasibilityCallback( {} );
+    auto installFeasibilityCallback = [&]()
+    {
+        grid.SetFeasibilityCallback( {} );
 
-                if( !m_constraintDragSession || dynamic_cast<EDIT_LINE*>( m_editedPoint ) )
-                    return;
+        if( !m_constraintDragSession || dynamic_cast<EDIT_LINE*>( m_editedPoint ) )
+            return;
 
-                std::shared_ptr<BOARD_CONSTRAINT_DRAG_SESSION> session = m_constraintDragSession;
+        std::shared_ptr<BOARD_CONSTRAINT_DRAG_SESSION> session = m_constraintDragSession;
 
-                grid.SetFeasibilityCallback(
-                        [session]( const SNAP_SOURCE_CONTEXT& aContext,
-                                   const std::vector<SNAP_CANDIDATE>& aCandidates )
-                        {
-                            return session->ResolveCandidates( aContext, aCandidates );
-                        } );
-            };
+        grid.SetFeasibilityCallback(
+                [session]( const SNAP_SOURCE_CONTEXT& aContext, const std::vector<SNAP_CANDIDATE>& aCandidates )
+                {
+                    return session->ResolveCandidates( aContext, aCandidates );
+                } );
+    };
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -2600,7 +2783,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         else
             m_arcEditMode = editFrame->GetFootprintEditorSettings()->m_ArcEditMode;
 
-        if( !m_editPoints || evt->IsSelectionEvent() || evt->Matches( EVENTS::InhibitSelectionEditing ) )
+        if( ( !m_editPoints && m_blockHandles.empty() ) || evt->IsSelectionEvent()
+            || evt->Matches( EVENTS::InhibitSelectionEditing ) )
         {
             break;
         }
@@ -2610,7 +2794,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         if( !inDrag )
             updateEditedPoint( *evt );
 
-        if( prevHover != m_hoveredPoint )
+        if( prevHover != m_hoveredPoint && m_editPoints )
         {
             getView()->Update( m_editPoints.get() );
 
@@ -3162,7 +3346,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         else if( evt->IsAction( &PCB_ACTIONS::layerChanged ) )
         {
             // Re-create the points for items which can have different behavior on different layers
-            if( item->Type() == PCB_PAD_T && m_isFootprintEditor )
+            if( m_editPoints && item->Type() == PCB_PAD_T && m_isFootprintEditor )
             {
                 if( getView()->HasItem( m_editPoints.get() ) )
                     getView()->Remove( m_editPoints.get() );
@@ -3207,6 +3391,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     m_preview.FreeItems();
     m_radiusHelper = nullptr;
     m_constraintDragSession.reset();
+
+    clearBlockHandles();
 
     if( getView()->HasItem( &m_preview ) )
         getView()->Remove( &m_preview );
@@ -3522,6 +3708,8 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT& aCommit )
 
 void PCB_POINT_EDITOR::updatePoints()
 {
+    updateBlockHandlePoints();
+
     if( !m_editPoints )
         return;
 
@@ -3561,6 +3749,12 @@ void PCB_POINT_EDITOR::updatePoints()
                 }
             }
         }
+    }
+
+    if( SHAPE_GROUP_POINT_EDIT_BEHAVIOR* groupBehavior =
+                dynamic_cast<SHAPE_GROUP_POINT_EDIT_BEHAVIOR*>( m_editorBehavior.get() ) )
+    {
+        groupBehavior->SetInflation( bboxHandleInflation() );
     }
 
     if( !m_editorBehavior->UpdatePoints( *m_editPoints ) )
