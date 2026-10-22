@@ -28,6 +28,7 @@
 
 #include <board.h>
 #include <board_commit.h>
+#include <pcb_dimension.h>
 #include <pcb_shape.h>
 #include <geometry/shape_arc.h>
 #include <constraints/pcb_constraint.h>
@@ -1475,6 +1476,405 @@ BOOST_FIXTURE_TEST_CASE( ArcCentreDragHoldsEndpoints, DRAG_FIXTURE )
     BOOST_CHECK_LE( ( arc->GetEnd() - end0 ).EuclideanNorm(), 20000.0 );
     BOOST_CHECK( ( arc->GetCenter() - VECTOR2I( 0, 0 ) ).EuclideanNorm() > 100000.0 );
     BOOST_CHECK_GT( std::abs( arc->GetRadius() - radius0 ), 100000 );
+}
+
+
+// A block drag reshapes the shape whose anchor was picked and carries the rest whole, which
+// leaves the joint between them broken until the solver tidies up what the drag left free.
+// Here only the loose end of the reshaped segment can move, and it has to follow the carried one.
+BOOST_FIXTURE_TEST_CASE( BlockEditRelaxesUncommandedAnchorOfDeformedShape, DRAG_FIXTURE )
+{
+    PCB_SHAPE* deformed = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* carried = addSegment( { 10 * MM, 0 }, { 20 * MM, 0 } );
+    addCoincident( deformed, CONSTRAINT_ANCHOR::END, carried, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { deformed, carried } ) );
+
+    const VECTOR2I delta( 2 * MM, 3 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    // What the drag writes before the solve. The picked anchor sits on its target, the carried
+    // segment has moved whole, and the unpicked end has not moved
+    commit.Modify( deformed );
+    commit.Modify( carried );
+    deformed->SetStart( deformed->GetStart() + delta );
+    carried->Move( delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result =
+            session.Solve( { { CONSTRAINT_MEMBER( deformed->m_Uuid, CONSTRAINT_ANCHOR::START ), delta } },
+                           { carried->m_Uuid }, delta, &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               commit.Modify( aItem );
+                           } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+
+    // Both placed points landed exactly where they were put
+    BOOST_CHECK_EQUAL( deformed->GetStart(), VECTOR2I( 2 * MM, 3 * MM ) );
+    BOOST_CHECK_EQUAL( carried->GetStart(), VECTOR2I( 12 * MM, 3 * MM ) );
+    BOOST_CHECK_EQUAL( carried->GetEnd(), VECTOR2I( 22 * MM, 3 * MM ) );
+
+    // The end nobody placed moved to the carried joint instead of staying where the reshape
+    // left it, so the constraint holds and the reshaped segment ends up moved whole
+    BOOST_CHECK_LE( ( deformed->GetEnd() - carried->GetStart() ).EuclideanNorm(), 100 );
+    BOOST_CHECK( deformed->GetEnd() != VECTOR2I( 10 * MM, 0 ) );
+    BOOST_CHECK( std::find( moved.begin(), moved.end(), deformed ) != moved.end() );
+
+    commit.Revert();
+}
+
+
+// The common case. One picked anchor reshapes a shape whose constrained partner is not in the
+// block at all, so the solver brings the partner along and reports it for the caller to stage.
+BOOST_FIXTURE_TEST_CASE( BlockEditPullsAnUnselectedNeighborAlong, DRAG_FIXTURE )
+{
+    PCB_SHAPE* deformed = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* neighbor = addSegment( { 10 * MM, 0 }, { 10 * MM, 10 * MM } );
+    addCoincident( deformed, CONSTRAINT_ANCHOR::END, neighbor, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { deformed } ) );
+
+    const VECTOR2I target( 13 * MM, 4 * MM );
+    const VECTOR2I neighborEnd0 = neighbor->GetEnd();
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( deformed );
+    deformed->SetEnd( target );
+
+    std::vector<PCB_SHAPE*>  moved;
+    std::vector<BOARD_ITEM*> staged;
+    CONSTRAINT_BLOCK_RESULT  result =
+            session.Solve( { { CONSTRAINT_MEMBER( deformed->m_Uuid, CONSTRAINT_ANCHOR::END ), target } }, {},
+                           target - VECTOR2I( 10 * MM, 0 ), &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               staged.push_back( aItem );
+                               commit.Modify( aItem );
+                           } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( deformed->GetEnd(), target );
+    BOOST_CHECK_LE( ( neighbor->GetStart() - target ).EuclideanNorm(), 100 );
+
+    // Only the constrained end moved, because the weak pins hold the far end, and the caller
+    // heard about the shape before it changed
+    BOOST_CHECK( neighbor->GetStart() != VECTOR2I( 10 * MM, 0 ) );
+    BOOST_CHECK_EQUAL( neighbor->GetEnd(), neighborEnd0 );
+    BOOST_CHECK( std::find( moved.begin(), moved.end(), neighbor ) != moved.end() );
+    BOOST_CHECK( std::find( staged.begin(), staged.end(), neighbor ) != staged.end() );
+
+    commit.Revert();
+}
+
+
+// Both anchors of one segment picked while its constrained partner travels whole. Everything
+// moves by the same offset, so the constraint moves with the block and the drag goes through.
+BOOST_FIXTURE_TEST_CASE( BlockEditCarriesSpannedClusterWhole, DRAG_FIXTURE )
+{
+    PCB_SHAPE* picked = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* carried = addSegment( { 10 * MM, 0 }, { 20 * MM, 0 } );
+    addCoincident( picked, CONSTRAINT_ANCHOR::END, carried, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { picked, carried } ) );
+
+    const VECTOR2I delta( -4 * MM, 1 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( picked );
+    commit.Modify( carried );
+    picked->Move( delta );
+    carried->Move( delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result = session.Solve(
+            { { CONSTRAINT_MEMBER( picked->m_Uuid, CONSTRAINT_ANCHOR::START ), delta },
+              { CONSTRAINT_MEMBER( picked->m_Uuid, CONSTRAINT_ANCHOR::END ), VECTOR2I( 10 * MM, 0 ) + delta } },
+            { carried->m_Uuid }, delta, &moved,
+            [&]( BOARD_ITEM* aItem )
+            {
+                commit.Modify( aItem );
+            } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( picked->GetStart(), VECTOR2I( -4 * MM, 1 * MM ) );
+    BOOST_CHECK_EQUAL( picked->GetEnd(), VECTOR2I( 6 * MM, 1 * MM ) );
+    BOOST_CHECK_EQUAL( carried->GetStart(), VECTOR2I( 6 * MM, 1 * MM ) );
+
+    commit.Revert();
+}
+
+
+// A placement the constraints forbid is refused and the geometry is left as it was. Here the
+// carried segment's far end is tied to a locked neighbour the solver cannot move.
+BOOST_FIXTURE_TEST_CASE( BlockEditRefusesCommandTiedToLockedNeighbor, DRAG_FIXTURE )
+{
+    PCB_SHAPE* carried = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* anchored = addSegment( { 10 * MM, 0 }, { 10 * MM, 10 * MM } );
+    anchored->SetLocked( true );
+    addCoincident( carried, CONSTRAINT_ANCHOR::END, anchored, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { carried } ) );
+
+    const VECTOR2I delta( 3 * MM, 0 );
+    const VECTOR2I anchoredStart0 = anchored->GetStart();
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( carried );
+    carried->Move( delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result = session.Solve( {}, { carried->m_Uuid }, delta, &moved,
+                                                    [&]( BOARD_ITEM* aItem )
+                                                    {
+                                                        commit.Modify( aItem );
+                                                    } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::REFUSED );
+    BOOST_CHECK( moved.empty() );
+
+    // The solve wrote nothing, so the locked neighbour is untouched and the carried geometry is
+    // still exactly what the drag put on the board for the caller to undo
+    BOOST_CHECK_EQUAL( anchored->GetStart(), anchoredStart0 );
+    BOOST_CHECK_EQUAL( carried->GetStart(), VECTOR2I( 3 * MM, 0 ) );
+
+    commit.Revert();
+}
+
+
+// The solver normally freezes a locked shape. With the lock override the drag carries it
+// anyway, so its placed coordinates stand and the free neighbour follows them.
+BOOST_FIXTURE_TEST_CASE( BlockEditCarriesALockedShapeUnderTheOverride, DRAG_FIXTURE )
+{
+    PCB_SHAPE* locked = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* neighbor = addSegment( { 10 * MM, 0 }, { 10 * MM, 10 * MM } );
+    locked->SetLocked( true );
+    addCoincident( locked, CONSTRAINT_ANCHOR::END, neighbor, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { locked } ) );
+
+    const VECTOR2I delta( 3 * MM, 0 );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( locked );
+    locked->Move( delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result = session.Solve( {}, { locked->m_Uuid }, delta, &moved,
+                                                    [&]( BOARD_ITEM* aItem )
+                                                    {
+                                                        commit.Modify( aItem );
+                                                    } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( locked->GetEnd(), VECTOR2I( 13 * MM, 0 ) );
+    BOOST_CHECK_LE( ( neighbor->GetStart() - locked->GetEnd() ).EuclideanNorm(), 100 );
+
+    commit.Revert();
+}
+
+
+// A dimension has no pickable handle, so a block carries it whole, and the solver freezes the
+// dimension point no constraint binds. The carried offset still has to apply to both points, so
+// the frame goes through and no point is left behind.
+BOOST_FIXTURE_TEST_CASE( BlockEditCarriesABoundDimension, DRAG_FIXTURE )
+{
+    PCB_SHAPE* deformed = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+
+    PCB_DIM_ALIGNED* dim = new PCB_DIM_ALIGNED( &board, PCB_DIM_ALIGNED_T );
+    dim->SetStart( { 10 * MM, 0 } );
+    dim->SetEnd( { 10 * MM, 5 * MM } );
+    dim->Update();
+    board.Add( dim );
+
+    PCB_CONSTRAINT* joint = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::COINCIDENT );
+    joint->AddMember( deformed->m_Uuid, CONSTRAINT_ANCHOR::END );
+    joint->AddMember( dim->m_Uuid, CONSTRAINT_ANCHOR::START );
+    board.Add( joint );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { deformed } ) );
+
+    const VECTOR2I delta( 2 * MM, 1 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( deformed );
+    commit.Modify( dim );
+    deformed->SetEnd( VECTOR2I( 10 * MM, 0 ) + delta );
+    dim->Move( delta );
+
+    CONSTRAINT_BLOCK_RESULT result = session.Solve(
+            { { CONSTRAINT_MEMBER( deformed->m_Uuid, CONSTRAINT_ANCHOR::END ), VECTOR2I( 10 * MM, 0 ) + delta } },
+            { dim->m_Uuid }, delta, nullptr,
+            [&]( BOARD_ITEM* aItem )
+            {
+                commit.Modify( aItem );
+            } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( dim->GetStart(), VECTOR2I( 12 * MM, 1 * MM ) );
+    BOOST_CHECK_EQUAL( dim->GetEnd(), VECTOR2I( 12 * MM, 6 * MM ) );
+
+    commit.Revert();
+}
+
+
+// One picked polygon corner. The constrained corner follows the carried segment, the picked one
+// lands exactly where it was put, and the corners nothing binds barely move.
+BOOST_FIXTURE_TEST_CASE( BlockEditRelaxesOnlyBoundPolygonVertices, DRAG_FIXTURE )
+{
+    const std::vector<VECTOR2I> points{ { 0, 0 }, { 10 * MM, 0 }, { 10 * MM, 10 * MM }, { 0, 10 * MM } };
+
+    PCB_SHAPE* poly = addPoly( points );
+    PCB_SHAPE* carried = addSegment( { 0, 0 }, { 0, -10 * MM } );
+
+    PCB_CONSTRAINT* joint = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::COINCIDENT );
+    joint->AddMember( poly->m_Uuid, CONSTRAINT_ANCHOR::VERTEX, 0 );
+    joint->AddMember( carried->m_Uuid, CONSTRAINT_ANCHOR::START );
+    board.Add( joint );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { poly, carried } ) );
+
+    const VECTOR2I delta( 2 * MM, 0 );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( poly );
+    commit.Modify( carried );
+
+    std::vector<VECTOR2I> deformed = points;
+    deformed[2] += delta;
+    poly->SetPolyPoints( deformed );
+    carried->Move( delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result =
+            session.Solve( { { CONSTRAINT_MEMBER( poly->m_Uuid, CONSTRAINT_ANCHOR::VERTEX, 2 ), points[2] + delta } },
+                           { carried->m_Uuid }, delta, &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               commit.Modify( aItem );
+                           } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+
+    const SHAPE_LINE_CHAIN& outline = poly->GetPolyShape().COutline( 0 );
+    BOOST_REQUIRE_EQUAL( outline.PointCount(), 4 );
+
+    BOOST_CHECK_EQUAL( outline.CPoint( 2 ), VECTOR2I( 12 * MM, 10 * MM ) );
+    BOOST_CHECK_LE( ( outline.CPoint( 0 ) - carried->GetStart() ).EuclideanNorm(), 100 );
+    BOOST_CHECK_LE( ( outline.CPoint( 0 ) - VECTOR2I( 2 * MM, 0 ) ).EuclideanNorm(), 100 );
+
+    for( int i : { 1, 3 } )
+        BOOST_CHECK_LE( ( outline.CPoint( i ) - points[i] ).EuclideanNorm(), 100 );
+
+    commit.Revert();
+}
+
+
+// The session solves every frame from the geometry it was built on, so a cluster with room to
+// move ends up the same whatever path the cursor took to get there.
+BOOST_FIXTURE_TEST_CASE( BlockEditResultDoesNotDependOnThePath, DRAG_FIXTURE )
+{
+    const std::vector<VECTOR2I> path{ { 0, 2 * MM }, { 0, 5 * MM } };
+
+    const auto run = [&]( const std::vector<VECTOR2I>& aDeltas ) -> std::pair<VECTOR2I, VECTOR2I>
+    {
+        BOARD      runBoard;
+        PCB_SHAPE* deformed = new PCB_SHAPE( &runBoard, SHAPE_T::SEGMENT );
+        deformed->SetStart( { 0, 0 } );
+        deformed->SetEnd( { 10 * MM, 0 } );
+        runBoard.Add( deformed );
+
+        PCB_SHAPE* neighbor = new PCB_SHAPE( &runBoard, SHAPE_T::SEGMENT );
+        neighbor->SetStart( { 20 * MM, 0 } );
+        neighbor->SetEnd( { 20 * MM, 10 * MM } );
+        runBoard.Add( neighbor );
+
+        PCB_CONSTRAINT* square = new PCB_CONSTRAINT( &runBoard, PCB_CONSTRAINT_TYPE::PERPENDICULAR );
+        square->AddMember( deformed->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+        square->AddMember( neighbor->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+        runBoard.Add( square );
+
+        BOARD_CONSTRAINT_BLOCK_SESSION session;
+        BOOST_REQUIRE( session.Build( &runBoard, { deformed } ) );
+
+        for( const VECTOR2I& delta : aDeltas )
+        {
+            deformed->SetEnd( VECTOR2I( 10 * MM, 0 ) + delta );
+
+            CONSTRAINT_BLOCK_RESULT result =
+                    session.Solve( { { CONSTRAINT_MEMBER( deformed->m_Uuid, CONSTRAINT_ANCHOR::END ),
+                                       VECTOR2I( 10 * MM, 0 ) + delta } },
+                                   {}, delta, nullptr, {} );
+
+            BOOST_REQUIRE( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+        }
+
+        return { neighbor->GetStart(), neighbor->GetEnd() };
+    };
+
+    const std::pair<VECTOR2I, VECTOR2I> wandered = run( path );
+    const std::pair<VECTOR2I, VECTOR2I> direct = run( { path.back() } );
+
+    BOOST_CHECK_EQUAL( wandered.first, direct.first );
+    BOOST_CHECK_EQUAL( wandered.second, direct.second );
+}
+
+
+// A cluster whose constraints were already broken is left alone. The block drag did not break
+// it, so the drag neither repairs it nor is refused over it.
+BOOST_FIXTURE_TEST_CASE( BlockEditLeavesAPreBrokenClusterAlone, DRAG_FIXTURE )
+{
+    PCB_SHAPE* carried = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* neighbor = addSegment( { 12 * MM, 5 * MM }, { 20 * MM, 5 * MM } );
+    addCoincident( carried, CONSTRAINT_ANCHOR::END, neighbor, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { carried } ) );
+    BOOST_REQUIRE( session.HasBaseConflict() );
+
+    const VECTOR2I neighborStart0 = neighbor->GetStart();
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result = session.Solve( {}, { carried->m_Uuid }, VECTOR2I( 3 * MM, 0 ), &moved, {} );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::NOT_MODELED );
+    BOOST_CHECK( moved.empty() );
+    BOOST_CHECK_EQUAL( neighbor->GetStart(), neighborStart0 );
+}
+
+
+// A block that touches a cluster but places none of its coordinates solves nothing and writes
+// nothing, so picking a handle the solver cannot model still lets the drag run.
+BOOST_FIXTURE_TEST_CASE( BlockEditWithNoModelledCommandWritesNothing, DRAG_FIXTURE )
+{
+    PCB_SHAPE*      a = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE*      b = addSegment( { 10 * MM, 0 }, { 20 * MM, 0 } );
+    PCB_CONSTRAINT* joint = addCoincident( a, CONSTRAINT_ANCHOR::END, b, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_ADAPTER adapter;
+    BOOST_REQUIRE( adapter.Build( { a, b }, { joint } ) );
+
+    const VECTOR2I aEnd0 = a->GetEnd();
+    const VECTOR2I bStart0 = b->GetStart();
+
+    // A centre anchor on a segment maps to no parameter, so the cluster gets nothing to solve
+    // even though the block carried one of its shapes
+    CONSTRAINT_BLOCK_RESULT result = adapter.SolveBlockEdit(
+            { { CONSTRAINT_MEMBER( a->m_Uuid, CONSTRAINT_ANCHOR::CENTER ), VECTOR2I( 5 * MM, 5 * MM ) } }, {},
+            VECTOR2I( 0, 0 ) );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::NOT_MODELED );
+    BOOST_CHECK( adapter.Apply().empty() );
+    BOOST_CHECK_EQUAL( a->GetEnd(), aEnd0 );
+    BOOST_CHECK_EQUAL( b->GetStart(), bStart0 );
 }
 
 

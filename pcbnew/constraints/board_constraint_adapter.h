@@ -67,6 +67,16 @@ struct CONSTRAINT_DIAGNOSIS
 };
 
 
+/// How a block edit solve turned out. Lets the caller tell an edit the constraints
+/// forbid from a cluster the solver has nothing to say about.
+enum class CONSTRAINT_BLOCK_RESULT
+{
+    SOLVED,      ///< The constraints hold and every pinned point is exactly where it was put.
+    REFUSED,     ///< No arrangement fits the pinned points, and the geometry is untouched.
+    NOT_MODELED, ///< Nothing the caller pinned belongs to this cluster.
+};
+
+
 /// The constraint state of a shape, for the diagnostics overlay tint.
 enum class CONSTRAINT_STATE
 {
@@ -165,6 +175,28 @@ public:
                              const VECTOR2I& aCursor );
     bool SolveRigidTranslation( const std::set<KIID>& aEditedShapes,
                                 const VECTOR2I& aTranslation );
+
+    /**
+     * Solve a block edit whose geometry the caller has already written.
+     *
+     * Each commanded coordinate is pinned at full weight exactly where the caller put it, and every
+     * other coordinate in the cluster keeps a minimal-movement pin, so an unpicked anchor of an
+     * edited shape and an untouched neighbour both relax by the least the relations allow instead of
+     * being frozen.  Nothing is written; the caller applies the result.
+     *
+     * A commanded coordinate the solve cannot move, a locked shape's or a dimension point no
+     * constraint binds, takes its command as a constant, since the caller has already carried the
+     * item there; a relation that then breaks still shows up as a refusal.
+     *
+     * @param aPinnedAnchors the anchors the user placed, each with its target in IU.
+     * @param aTranslatedShapes shapes that travelled whole, with all of their coordinates held.
+     * @param aTranslation how far those shapes travelled from the current parameters.
+     * @return SOLVED when the constraints hold with every pinned point exact, REFUSED when
+     *         they cannot, and NOT_MODELED when nothing pinned belongs to this cluster.
+     */
+    CONSTRAINT_BLOCK_RESULT
+    SolveBlockEdit( const std::vector<std::pair<CONSTRAINT_MEMBER, VECTOR2I>>& aPinnedAnchors,
+                    const std::set<KIID>& aTranslatedShapes, const VECTOR2I& aTranslation );
 
     /// True when every shape in the cluster is in @p aEditedShapes and free to travel with it.
     bool TravelsWhole( const std::set<KIID>& aEditedShapes ) const;
@@ -336,6 +368,16 @@ private:
     /// As above for the point whose x param is @p aPointX and whose y param follows it
     void softPinPoint( int aPointX, int aTag, std::optional<double> aWeight = std::nullopt );
 
+    /// Pin the single coordinate at @p aParam where it sits tagged @p aTag with @p aWeight
+    /// rescaling the tier for an anchor whose two coordinates are commanded separately as a
+    /// rectangle corner's aliased pair is a negative param is ignored
+    void softPinCoordinate( int aParam, int aTag, std::optional<double> aWeight = std::nullopt );
+
+    /// Soft-pin every cluster coordinate outside @p aCommanded where it sits tagged @p aTag with
+    /// the stay-put weight so nothing the caller did not command moves further than the relations
+    /// force and a shape with a commanded coordinate carries its radii at full weight
+    void pinUncommandedCoordinates( const std::set<int>& aCommanded, int aTag );
+
     /// Soft-pin every vertex of each POLYGON in @p aShapes tagged @p aTag for edited shapes
     /// pinUneditedShapes excludes so unbound vertices keep their null-space minimal-movement pins
     void holdPolygonVertices( const std::set<KIID>& aShapes, int aTag );
@@ -495,6 +537,41 @@ private:
 
     VECTOR2I       m_reference;
     std::set<KIID> m_edited;
+};
+
+
+/**
+ * One block edit session, holding several anchors and one travel offset at once.
+ *
+ * A block drag deforms some shapes through picked anchors while carrying others whole, so it needs
+ * more than the drag session's single anchor and more than the move session's one rigid step.  The
+ * session is built once, over every cluster the block touches, and each frame solves from the
+ * baseline, so the committed geometry depends on the final displacement rather than on the path the
+ * cursor took to it.
+ */
+class BOARD_CONSTRAINT_BLOCK_SESSION : public BOARD_CONSTRAINT_SESSION
+{
+public:
+    /// Assemble one adapter over the clusters holding @p aBlockShapes.  False when they hold none,
+    /// and the caller then does no constraint work rather than refusing its edit.
+    bool Build( BOARD* aBoard, const std::vector<PCB_SHAPE*>& aBlockShapes );
+
+    /**
+     * Solve one frame of the block edit and apply it.
+     *
+     * @param aPinnedAnchors the frame's anchors with their targets in IU.
+     * @param aTranslatedShapes shapes the frame carried whole.
+     * @param aTranslation how far they travelled from the starting geometry.
+     * @param[out] aModified the shapes the solve moved, for the caller to stage and redraw.
+     * @param aBeforeModify called with each item just before it is written, for the undo commit.
+     * @return SOLVED after the geometry was written, REFUSED when an anchor could not be
+     *         placed and the geometry is untouched, and NOT_MODELED when there was nothing
+     *         to solve.
+     */
+    CONSTRAINT_BLOCK_RESULT
+    Solve( const std::vector<std::pair<CONSTRAINT_MEMBER, VECTOR2I>>& aPinnedAnchors,
+           const std::set<KIID>& aTranslatedShapes, const VECTOR2I& aTranslation, std::vector<PCB_SHAPE*>* aModified,
+           const std::function<void( BOARD_ITEM* )>& aBeforeModify );
 };
 
 
