@@ -561,8 +561,7 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
 
     for( int itemIndex = 0; itemIndex < GetCount(); ++itemIndex )
     {
-        // GetStackupLayer() is not const, so use the internal list directly
-        const BOARD_STACKUP_ITEM* item = m_list[itemIndex]; // const because modification is not allowed in validation
+        const BOARD_STACKUP_ITEM* item = GetStackupLayer( itemIndex );
 
         if( !item )
         {
@@ -1121,6 +1120,15 @@ void BOARD_STACKUP::RemoveDisabledLayers()
 
 
 BOARD_STACKUP_ITEM* BOARD_STACKUP::GetStackupLayer( int aIndex )
+{
+    if( aIndex < 0 || aIndex >= GetCount() )
+        return nullptr;
+
+    return GetList()[aIndex];
+}
+
+
+const BOARD_STACKUP_ITEM* BOARD_STACKUP::GetStackupLayer( int aIndex ) const
 {
     if( aIndex < 0 || aIndex >= GetCount() )
         return nullptr;

@@ -282,6 +282,7 @@ public:
 
     /// @return a reference to the layer aIndex, or nullptr if not exists
     BOARD_STACKUP_ITEM* GetStackupLayer( int aIndex );
+    const BOARD_STACKUP_ITEM* GetStackupLayer( int aIndex ) const;
 
     /**
      * @return the board layers full mask allowed in the stackup list
