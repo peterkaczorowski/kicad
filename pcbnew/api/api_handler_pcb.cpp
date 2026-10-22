@@ -668,6 +668,10 @@ HANDLER_RESULT<BoardEnabledLayersResponse> API_HANDLER_PCB::handleSetBoardEnable
 
         for( PCB_LAYER_ID layer_id : removedLayers )
             modified |= board->RemoveAllItemsOnLayer( layer_id );
+
+        // UndoRedoList may have stale copies of pointers deleted above
+        if( frame() )
+            frame()->ClearUndoRedoList();
     }
 
     if( enabled != previousEnabled || modified )
