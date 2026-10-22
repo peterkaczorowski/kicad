@@ -3052,6 +3052,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     std::vector<BOARD_ITEM*>                                   blockMoving;
     std::vector<KIID>                                          blockOverlayHidden;
     std::vector<PCB_SHAPE*>                                    blockConstrainedShapes;
+    std::vector<std::pair<PCB_SHAPE*, CONSTRAINT_MEMBER>>      blockConstraintAnchors;
+    std::set<KIID>                                             blockConstraintTranslated;
+    std::optional<BOARD_CONSTRAINT_BLOCK_SESSION>              blockConstraintSession;
+    bool                                                       blockConstraintWarned = false;
     std::set<PCB_SHAPE*>                                       blockSolverBrightened;
     std::optional<BLOCK_DRAG_VALIDATION>                       blockValidation;
     VECTOR2I                                                   blockAppliedDelta;
@@ -3126,6 +3130,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         blockRigidItems.clear();
         blockMoving.clear();
         blockConstrainedShapes.clear();
+        blockConstraintAnchors.clear();
+        blockConstraintTranslated.clear();
+        blockConstraintSession.reset();
+        blockConstraintWarned = false;
         blockValidation.reset();
         blockAppliedDelta = VECTOR2I( 0, 0 );
         blockRevertRestarts = false;
@@ -3238,6 +3246,134 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         return true;
     };
 
+    // How one frame of the gesture turned out
+    enum class BLOCK_FRAME_RESULT
+    {
+        APPLIED,       ///< The frame's geometry went onto the board
+        LOST_IDENTITY, ///< A picked handle has gone, so the gesture has to stop
+        CONSTRAINED,   ///< A constraint blocks this frame, and the board is untouched
+    };
+
+    // Write one frame. First the reshaped items, then the ones that travel whole, then the
+    // joined endpoints that follow, then the constraint solve over all of them. Undoing a
+    // frame is this same call with the last offset the gesture accepted
+    auto applyBlockFrame = [&]( const VECTOR2I& aDelta, std::vector<EDA_ITEM*>& aUpdated ) -> BLOCK_FRAME_RESULT
+    {
+        if( !BlockDragApplyDisplacement( pickableCollections(), blockOrigins, aDelta ) || !collectBlockTargets() )
+            return BLOCK_FRAME_RESULT::LOST_IDENTITY;
+
+        for( auto& [targetPoints, behavior] : blockTargets )
+        {
+            EDA_ITEM* parent = targetPoints->GetParent();
+            aUpdated.push_back( parent );
+
+            for( const auto& [key, origin] : blockOrigins )
+            {
+                if( key.Parent() != parent->m_Uuid )
+                    continue;
+
+                if( EDIT_POINT* moved = key.Resolve( *targetPoints ) )
+                    behavior->UpdateItem( *moved, *targetPoints, commit, aUpdated );
+            }
+        }
+
+        VECTOR2I frameStep = aDelta - blockAppliedDelta;
+
+        if( frameStep != VECTOR2I( 0, 0 ) )
+        {
+            for( BOARD_ITEM* rigidItem : blockRigidItems )
+            {
+                rigidItem->Move( frameStep );
+                aUpdated.push_back( rigidItem );
+            }
+        }
+
+        blockAppliedDelta = aDelta;
+
+        for( size_t ii = 0; ii < blockDependents.size(); ++ii )
+        {
+            const BLOCK_DRAG_ENDPOINT& dep = blockDependents[ii];
+            VECTOR2I                   target = dep.position + aDelta;
+
+            if( dep.isStart )
+                dep.shape->SetStart( target );
+            else
+                dep.shape->SetEnd( target );
+
+            aUpdated.push_back( dep.shape );
+
+            if( ii < blockDependentDisplays.size() )
+            {
+                blockDependentDisplays[ii]->Point( 0 ).SetPosition( target );
+                getView()->Update( blockDependentDisplays[ii].get() );
+            }
+        }
+
+        // The picked anchors and the carried displacement are commands; the rest of their clusters
+        // relaxes around them by the least the relations allow
+        if( blockConstraintSession && frameStep != VECTOR2I( 0, 0 ) )
+        {
+            std::vector<std::pair<CONSTRAINT_MEMBER, VECTOR2I>> pins;
+            pins.reserve( blockConstraintAnchors.size() );
+
+            const PCB_SHAPE*                     anchorShape = nullptr;
+            std::vector<CONSTRAINT_ANCHOR_POINT> anchors;
+
+            // Take the position the behavior actually used, not the one the cursor asked
+            // for, so a drag the behavior clamped stays clamped through the solve
+            for( const auto& [shape, member] : blockConstraintAnchors )
+            {
+                if( shape != anchorShape )
+                {
+                    anchors = ConstraintShapeAnchors( shape );
+                    anchorShape = shape;
+                }
+
+                for( const CONSTRAINT_ANCHOR_POINT& anchor : anchors )
+                {
+                    if( anchor.anchor == member.m_anchor && anchor.index == member.m_index )
+                    {
+                        pins.emplace_back( member, anchor.pos );
+                        break;
+                    }
+                }
+            }
+
+            std::vector<PCB_SHAPE*> solverMoved;
+
+            auto stageNeighbor = [&]( BOARD_ITEM* aItem )
+            {
+                commit.Modify( aItem );
+
+                // A dimension that only re-measured is not reported as moved, so refresh
+                // it here or it looks frozen until the drag ends
+                if( aItem->Type() != PCB_SHAPE_T )
+                    aUpdated.push_back( aItem );
+            };
+
+            CONSTRAINT_BLOCK_RESULT solveResult = blockConstraintSession->Solve( pins, blockConstraintTranslated,
+                                                                                 aDelta, &solverMoved, stageNeighbor );
+
+            if( solveResult == CONSTRAINT_BLOCK_RESULT::REFUSED )
+                return BLOCK_FRAME_RESULT::CONSTRAINED;
+
+            for( PCB_SHAPE* neighbor : solverMoved )
+            {
+                aUpdated.push_back( neighbor );
+
+                // A shape the gesture carries or reshapes is already drawn with the block,
+                // so only mark the ones the solve pulled along
+                if( !neighbor->IsMoving() && !neighbor->IsBrightened() )
+                {
+                    neighbor->SetBrightened();
+                    blockSolverBrightened.insert( neighbor );
+                }
+            }
+        }
+
+        return BLOCK_FRAME_RESULT::APPLIED;
+    };
+
     auto beginBlockDrag = [&]( const VECTOR2I& aOrigin ) -> bool
     {
         EDIT_POINTS* grabCollection = nullptr;
@@ -3333,18 +3469,49 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                                                  parent->GetItemDescription( frame(), false ) ) );
         }
 
-        // Unpicked selected objects translate rigidly
+        // Only items with no pickable handles travel whole. If an item offered handles and
+        // the user picked none of them, the user asked for it to stay put
         blockRigidItems.clear();
+
+        // The items taking part in the gesture. The dependent search skips these
+        std::unordered_set<const BOARD_ITEM*> blockParticipants;
 
         {
             std::unordered_set<const EDA_ITEM*> deformParents;
 
             for( auto& [targetPoints, behavior] : blockTargets )
+            {
                 deformParents.insert( targetPoints->GetParent() );
+                blockParticipants.insert( static_cast<BOARD_ITEM*>( targetPoints->GetParent() ) );
+            }
+
+            std::unordered_set<const EDA_ITEM*> pickableParents;
+
+            for( EDIT_POINTS* candidate : pickableCollections() )
+            {
+                EDA_ITEM* parent = candidate->GetParent();
+
+                if( !parent )
+                    continue;
+
+                for( unsigned ii = 0; ii < candidate->PointsSize(); ++ii )
+                {
+                    if( BlockDragHandlePickable( *candidate, candidate->Point( ii ) ) )
+                    {
+                        pickableParents.insert( parent );
+                        break;
+                    }
+                }
+            }
 
             for( BOARD_ITEM* selectedItem : m_expandedSelection )
             {
                 if( deformParents.count( selectedItem ) )
+                    continue;
+
+                // An object left out of the gesture does not move, so its lock is no reason to
+                // refuse, its geometry stays a snap anchor, and it may still follow as a dependent
+                if( pickableParents.count( selectedItem ) )
                     continue;
 
                 if( blockDragItemLocked( selectedItem ) && !overrideLocksNow )
@@ -3352,6 +3519,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     return refuse( wxString::Format( _( "%s is locked. Enable 'Override locks' to move it." ),
                                                      selectedItem->GetItemDescription( frame(), false ) ) );
                 }
+
+                blockParticipants.insert( selectedItem );
 
                 // Copper travels in the router session. A footprint also travels whole on
                 // the board side, and only its copper becomes router solids
@@ -3405,14 +3574,15 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         {
             std::vector<PCB_SHAPE*> candidates;
 
-            // A selected group marks only the container, so exclusion keys on the
-            // expanded selection
+            // Skip only the items taking part. An item the gesture already moves must not
+            // also be pulled by one endpoint, while an item it leaves out is as free to
+            // follow as an unselected one
             auto addCandidate = [&]( BOARD_ITEM* aItem )
             {
                 if( aItem->Type() != PCB_SHAPE_T )
                     return;
 
-                if( aItem->IsSelected() || m_expandedSelection.count( aItem ) )
+                if( blockParticipants.count( aItem ) )
                     return;
 
                 candidates.push_back( static_cast<PCB_SHAPE*>( aItem ) );
@@ -3656,14 +3826,94 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
         std::vector<BOARD_ITEM*> validationScope = blockMoving;
 
-        // A co-member is itself a constraint member, so the cache is taken before they
-        // are appended or the solver would hold them fixed instead of moving them
-        for( BOARD_ITEM* item : validationScope )
+        // Everything the gesture writes is fixed for the solver. A picked handle ends where
+        // the user put it and a carried item ends at its own offset, while the rest of their
+        // constraint clusters is free to move. A co-member is one of those, so the seeds are
+        // taken before they are appended or the solve would be handed the geometry it exists to move
+        if( BoardHasConstraints( board() ) )
         {
-            if( PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item ) )
+            std::unordered_set<const BOARD_ITEM*> seeded;
+
+            auto seedConstrained = [&]( BOARD_ITEM* aItem )
             {
+                PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( aItem );
+
+                if( !shape || !seeded.insert( shape ).second )
+                    return;
+
                 if( BlockDragIsConstraintMember( *shape ) )
                     blockConstrainedShapes.push_back( shape );
+            };
+
+            for( auto& [targetPoints, behavior] : blockTargets )
+            {
+                PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( targetPoints->GetParent() );
+
+                if( !shape )
+                    continue;
+
+                for( const auto& [key, origin] : blockOrigins )
+                {
+                    if( key.Parent() != shape->m_Uuid )
+                        continue;
+
+                    EDIT_POINT* picked = key.Resolve( *targetPoints );
+
+                    if( !picked )
+                        continue;
+
+                    if( std::optional<CONSTRAINT_MEMBER> member =
+                                constraintMemberForEditPoint( shape, targetPoints, picked ) )
+                    {
+                        blockConstraintAnchors.emplace_back( shape, *member );
+                    }
+                    else if( shape->GetShape() == SHAPE_T::RECTANGLE && targetPoints->PointsSize() > RECT_CENTER
+                             && picked == &targetPoints->Point( RECT_CENTER ) )
+                    {
+                        // The centre handle moves the whole rectangle, and its four corners
+                        // already pin that between them. A corner radius handle pins nothing
+                        for( const CONSTRAINT_ANCHOR_POINT& corner : ConstraintShapeAnchors( shape ) )
+                        {
+                            blockConstraintAnchors.emplace_back(
+                                    shape, CONSTRAINT_MEMBER( shape->m_Uuid, corner.anchor, corner.index ) );
+                        }
+                    }
+                }
+
+                seedConstrained( shape );
+            }
+
+            // A carried container moves its graphics with it, so pin their offset too, or
+            // the solve pulls them back out of the container
+            std::unordered_set<BOARD_ITEM*> walked;
+
+            std::function<void( BOARD_ITEM* )> carryWhole = [&]( BOARD_ITEM* aItem )
+            {
+                if( !aItem || !walked.insert( aItem ).second )
+                    return;
+
+                blockConstraintTranslated.insert( aItem->m_Uuid );
+                seedConstrained( aItem );
+                aItem->RunOnChildren( carryWhole, RECURSE_MODE::NO_RECURSE );
+            };
+
+            for( BOARD_ITEM* rigidItem : blockRigidItems )
+                carryWhole( rigidItem );
+
+            for( const BLOCK_DRAG_ENDPOINT& dep : blockDependents )
+            {
+                CONSTRAINT_ANCHOR anchor = dep.isStart ? CONSTRAINT_ANCHOR::START : CONSTRAINT_ANCHOR::END;
+
+                blockConstraintAnchors.emplace_back( dep.shape, CONSTRAINT_MEMBER( dep.shape->m_Uuid, anchor ) );
+                seedConstrained( dep.shape );
+            }
+
+            if( !blockConstrainedShapes.empty() )
+            {
+                blockConstraintSession.emplace();
+
+                if( !blockConstraintSession->Build( board(), blockConstrainedShapes ) )
+                    blockConstraintSession.reset();
             }
         }
 
@@ -3957,8 +4207,29 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     grid.ResolveSnap( pos, snapLayers, blockRefGrid, blockMoving, blockGrabStart + blockAppliedDelta )
                             .position;
             VECTOR2I delta = snapped - blockGrabStart;
+            VECTOR2I accepted = blockAppliedDelta;
 
-            if( !BlockDragApplyDisplacement( pickableCollections(), blockOrigins, delta ) || !collectBlockTargets() )
+            std::vector<EDA_ITEM*> updatedItems;
+            BLOCK_FRAME_RESULT     frameResult = applyBlockFrame( delta, updatedItems );
+
+            if( frameResult == BLOCK_FRAME_RESULT::CONSTRAINED )
+            {
+                // Say it once, not once per frame, because the block keeps resisting for as
+                // long as the cursor stays somewhere with no solution
+                if( !blockConstraintWarned )
+                {
+                    frame()->ShowInfoBarError( _( "The move would break a geometric constraint." ) );
+                    blockConstraintWarned = true;
+                }
+
+                grid.ClearSnapFeedback();
+
+                frameResult = applyBlockFrame( accepted, updatedItems ) == BLOCK_FRAME_RESULT::LOST_IDENTITY
+                                      ? BLOCK_FRAME_RESULT::LOST_IDENTITY
+                                      : BLOCK_FRAME_RESULT::APPLIED;
+            }
+
+            if( frameResult == BLOCK_FRAME_RESULT::LOST_IDENTITY )
             {
                 // A picked identity vanished mid gesture. Restore, and let the rest of
                 // this button press go by rather than start over from the cleared picks
@@ -3970,95 +4241,16 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
             else
             {
-                std::vector<EDA_ITEM*> updatedItems;
-
-                for( auto& [targetPoints, behavior] : blockTargets )
-                {
-                    EDA_ITEM* parent = targetPoints->GetParent();
-                    updatedItems.push_back( parent );
-
-                    for( const auto& [key, origin] : blockOrigins )
-                    {
-                        if( key.Parent() != parent->m_Uuid )
-                            continue;
-
-                        if( EDIT_POINT* moved = key.Resolve( *targetPoints ) )
-                            behavior->UpdateItem( *moved, *targetPoints, commit, updatedItems );
-                    }
-                }
-
-                VECTOR2I frameStep = delta - blockAppliedDelta;
-
-                if( frameStep != VECTOR2I( 0, 0 ) )
-                {
-                    for( BOARD_ITEM* rigidItem : blockRigidItems )
-                    {
-                        rigidItem->Move( frameStep );
-                        updatedItems.push_back( rigidItem );
-                    }
-                }
-
-                blockAppliedDelta = delta;
-
-                for( size_t ii = 0; ii < blockDependents.size(); ++ii )
-                {
-                    const BLOCK_DRAG_ENDPOINT& dep = blockDependents[ii];
-                    VECTOR2I                   target = dep.position + delta;
-
-                    if( dep.isStart )
-                        dep.shape->SetStart( target );
-                    else
-                        dep.shape->SetEnd( target );
-
-                    updatedItems.push_back( dep.shape );
-
-                    if( ii < blockDependentDisplays.size() )
-                    {
-                        blockDependentDisplays[ii]->Point( 0 ).SetPosition( target );
-                        getView()->Update( blockDependentDisplays[ii].get() );
-                    }
-                }
-
-                // The moved geometry is authoritative and the clusters holding it re-solve
-                // around it. A failed solve leaves every neighbor untouched this frame
-                if( !blockConstrainedShapes.empty() && frameStep != VECTOR2I( 0, 0 ) )
-                {
-                    std::vector<PCB_SHAPE*> solverMoved;
-
-                    auto stageNeighbor = [&]( BOARD_ITEM* aItem )
-                    {
-                        commit.Modify( aItem );
-
-                        // A remeasured dimension is not reported as moved, so it is
-                        // refreshed here or it looks frozen until the drag ends
-                        if( aItem->Type() != PCB_SHAPE_T )
-                            updatedItems.push_back( aItem );
-                    };
-
-                    ReSolveShapeClustersHoldingEdited( board(), blockConstrainedShapes, &solverMoved, stageNeighbor );
-
-                    for( PCB_SHAPE* neighbor : solverMoved )
-                    {
-                        updatedItems.push_back( neighbor );
-
-                        if( !neighbor->IsBrightened() )
-                        {
-                            neighbor->SetBrightened();
-                            blockSolverBrightened.insert( neighbor );
-                        }
-                    }
-                }
-
                 for( EDA_ITEM* updatedItem : updatedItems )
                     getView()->Update( updatedItem );
 
-                if( blockRouterActive && frameStep != VECTOR2I( 0, 0 ) )
+                if( blockRouterActive && blockAppliedDelta != accepted )
                 {
                     if( ROUTER_TOOL* routerTool = m_toolMgr->GetTool<ROUTER_TOOL>() )
-                        routerTool->Router()->Move( snapped, nullptr );
+                        routerTool->Router()->Move( blockGrabStart + blockAppliedDelta, nullptr );
                 }
 
-                getViewControls()->ForceCursorPosition( true, snapped );
+                getViewControls()->ForceCursorPosition( true, blockGrabStart + blockAppliedDelta );
                 updatePoints();
             }
         }

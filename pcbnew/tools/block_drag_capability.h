@@ -36,7 +36,10 @@ class BOARD_ITEM;
  */
 enum class BLOCK_DRAG_CAPABILITY
 {
-    /// Shows handles. Picked handles deform the item, otherwise it translates rigidly.
+    /// Shows handles. Picked handles deform the item. With none of its pickable handles picked it
+    /// takes no part in the gesture at all, since picking is the command and selecting only offers
+    /// the handles; only an item that offers no pickable handle is carried rigidly instead. An item
+    /// left out may still follow by an endpoint, like any item outside the selection.
     DEFORMABLE,
 
     /// Moves with the block using its own move operation.

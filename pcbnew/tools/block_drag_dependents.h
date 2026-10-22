@@ -54,9 +54,10 @@ enum class BLOCK_DRAG_DEPENDENT_RESULT
  * match is ambiguous, so that endpoint is left alone and the tolerance stays too small
  * to close a gap the user left on purpose.
  *
- * The caller assembles aCandidates: unselected graphic segments of the editing
- * scope. Selected items are excluded there because an unpicked selected object
- * translates rigidly in the full gesture and must not also be deformed. The scope
+ * The caller assembles aCandidates: the graphic segments of the editing scope that
+ * the gesture is not moving. An object the gesture moves is excluded there, since
+ * one being moved must not also be dragged by an endpoint, while a selected object
+ * the gesture leaves out is as eligible as an unselected one. The scope
  * also decides footprint children: the board editor passes board drawings only,
  * the footprint editor passes the footprint's own children, and this module
  * accepts whatever it is given, including children with the parent lock clause.

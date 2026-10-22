@@ -1878,4 +1878,79 @@ BOOST_FIXTURE_TEST_CASE( BlockEditWithNoModelledCommandWritesNothing, DRAG_FIXTU
 }
 
 
+// The drag reads each pin's target from the shape through ConstraintShapeAnchors, so the index
+// that enumeration hands back has to be the index the solver's parameter mapping uses. A
+// rectangle's four corners share two stored points and a polygon's corners are outline indices,
+// so a mismatch here would move a different corner than the one the user dragged.
+BOOST_AUTO_TEST_CASE( BlockEditHonoursEveryEnumeratedAnchor )
+{
+    const std::vector<VECTOR2I> polyPoints{ { 0, 0 }, { 10 * MM, 0 }, { 13 * MM, 8 * MM }, { -3 * MM, 8 * MM } };
+    const VECTOR2I              nudge( 3 * MM, 2 * MM );
+
+    const auto makeProbe = [&]( bool aRectangle, std::unique_ptr<BOARD>& aBoard ) -> PCB_SHAPE*
+    {
+        aBoard = std::make_unique<BOARD>();
+
+        PCB_SHAPE* shape = new PCB_SHAPE( aBoard.get(), aRectangle ? SHAPE_T::RECTANGLE : SHAPE_T::POLY );
+
+        if( aRectangle )
+        {
+            shape->SetStart( { 0, 0 } );
+            shape->SetEnd( { 10 * MM, 8 * MM } );
+        }
+        else
+        {
+            shape->SetPolyPoints( polyPoints );
+        }
+
+        aBoard->Add( shape );
+        return shape;
+    };
+
+    for( bool rectangle : { true, false } )
+    {
+        std::unique_ptr<BOARD> sizingBoard;
+        const size_t           anchorCount = ConstraintShapeAnchors( makeProbe( rectangle, sizingBoard ) ).size();
+
+        BOOST_REQUIRE_EQUAL( anchorCount, 4 );
+
+        for( size_t ii = 0; ii < anchorCount; ++ii )
+        {
+            std::unique_ptr<BOARD> probeBoard;
+            PCB_SHAPE*             probe = makeProbe( rectangle, probeBoard );
+
+            std::vector<CONSTRAINT_ANCHOR_POINT> before = ConstraintShapeAnchors( probe );
+            BOOST_REQUIRE_EQUAL( before.size(), anchorCount );
+
+            const VECTOR2I target = before[ii].pos + nudge;
+
+            BOARD_CONSTRAINT_ADAPTER adapter;
+            BOOST_REQUIRE( adapter.Build( { probe }, {} ) );
+
+            CONSTRAINT_BLOCK_RESULT result = adapter.SolveBlockEdit(
+                    { { CONSTRAINT_MEMBER( probe->m_Uuid, before[ii].anchor, before[ii].index ), target } }, {},
+                    VECTOR2I( 0, 0 ) );
+
+            BOOST_REQUIRE( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+            adapter.Apply();
+
+            std::vector<CONSTRAINT_ANCHOR_POINT> after = ConstraintShapeAnchors( probe );
+            BOOST_REQUIRE_EQUAL( after.size(), anchorCount );
+
+            // The anchor that was placed is the one that landed on the target
+            BOOST_CHECK_EQUAL( after[ii].pos, target );
+
+            for( size_t jj = 0; jj < anchorCount; ++jj )
+            {
+                if( jj != ii && rectangle )
+                    continue; // a rect corner shares each of its coordinates with a neighbour
+
+                if( jj != ii )
+                    BOOST_CHECK_EQUAL( after[jj].pos, before[jj].pos );
+            }
+        }
+    }
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
