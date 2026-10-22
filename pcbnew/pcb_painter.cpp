@@ -3791,7 +3791,12 @@ void PCB_PAINTER::draw( const ZONE* aZone, int aLayer )
 
         if( allowDrawOutline && !m_pcbSettings.m_isPrinting && zoneOutline && zoneOutline->OutlineCount() > 0 )
         {
-            m_gal->SetStrokeColor( color.a > 0.0 ? color.WithAlpha( 1.0 ) : color );
+            COLOR4D outlineColor = color.a > 0.0 ? color.WithAlpha( 1.0 ) : color;
+
+            if( m_pcbSettings.m_groupEditModeActive && !aZone->IsSelected() && !m_pcbSettings.isInEnteredGroup( aZone ) )
+                outlineColor.a *= m_pcbSettings.m_outsideGroupOpacity;
+
+            m_gal->SetStrokeColor( outlineColor );
             m_gal->SetIsFill( false );
             m_gal->SetIsStroke( true );
             m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
