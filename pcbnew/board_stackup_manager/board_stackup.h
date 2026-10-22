@@ -26,6 +26,7 @@
 #define BOARD_STACKUP_H
 
 
+#include <optional>
 #include <vector>
 #include <wx/string.h>
 #include <layer_ids.h>
@@ -276,7 +277,17 @@ public:
     bool Deserialize( const google::protobuf::Any &aContainer ) override;
 
     void Serialize( kiapi::board::BoardStackup& aOutput ) const;
-    bool Deserialize( const kiapi::board::BoardStackup& aInput );
+
+    /**
+     * Replace the stackup with the contents of a new input stackup.
+     *
+     * The stackup is only modified after the whole message was decoded successfully.
+     * Item and sublayer indices of the returned error refer to the layers of the input 
+     * stackup.
+     *
+     * @return The first decoding error that occured, or std::nullopt on success.
+     */
+    std::optional<VALIDATION_ERROR> Deserialize( const kiapi::board::BoardStackup& aInput );
 
     const std::vector<BOARD_STACKUP_ITEM*>& GetList() const { return m_list; }
 

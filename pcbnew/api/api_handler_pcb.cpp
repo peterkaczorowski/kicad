@@ -686,6 +686,24 @@ HANDLER_RESULT<BoardEnabledLayersResponse> API_HANDLER_PCB::handleSetBoardEnable
 }
 
 
+// Format a stackup error for an API response, using only applicable indices.
+static std::string formatStackupError( const std::string& aPrefix, const BOARD_STACKUP::VALIDATION_ERROR& aError )
+{
+    std::string location;
+
+    if( aError.m_StackupItemIndex >= 0 )
+    {
+        location = fmt::format( "item {}, ", aError.m_StackupItemIndex );
+
+        if( aError.m_SublayerIndex >= 0 )
+            location += fmt::format( "sublayer {}, ", aError.m_SublayerIndex );
+    }
+
+    return fmt::format( "{}: {}{}: {}", aPrefix, location, aError.m_FieldName.ToStdString(),
+                        aError.m_ErrorMessage.ToStdString() );
+}
+
+
 HANDLER_RESULT<BoardStackupResponse>
 API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStackup>& aCtx )
 {
@@ -708,11 +726,11 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
     // The proposed stackup stays in a separate object until it is validated
     BOARD_STACKUP newStackup;
 
-    if( !newStackup.Deserialize( aCtx.Request.stackup() ) )
+    if( auto decodeError = newStackup.Deserialize( aCtx.Request.stackup() ) )
     {
         ApiResponseStatus error;
         error.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        error.set_error_message( "Malformed board stackup" );
+        error.set_error_message( formatStackupError( "Malformed board stackup", *decodeError ) );
         return tl::unexpected( error );
     }
 
@@ -729,16 +747,10 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
 
     if( !errors.empty() )
     {
-        // The first error is reported to the API caller
-        const BOARD_STACKUP::VALIDATION_ERROR& first = errors.front();
-
         ApiResponseStatus error;
         error.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        error.set_error_message(
-                fmt::format( "Invalid board stackup: item {}, sublayer {}, {}: {}",
-                             first.m_StackupItemIndex, first.m_SublayerIndex,
-                             first.m_FieldName.ToStdString(),
-                             first.m_ErrorMessage.ToStdString() ) );
+        // The first error is reported to the API caller
+        error.set_error_message( formatStackupError( "Invalid board stackup", errors.front() ) );
         return tl::unexpected( error );
     }
 
