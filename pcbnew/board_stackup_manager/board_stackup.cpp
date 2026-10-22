@@ -666,7 +666,7 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                     // Check before adding because the board implementation stores total thickness as an int.
                     thicknessOverflow = true;
                 }
-                else if( !thicknessOverflow )
+                else
                 {
                     totalThickness += thickness;
                 }
