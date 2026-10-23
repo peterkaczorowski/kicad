@@ -3495,77 +3495,45 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                                                  parent->GetItemDescription( frame(), false ) ) );
         }
 
-        // Only items with no pickable handles travel whole. If an item offered handles and
-        // the user picked none of them, the user asked for it to stay put
+        // A selected item with no picked handle travels whole, as it would under the move
+        // tool. Picking says which handles stay with the cursor, selecting says what moves
         blockRigidItems.clear();
 
         // The items taking part in the gesture. The dependent search skips these
         std::unordered_set<const BOARD_ITEM*> blockParticipants;
 
+        for( auto& [targetPoints, behavior] : blockTargets )
+            blockParticipants.insert( static_cast<BOARD_ITEM*>( targetPoints->GetParent() ) );
+
+        for( BOARD_ITEM* selectedItem : m_expandedSelection )
         {
-            for( auto& [targetPoints, behavior] : blockTargets )
-                blockParticipants.insert( static_cast<BOARD_ITEM*>( targetPoints->GetParent() ) );
+            // An item with a picked handle reshapes instead, and its lock was checked above
+            if( blockParticipants.count( selectedItem ) )
+                continue;
 
-            std::unordered_set<const EDA_ITEM*> pickableParents;
-
-            for( EDIT_POINTS* candidate : pickableCollections() )
+            if( ConstraintItemIsLocked( selectedItem ) && !overrideLocksNow )
             {
-                EDA_ITEM* parent = candidate->GetParent();
-
-                if( !parent )
-                    continue;
-
-                for( unsigned ii = 0; ii < candidate->PointsSize(); ++ii )
-                {
-                    if( BlockDragHandlePickable( *candidate, candidate->Point( ii ) ) )
-                    {
-                        pickableParents.insert( parent );
-                        break;
-                    }
-                }
-
-                for( unsigned ii = 0; ii < candidate->LinesSize(); ++ii )
-                {
-                    if( BlockDragHandlePickable( *candidate, candidate->Line( ii ) ) )
-                    {
-                        pickableParents.insert( parent );
-                        break;
-                    }
-                }
+                return refuse( wxString::Format( _( "%s is locked. Enable 'Override locks' to move it." ),
+                                                 selectedItem->GetItemDescription( frame(), false ) ) );
             }
 
-            for( BOARD_ITEM* selectedItem : m_expandedSelection )
+            blockParticipants.insert( selectedItem );
+
+            // Copper travels in the router session. A footprint also travels whole on
+            // the board side, and only its copper becomes router solids
+            if( BlockDragCapability( *selectedItem ) == BLOCK_DRAG_CAPABILITY::ROUTER )
             {
-                // An object left out of the gesture does not move, so its lock is no reason to
-                // refuse, its geometry stays a snap anchor, and it may still follow as a dependent
-                if( pickableParents.count( selectedItem ) )
-                    continue;
+                if( selectedItem->Type() == PCB_FOOTPRINT_T )
+                    blockRigidItems.push_back( selectedItem );
 
-                if( ConstraintItemIsLocked( selectedItem ) && !overrideLocksNow )
-                {
-                    return refuse( wxString::Format( _( "%s is locked. Enable 'Override locks' to move it." ),
-                                                     selectedItem->GetItemDescription( frame(), false ) ) );
-                }
-
-                blockParticipants.insert( selectedItem );
-
-                // Copper travels in the router session. A footprint also travels whole on
-                // the board side, and only its copper becomes router solids
-                if( BlockDragCapability( *selectedItem ) == BLOCK_DRAG_CAPABILITY::ROUTER )
-                {
-                    if( selectedItem->Type() == PCB_FOOTPRINT_T )
-                        blockRigidItems.push_back( selectedItem );
-
-                    continue;
-                }
-
-                blockRigidItems.push_back( selectedItem );
+                continue;
             }
+
+            blockRigidItems.push_back( selectedItem );
         }
 
         // The ends of everything the block moves are the starting points for finding
-        // graphics that should follow. A carried arc seeds from both of its ends, and an
-        // item the gesture leaves out is as free to follow as one that was never selected
+        // graphics that should follow. A carried arc seeds from both of its ends
         std::vector<BLOCK_DRAG_ENDPOINT> movedEndpoints;
 
         for( auto& [targetPoints, behavior] : blockTargets )
@@ -3607,9 +3575,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         {
             std::vector<PCB_SHAPE*> candidates;
 
-            // Skip only the items taking part. An item the gesture already moves must not
-            // also be pulled by one endpoint, while an item it leaves out is as free to
-            // follow as an unselected one
+            // An item the gesture already moves must not also be pulled by one endpoint
             auto addCandidate = [&]( BOARD_ITEM* aItem )
             {
                 if( aItem->Type() != PCB_SHAPE_T )
@@ -4552,14 +4518,13 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                         BOARD_COMMIT genCommit( editFrame );
                         bool         regenerated = false;
 
-                        for( auto& [targetPoints, behavior] : blockTargets )
+                        // A reshaped one is dirty from its handles, a carried one from Move()
+                        for( BOARD_ITEM* moving : blockMoving )
                         {
-                            EDA_ITEM* parent = targetPoints->GetParent();
-
-                            if( !parent || parent->Type() != PCB_GENERATOR_T )
+                            if( moving->Type() != PCB_GENERATOR_T )
                                 continue;
 
-                            PCB_GENERATOR* gen = static_cast<PCB_GENERATOR*>( parent );
+                            PCB_GENERATOR* gen = static_cast<PCB_GENERATOR*>( moving );
 
                             if( !gen->IsDirty() )
                                 continue;
