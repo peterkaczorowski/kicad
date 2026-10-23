@@ -521,11 +521,14 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
 
     std::vector<EXPECTED_ITEM> expectedItems;
 
-    auto addExpectedLayer = [&]( BOARD_STACKUP_ITEM_TYPE aType, PCB_LAYER_ID aLayer )
-    {
-        if( enabledLayers[aLayer] )
-            expectedItems.push_back( { aType, aLayer } );
-    };
+    // clang-format off: preserve KiCad's lambda alignment.
+    auto addExpectedLayer =
+            [&]( BOARD_STACKUP_ITEM_TYPE aType, PCB_LAYER_ID aLayer )
+            {
+                if( enabledLayers[aLayer] )
+                    expectedItems.push_back( { aType, aLayer } );
+            };
+    // clang-format on
 
     addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, F_SilkS );
     addExpectedLayer( BS_ITEM_TYPE_SOLDERPASTE, F_Paste );
@@ -587,7 +590,7 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
         // The BrdLayerId of dielectric items is UNDEFINED_LAYER, so only copper, mask,
         // paste and silkscreen items must satisfy the layer name rules. An empty item name is
         // allowed because BuildDefaultStackupList() leaves it empty, and BOARD::SetLayerName()
-        // keeps the current name of the board layer when given an empty name.
+        // restores the default name of the board layer when given an empty name.
         if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && !item->GetLayerName().IsEmpty() )
         {
             if( std::optional<wxString> nameError = BOARD::ValidateLayerName( item->GetLayerName() ) )
@@ -631,13 +634,16 @@ std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET
                 }
             }
 
-            auto validateNonNegative = [&]( double aValue, const wxString& aField, const wxString& aMessage )
-            {
-                if( !std::isfinite( aValue ) || aValue < 0.0 )
-                {
-                    errors.push_back( { itemIndex, subLayerIndex, aField, aMessage } );
-                }
-            };
+            // clang-format off: preserve KiCad's lambda alignment.
+            auto validateNonNegative =
+                    [&]( double aValue, const wxString& aField, const wxString& aMessage )
+                    {
+                        if( !std::isfinite( aValue ) || aValue < 0.0 )
+                        {
+                            errors.push_back( { itemIndex, subLayerIndex, aField, aMessage } );
+                        }
+                    };
+            // clang-format on
 
             if( item->HasEpsilonRValue() )
             {
@@ -840,8 +846,8 @@ std::optional<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Deserialize( const
     }
 
     // Protobuf has 64 bits, but the internal implementation uses int for thickness, so check for overflow
-    const auto     minThickness = std::numeric_limits<int>::min();
-    const auto     maxThickness = std::numeric_limits<int>::max();
+    const int      minThickness = std::numeric_limits<int>::min();
+    const int      maxThickness = std::numeric_limits<int>::max();
     const wxString thicknessRangeMsg = _( "Layer thickness is out of range." );
 
     int nextDielectricId = 1;

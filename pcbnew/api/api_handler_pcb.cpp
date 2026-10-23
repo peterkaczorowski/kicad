@@ -749,7 +749,7 @@ API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStac
     {
         ApiResponseStatus error;
         error.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        // The first error is reported to the API caller
+        // We can only report one error, so only the first error is reported to the API caller
         error.set_error_message( formatStackupError( "Invalid board stackup", errors.front() ) );
         return tl::unexpected( error );
     }

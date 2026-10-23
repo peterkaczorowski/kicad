@@ -1239,7 +1239,7 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                 if( !error_msg.IsEmpty() )
                     error_msg << wxT( "\n" );
 
-                error_msg << _( "Invalid value for Epsilon R." );
+                error_msg << _( "Invalid value for epsilon r." );
             }
         }
 
@@ -1259,7 +1259,7 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                 if( !error_msg.IsEmpty() )
                     error_msg << wxT( "\n" );
 
-                error_msg << _( "Invalid value for Loss Tangent." );
+                error_msg << _( "Invalid value for loss tangent." );
             }
         }
 
@@ -1322,10 +1322,14 @@ bool PANEL_SETUP_BOARD_STACKUP::transferDataFromUIToStackup()
                     error_msg << wxT( "\n" );
 
 <<<<<<< HEAD
+<<<<<<< HEAD
                 error_msg << _( "Incorrect value for specified frequency (must be positive or null if not used)" );
 =======
                 error_msg << _( "Invalid value for Specified Frequency." );
 >>>>>>> e9ccfbddf2 (Pcbnew: Wire in new validation function into the setup dialog)
+=======
+                error_msg << _( "Invalid value for specified frequency." );
+>>>>>>> e1c9f5df39 (Pcbnew: Adhere to code style)
             }
         }
 

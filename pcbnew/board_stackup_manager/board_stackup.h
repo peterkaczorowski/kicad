@@ -257,12 +257,12 @@ public:
 
     /**
      * Validate the stackup configuration.
-     * 
+     *
      * Disabled items are ignored. This operation does not modify the stackup.
-     * 
+     *
      * @param aEnabledLayers Proposed enabled board layers against which to validate the stackup
-     * 
-     * @return An empty vector if valid, otherwise a vector of validation errors. 
+     *
+     * @return An empty vector if valid, otherwise a vector of validation errors.
      */
     [[nodiscard]]
     std::vector<VALIDATION_ERROR> Validate( const LSET& aEnabledLayers ) const;
@@ -282,7 +282,7 @@ public:
      * Replace the stackup with the contents of a new input stackup.
      *
      * The stackup is only modified after the whole message was decoded successfully.
-     * Item and sublayer indices of the returned error refer to the layers of the input 
+     * Item and sublayer indices of the returned error refer to the layers of the input
      * stackup.
      *
      * @return The first decoding error that occured, or std::nullopt on success.
