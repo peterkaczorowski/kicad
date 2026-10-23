@@ -130,8 +130,10 @@ BOOST_AUTO_TEST_CASE( ShapeKindsSplitDeformableFromRigid )
     PCB_SHAPE* arc = new PCB_SHAPE( &board, SHAPE_T::ARC );
     PCB_SHAPE* circle = new PCB_SHAPE( &board, SHAPE_T::CIRCLE );
     PCB_SHAPE* bezier = new PCB_SHAPE( &board, SHAPE_T::BEZIER );
+    PCB_SHAPE* ellipse = new PCB_SHAPE( &board, SHAPE_T::ELLIPSE );
+    PCB_SHAPE* ellipseArc = new PCB_SHAPE( &board, SHAPE_T::ELLIPSE_ARC );
 
-    for( PCB_SHAPE* shape : { segment, poly, rect, arc, circle, bezier } )
+    for( PCB_SHAPE* shape : { segment, poly, rect, arc, circle, bezier, ellipse, ellipseArc } )
         board.Add( shape );
 
     BOOST_CHECK( BlockDragCapability( *segment ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
@@ -140,6 +142,8 @@ BOOST_AUTO_TEST_CASE( ShapeKindsSplitDeformableFromRigid )
     BOOST_CHECK( BlockDragCapability( *arc ) == BLOCK_DRAG_CAPABILITY::RIGID );
     BOOST_CHECK( BlockDragCapability( *circle ) == BLOCK_DRAG_CAPABILITY::RIGID );
     BOOST_CHECK( BlockDragCapability( *bezier ) == BLOCK_DRAG_CAPABILITY::RIGID );
+    BOOST_CHECK( BlockDragCapability( *ellipse ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+    BOOST_CHECK( BlockDragCapability( *ellipseArc ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
 }
 
 
