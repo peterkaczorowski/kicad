@@ -28,7 +28,6 @@
 #include <pcb_generator.h>
 #include <pcb_group.h>
 #include <pcb_shape.h>
-#include <zone.h>
 #include <constraints/pcb_constraint.h>
 
 
@@ -82,9 +81,6 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem )
     case PCB_PAD_T: return footprintHolder ? BLOCK_DRAG_CAPABILITY::RIGID : BLOCK_DRAG_CAPABILITY::ROUTER;
 
     case PCB_ZONE_T:
-        if( static_cast<const ZONE&>( aItem ).IsTeardropArea() )
-            return BLOCK_DRAG_CAPABILITY::UNSUPPORTED;
-
         // A zone inside a footprint belongs to that footprint. Reshaping it from the
         // board editor would edit the footprint from outside its own editor.
         if( !footprintHolder && aItem.GetParentFootprint() )

@@ -37,7 +37,6 @@
 #include <pcb_target.h>
 #include <pcb_group.h>
 #include <zone.h>
-#include <teardrop/teardrop_types.h>
 #include <pcb_generator.h>
 #include <constraints/pcb_constraint.h>
 #include <constraints/board_constraint_adapter.h>
@@ -231,22 +230,6 @@ BOOST_AUTO_TEST_CASE( FootprintChildZoneIsRigidInBoardEditor )
     board.Add( footprint );
 
     BOOST_CHECK( BlockDragCapability( *childZone ) == BLOCK_DRAG_CAPABILITY::RIGID );
-}
-
-
-BOOST_AUTO_TEST_CASE( ZoneDeformableExceptTeardrops )
-{
-    BOARD board;
-
-    ZONE* zone = new ZONE( &board );
-    ZONE* teardrop = new ZONE( &board );
-    teardrop->SetTeardropAreaType( TEARDROP_TYPE::TD_VIAPAD );
-
-    board.Add( zone );
-    board.Add( teardrop );
-
-    BOOST_CHECK( BlockDragCapability( *zone ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
-    BOOST_CHECK( BlockDragCapability( *teardrop ) == BLOCK_DRAG_CAPABILITY::UNSUPPORTED );
 }
 
 
@@ -564,16 +547,15 @@ BOOST_AUTO_TEST_CASE( UnsupportedGroupMemberSurvivesExpansion )
 {
     BOARD board;
 
-    ZONE* teardrop = new ZONE( &board );
-    teardrop->SetTeardropAreaType( TEARDROP_TYPE::TD_VIAPAD );
-    PCB_SHAPE* shape = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
-    PCB_GROUP* group = new PCB_GROUP( &board );
+    TEST_GENERATOR* unknown = new TEST_GENERATOR( &board, wxS( "future_generator" ) );
+    PCB_SHAPE*      shape = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+    PCB_GROUP*      group = new PCB_GROUP( &board );
 
-    board.Add( teardrop );
+    board.Add( unknown );
     board.Add( shape );
     board.Add( group );
 
-    group->AddItem( teardrop );
+    group->AddItem( unknown );
     group->AddItem( shape );
 
     std::vector<BOARD_ITEM*> expanded = BlockDragExpandSelection( { group } );
@@ -581,8 +563,8 @@ BOOST_AUTO_TEST_CASE( UnsupportedGroupMemberSurvivesExpansion )
     // The unsupported member stays in the list, so the caller can refuse the whole block
     // and name it
     BOOST_REQUIRE_EQUAL( expanded.size(), 2 );
-    BOOST_CHECK_EQUAL( std::count( expanded.begin(), expanded.end(), teardrop ), 1 );
-    BOOST_CHECK( BlockDragCapability( *teardrop ) == BLOCK_DRAG_CAPABILITY::UNSUPPORTED );
+    BOOST_CHECK_EQUAL( std::count( expanded.begin(), expanded.end(), unknown ), 1 );
+    BOOST_CHECK( BlockDragCapability( *unknown ) == BLOCK_DRAG_CAPABILITY::UNSUPPORTED );
 }
 
 
