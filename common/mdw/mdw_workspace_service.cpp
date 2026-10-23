@@ -22,6 +22,7 @@
  */
 
 #include <mdw/mdw_workspace_service.h>
+#include <mdw/mdw_proto_convert.h>
 
 #include <api/mdw/backend_base.pb.h>
 #include <api/mdw/backend_locking.pb.h>
@@ -34,82 +35,6 @@
 namespace
 {
 constexpr int OPERATION_TIMEOUT_MS = 60000;
-
-
-MDW_LOCK_INFO toStruct( const kiapi::workspace::LockInfo& aProto )
-{
-    MDW_LOCK_INFO info;
-    info.is_locked = aProto.is_locked();
-    info.lock_owner = wxString::FromUTF8( aProto.lock_owner() );
-    info.locked_by_me = aProto.locked_by_me();
-
-    if( aProto.lock_timestamp_unix() != 0 )
-        info.lock_timestamp = wxDateTime( static_cast<time_t>( aProto.lock_timestamp_unix() ) );
-
-    return info;
-}
-
-
-MDW_REVISION toStruct( const kiapi::workspace::Revision& aProto )
-{
-    MDW_REVISION revision;
-    revision.revision_id = wxString::FromUTF8( aProto.revision_id() );
-    revision.author = wxString::FromUTF8( aProto.author() );
-    revision.comment = wxString::FromUTF8( aProto.comment() );
-
-    if( aProto.timestamp_unix() != 0 )
-        revision.timestamp = wxDateTime( static_cast<time_t>( aProto.timestamp_unix() ) );
-
-    for( const std::string& parent : aProto.parent_revision_ids() )
-        revision.parent_revision_ids.push_back( wxString::FromUTF8( parent ) );
-
-    return revision;
-}
-
-
-MDW_ITEM_INFO toStruct( const kiapi::workspace::ItemInfo& aProto )
-{
-    MDW_ITEM_INFO info;
-    info.item_id = wxString::FromUTF8( aProto.item_id() );
-    info.display_name = wxString::FromUTF8( aProto.display_name() );
-    info.folder_id = wxString::FromUTF8( aProto.folder_id() );
-    info.is_folder = aProto.is_folder();
-
-    if( aProto.modified_unix() != 0 )
-        info.modified = wxDateTime( static_cast<time_t>( aProto.modified_unix() ) );
-
-    info.revision_id = wxString::FromUTF8( aProto.revision_id() );
-    info.category = static_cast<MDW_LIFECYCLE_CATEGORY>( aProto.category() );
-    info.custom_state_id = wxString::FromUTF8( aProto.custom_state_id() );
-    info.is_locked = aProto.is_locked();
-    info.lock_owner = wxString::FromUTF8( aProto.lock_owner() );
-
-    return info;
-}
-
-
-MDW_FOLDER toStruct( const kiapi::workspace::Folder& aProto )
-{
-    MDW_FOLDER folder;
-    folder.folder_id = wxString::FromUTF8( aProto.folder_id() );
-    folder.display_name = wxString::FromUTF8( aProto.display_name() );
-    folder.parent_folder_id = wxString::FromUTF8( aProto.parent_folder_id() );
-    folder.has_children = aProto.has_children();
-
-    return folder;
-}
-
-
-MDW_ATTRIBUTE_SET toStruct( const kiapi::workspace::AttributeSet& aProto )
-{
-    MDW_ATTRIBUTE_SET set;
-
-    for( const kiapi::workspace::AttributeValue& value : aProto.values() )
-        set.values.push_back( { wxString::FromUTF8( value.attr_id() ),
-                                wxString::FromUTF8( value.value() ) } );
-
-    return set;
-}
 }
 
 
@@ -152,7 +77,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::ListItems( const wxString& aFolderId,
                                                  std::vector<MDW_ITEM_INFO>& aOut )
 {
     kiapi::mdw::ListItemsRequest request;
-    request.set_folder_id( std::string( aFolderId.utf8_string() ) );
+    request.set_folder_id( MdwToUtf8( aFolderId ) );
 
     kiapi::mdw::ListItemsReply reply;
     MDW_ERROR_CODE             code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -160,7 +85,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::ListItems( const wxString& aFolderId,
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         for( const kiapi::workspace::ItemInfo& item : reply.items() )
-            aOut.push_back( toStruct( item ) );
+            aOut.push_back( MdwToStruct( item ) );
     }
 
     return code;
@@ -170,13 +95,13 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::ListItems( const wxString& aFolderId,
 MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetItemInfo( const wxString& aItemId, MDW_ITEM_INFO& aOut )
 {
     kiapi::mdw::GetItemInfoRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
 
     kiapi::mdw::GetItemInfoReply reply;
     MDW_ERROR_CODE               code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        aOut = toStruct( reply.item() );
+        aOut = MdwToStruct( reply.item() );
 
     return code;
 }
@@ -191,7 +116,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetRootFolders( std::vector<MDW_FOLDER>& a
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         for( const kiapi::workspace::Folder& folder : reply.folders() )
-            aOut.push_back( toStruct( folder ) );
+            aOut.push_back( MdwToStruct( folder ) );
     }
 
     return code;
@@ -202,7 +127,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetChildFolders( const wxString& aFolderId
                                                        std::vector<MDW_FOLDER>& aOut )
 {
     kiapi::mdw::GetChildFoldersRequest request;
-    request.set_folder_id( std::string( aFolderId.utf8_string() ) );
+    request.set_folder_id( MdwToUtf8( aFolderId ) );
 
     kiapi::mdw::GetChildFoldersReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -210,7 +135,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetChildFolders( const wxString& aFolderId
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         for( const kiapi::workspace::Folder& folder : reply.folders() )
-            aOut.push_back( toStruct( folder ) );
+            aOut.push_back( MdwToStruct( folder ) );
     }
 
     return code;
@@ -221,10 +146,10 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::Checkout( const MDW_CHECKOUT_REQUEST& aReq
                                                 MDW_CHECKOUT_RESULT& aOut )
 {
     kiapi::mdw::CheckoutRequest request;
-    request.set_item_id( std::string( aRequest.item_id.utf8_string() ) );
-    request.set_local_path( std::string( aRequest.local_path.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aRequest.item_id ) );
+    request.set_local_path( MdwToUtf8( aRequest.local_path ) );
     request.set_lock( aRequest.lock );
-    request.set_idempotency_id( std::string( KIID().AsString().utf8_string() ) );
+    request.set_idempotency_id( MdwToUtf8( KIID().AsString() ) );
 
     kiapi::mdw::CheckoutReply reply;
     MDW_ERROR_CODE            code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -234,8 +159,8 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::Checkout( const MDW_CHECKOUT_REQUEST& aReq
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
-        aOut.item = toStruct( reply.item() );
-        aOut.local_path = wxString::FromUTF8( reply.local_path() );
+        aOut.item = MdwToStruct( reply.item() );
+        aOut.local_path = MdwFromUtf8( reply.local_path() );
 
         if( aOut.item.is_locked )
         {
@@ -255,17 +180,12 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::CheckinSync( const MDW_CHECKIN_REQUEST& aR
                                                    MDW_CHECKIN_RESULT& aOut )
 {
     kiapi::mdw::CheckinRequest request;
-    request.set_item_id( std::string( aRequest.item_id.utf8_string() ) );
-    request.set_local_path( std::string( aRequest.local_path.utf8_string() ) );
-    request.set_comment( std::string( aRequest.comment.utf8_string() ) );
-    request.set_idempotency_id( std::string( KIID().AsString().utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aRequest.item_id ) );
+    request.set_local_path( MdwToUtf8( aRequest.local_path ) );
+    request.set_comment( MdwToUtf8( aRequest.comment ) );
+    request.set_idempotency_id( MdwToUtf8( KIID().AsString() ) );
 
-    for( const MDW_ATTRIBUTE_VALUE& value : aRequest.attributes.values )
-    {
-        kiapi::workspace::AttributeValue* out = request.mutable_attributes()->add_values();
-        out->set_attr_id( std::string( value.attr_id.utf8_string() ) );
-        out->set_value( std::string( value.value.utf8_string() ) );
-    }
+    MdwToProto( request.mutable_attributes(), aRequest.attributes );
 
     kiapi::mdw::CheckinReply reply;
     MDW_ERROR_CODE           code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -275,7 +195,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::CheckinSync( const MDW_CHECKIN_REQUEST& aR
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
-        aOut.revision = toStruct( reply.revision() );
+        aOut.revision = MdwToStruct( reply.revision() );
         m_dirty->Clear( aRequest.item_id );
 
         MDW_EVENT event;
@@ -294,8 +214,8 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::CancelCheckout( const wxString& aItemId,
                                                       const wxString& aLocalPath )
 {
     kiapi::mdw::CancelCheckoutRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
-    request.set_local_path( std::string( aLocalPath.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
+    request.set_local_path( MdwToUtf8( aLocalPath ) );
 
     kiapi::mdw::CancelCheckoutReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -328,15 +248,15 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::LockSync( const wxString& aItemId, MDW_LOC
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::LockRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
-    request.set_idempotency_id( std::string( KIID().AsString().utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
+    request.set_idempotency_id( MdwToUtf8( KIID().AsString() ) );
 
     kiapi::mdw::LockReply reply;
     MDW_ERROR_CODE        code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
-        aOut = toStruct( reply.lock() );
+        aOut = MdwToStruct( reply.lock() );
         applyLock( aItemId, aOut, MDW_EVENT_TYPE::ITEM_LOCKED );
     }
 
@@ -350,15 +270,15 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::UnlockSync( const wxString& aItemId, MDW_L
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::UnlockRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
-    request.set_idempotency_id( std::string( KIID().AsString().utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
+    request.set_idempotency_id( MdwToUtf8( KIID().AsString() ) );
 
     kiapi::mdw::LockReply reply;
     MDW_ERROR_CODE        code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
-        aOut = toStruct( reply.lock() );
+        aOut = MdwToStruct( reply.lock() );
         applyLock( aItemId, aOut, MDW_EVENT_TYPE::ITEM_UNLOCKED );
     }
 
@@ -372,13 +292,13 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetLockInfo( const wxString& aItemId, MDW_
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::GetLockInfoRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
 
     kiapi::mdw::GetLockInfoReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        aOut = toStruct( reply.lock() );
+        aOut = MdwToStruct( reply.lock() );
 
     return code;
 }
@@ -391,7 +311,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetRevisionHistory( const wxString& aItemI
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::GetRevisionHistoryRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
 
     kiapi::mdw::GetRevisionHistoryReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -399,7 +319,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetRevisionHistory( const wxString& aItemI
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         for( const kiapi::workspace::Revision& revision : reply.revisions() )
-            aOut.push_back( toStruct( revision ) );
+            aOut.push_back( MdwToStruct( revision ) );
     }
 
     return code;
@@ -414,9 +334,9 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::DownloadRevision( const wxString& aItemId,
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::DownloadRevisionRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
-    request.set_revision_id( std::string( aRevisionId.utf8_string() ) );
-    request.set_local_path( std::string( aLocalPath.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
+    request.set_revision_id( MdwToUtf8( aRevisionId ) );
+    request.set_local_path( MdwToUtf8( aLocalPath ) );
 
     kiapi::mdw::DownloadRevisionReply reply;
 
@@ -431,13 +351,13 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetAttributes( const wxString& aItemId,
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::GetAttributesRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
 
     kiapi::mdw::GetAttributesReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        aOut = toStruct( reply.attributes() );
+        aOut = MdwToStruct( reply.attributes() );
 
     return code;
 }
@@ -450,15 +370,10 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::SetAttributes( const wxString& aItemId,
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::SetAttributesRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
-    request.set_idempotency_id( std::string( KIID().AsString().utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
+    request.set_idempotency_id( MdwToUtf8( KIID().AsString() ) );
 
-    for( const MDW_ATTRIBUTE_VALUE& value : aAttributes.values )
-    {
-        kiapi::workspace::AttributeValue* out = request.mutable_attributes()->add_values();
-        out->set_attr_id( std::string( value.attr_id.utf8_string() ) );
-        out->set_value( std::string( value.value.utf8_string() ) );
-    }
+    MdwToProto( request.mutable_attributes(), aAttributes );
 
     kiapi::mdw::SetAttributesReply reply;
 
@@ -476,7 +391,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetLifecycleCategory( const wxString& aIte
     // The category and custom state ride along on the item metadata; the
     // backend exposes no separate lifecycle getter.
     kiapi::mdw::GetItemInfoRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
 
     kiapi::mdw::GetItemInfoReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -484,7 +399,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::GetLifecycleCategory( const wxString& aIte
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         aOutCategory = static_cast<MDW_LIFECYCLE_CATEGORY>( reply.item().category() );
-        aOutCustomStateId = wxString::FromUTF8( reply.item().custom_state_id() );
+        aOutCustomStateId = MdwFromUtf8( reply.item().custom_state_id() );
     }
 
     return code;
@@ -501,10 +416,10 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::TransitionLifecycle( const wxString& aItem
         return MDW_ERROR_CODE::NOT_SUPPORTED;
 
     kiapi::mdw::TransitionLifecycleRequest request;
-    request.set_item_id( std::string( aItemId.utf8_string() ) );
-    request.set_target_state_id( std::string( aTargetStateId.utf8_string() ) );
-    request.set_comment( std::string( aComment.utf8_string() ) );
-    request.set_idempotency_id( std::string( KIID().AsString().utf8_string() ) );
+    request.set_item_id( MdwToUtf8( aItemId ) );
+    request.set_target_state_id( MdwToUtf8( aTargetStateId ) );
+    request.set_comment( MdwToUtf8( aComment ) );
+    request.set_idempotency_id( MdwToUtf8( KIID().AsString() ) );
 
     kiapi::mdw::TransitionLifecycleReply reply;
     MDW_ERROR_CODE code = m_backend->CallSync( request, reply, OPERATION_TIMEOUT_MS );
@@ -512,7 +427,7 @@ MDW_ERROR_CODE MDW_WORKSPACE_SERVICE::TransitionLifecycle( const wxString& aItem
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         aOutCategory = static_cast<MDW_LIFECYCLE_CATEGORY>( reply.new_category() );
-        aOutStateId = wxString::FromUTF8( reply.new_state_id() );
+        aOutStateId = MdwFromUtf8( reply.new_state_id() );
 
         MDW_EVENT event;
         event.type = MDW_EVENT_TYPE::LIFECYCLE_CATEGORY_CHANGED;

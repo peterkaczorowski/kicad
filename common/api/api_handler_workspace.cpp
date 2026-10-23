@@ -29,8 +29,10 @@
 #include <mdw/mdw_workspace_service.h>
 #include <mdw/mdw_context_action_registry.h>
 #include <mdw/mdw_backend.h>
+#include <mdw/mdw_proto_convert.h>
 
 #include <cstdint>
+#include <ranges>
 
 using namespace kiapi::workspace;
 
@@ -46,123 +48,12 @@ void setError( WorkspaceError* aError, MDW_ERROR_CODE aCode )
     aError->set_code( static_cast<WorkspaceErrorCode>( aCode ) );
 
     // An IPC client sees only what rides this envelope, and the field was left
-    // empty on every command. The backend's own wording does not reach here:
-    // MDW_BACKEND::decode keeps the code from MdwResponse.error and drops the
-    // message, and recovering it means threading a string back through all
-    // nineteen service operations. The shared text at least tells a client what
-    // happened rather than nothing.
-    aError->set_message( std::string( MdwErrorMessage( aCode ).utf8_string() ) );
-}
-
-
-void packVersion( Version* aOut, const MDW_VERSION& aVersion )
-{
-    aOut->set_major( aVersion.major );
-    aOut->set_minor( aVersion.minor );
-    aOut->set_patch( aVersion.patch );
-    aOut->set_full( std::string( aVersion.full.utf8_string() ) );
-}
-
-
-void packBackendInfo( BackendInfo* aOut, const MDW_BACKEND_INFO& aInfo )
-{
-    aOut->set_backend_id( std::string( aInfo.backend_id.utf8_string() ) );
-    aOut->set_display_name( std::string( aInfo.display_name.utf8_string() ) );
-    aOut->set_description( std::string( aInfo.description.utf8_string() ) );
-    aOut->set_vendor( std::string( aInfo.vendor.utf8_string() ) );
-    aOut->set_vendor_url( std::string( aInfo.vendor_url.utf8_string() ) );
-    aOut->set_support_url( std::string( aInfo.support_url.utf8_string() ) );
-    aOut->set_icon_name( std::string( aInfo.icon_name.utf8_string() ) );
-    packVersion( aOut->mutable_version(), aInfo.version );
-}
-
-
-void packCapabilities( Capabilities* aOut, const MDW_CAPABILITIES& aCaps )
-{
-    for( MDW_CAPABILITY_GROUP group : aCaps.groups )
-        aOut->add_groups( static_cast<CapabilityGroup>( group ) );
-
-    aOut->set_supports_offline( aCaps.supports_offline );
-
-    for( const MDW_CUSTOM_STATE& state : aCaps.custom_states )
-    {
-        CustomState* out = aOut->add_custom_states();
-        out->set_state_id( std::string( state.state_id.utf8_string() ) );
-        out->set_display_name( std::string( state.display_name.utf8_string() ) );
-        out->set_description( std::string( state.description.utf8_string() ) );
-        out->set_category( static_cast<LifecycleCategory>( state.category ) );
-        out->set_icon_name( std::string( state.icon_name.utf8_string() ) );
-        out->set_sort_order( state.sort_order );
-    }
-}
-
-
-void packItemInfo( ItemInfo* aOut, const MDW_ITEM_INFO& aInfo )
-{
-    aOut->set_item_id( std::string( aInfo.item_id.utf8_string() ) );
-    aOut->set_display_name( std::string( aInfo.display_name.utf8_string() ) );
-    aOut->set_folder_id( std::string( aInfo.folder_id.utf8_string() ) );
-    aOut->set_is_folder( aInfo.is_folder );
-
-    if( aInfo.modified.IsValid() )
-        aOut->set_modified_unix( aInfo.modified.GetTicks() );
-
-    aOut->set_revision_id( std::string( aInfo.revision_id.utf8_string() ) );
-    aOut->set_category( static_cast<LifecycleCategory>( aInfo.category ) );
-    aOut->set_custom_state_id( std::string( aInfo.custom_state_id.utf8_string() ) );
-    aOut->set_is_locked( aInfo.is_locked );
-    aOut->set_lock_owner( std::string( aInfo.lock_owner.utf8_string() ) );
-}
-
-
-void packLockInfo( LockInfo* aOut, const MDW_LOCK_INFO& aLock )
-{
-    aOut->set_is_locked( aLock.is_locked );
-    aOut->set_lock_owner( std::string( aLock.lock_owner.utf8_string() ) );
-
-    if( aLock.lock_timestamp.IsValid() )
-        aOut->set_lock_timestamp_unix( aLock.lock_timestamp.GetTicks() );
-
-    aOut->set_locked_by_me( aLock.locked_by_me );
-}
-
-
-void packRevision( Revision* aOut, const MDW_REVISION& aRev )
-{
-    aOut->set_revision_id( std::string( aRev.revision_id.utf8_string() ) );
-
-    for( const wxString& parent : aRev.parent_revision_ids )
-        aOut->add_parent_revision_ids( std::string( parent.utf8_string() ) );
-
-    aOut->set_author( std::string( aRev.author.utf8_string() ) );
-
-    if( aRev.timestamp.IsValid() )
-        aOut->set_timestamp_unix( aRev.timestamp.GetTicks() );
-
-    aOut->set_comment( std::string( aRev.comment.utf8_string() ) );
-}
-
-
-void packAttributeSet( AttributeSet* aOut, const MDW_ATTRIBUTE_SET& aSet )
-{
-    for( const MDW_ATTRIBUTE_VALUE& value : aSet.values )
-    {
-        AttributeValue* out = aOut->add_values();
-        out->set_attr_id( std::string( value.attr_id.utf8_string() ) );
-        out->set_value( std::string( value.value.utf8_string() ) );
-    }
-}
-
-
-MDW_ATTRIBUTE_SET toStruct( const AttributeSet& aProto )
-{
-    MDW_ATTRIBUTE_SET set;
-
-    for( const AttributeValue& value : aProto.values() )
-        set.values.push_back( { wxString::FromUTF8( value.attr_id() ),
-                                wxString::FromUTF8( value.value() ) } );
-
-    return set;
+    // empty on every command. The backend's own wording does not reach here,
+    // because MDW_BACKEND::decode keeps the code from MdwResponse.error and
+    // drops the message, and recovering it means threading a string back through
+    // all nineteen service operations. The shared text at least tells a client
+    // what happened rather than nothing.
+    aError->set_message( MdwToUtf8( MdwErrorMessage( aCode ) ) );
 }
 
 
@@ -219,12 +110,9 @@ API_HANDLER_WORKSPACE::API_HANDLER_WORKSPACE() :
 
 std::vector<std::string> API_HANDLER_WORKSPACE::HandledTypes() const
 {
-    std::vector<std::string> types;
+    auto typeNames = m_handlers | std::views::keys;
 
-    for( const auto& [typeName, handler] : m_handlers )
-        types.push_back( typeName );
-
-    return types;
+    return std::vector<std::string>( typeNames.begin(), typeNames.end() );
 }
 
 
@@ -276,9 +164,9 @@ HANDLER_RESULT<GetWorkspaceInfoResponse> API_HANDLER_WORKSPACE::handleGetWorkspa
     }
 
     reply.set_bound( true );
-    reply.set_workspace_id( std::string( session->Binding().workspace_id.utf8_string() ) );
-    packBackendInfo( reply.mutable_backend_info(), session->Backend()->Info() );
-    packCapabilities( reply.mutable_capabilities(), session->Backend()->Capabilities() );
+    reply.set_workspace_id( MdwToUtf8( session->Binding().workspace_id ) );
+    MdwToProto( reply.mutable_backend_info(), session->Backend()->Info() );
+    MdwToProto( reply.mutable_capabilities(), session->Backend()->Capabilities() );
 
     return reply;
 }
@@ -297,9 +185,9 @@ HANDLER_RESULT<BindWorkspaceResponse> API_HANDLER_WORKSPACE::handleBindWorkspace
     }
 
     MDW_PROJECT_BINDING binding;
-    binding.backend_id = wxString::FromUTF8( aCtx.Request.backend_id() );
-    binding.workspace_id = wxString::FromUTF8( aCtx.Request.workspace_id() );
-    binding.binding = wxString::FromUTF8( aCtx.Request.binding() );
+    binding.backend_id = MdwFromUtf8( aCtx.Request.backend_id() );
+    binding.workspace_id = MdwFromUtf8( aCtx.Request.workspace_id() );
+    binding.binding = MdwFromUtf8( aCtx.Request.binding() );
 
     MDW_SESSION* session =
             fw->OpenSession( activeProjectPath(), binding, GetBuildVersion(), BIND_TIMEOUT_MS );
@@ -310,8 +198,8 @@ HANDLER_RESULT<BindWorkspaceResponse> API_HANDLER_WORKSPACE::handleBindWorkspace
         return reply;
     }
 
-    packBackendInfo( reply.mutable_backend_info(), session->Backend()->Info() );
-    packCapabilities( reply.mutable_capabilities(), session->Backend()->Capabilities() );
+    MdwToProto( reply.mutable_backend_info(), session->Backend()->Info() );
+    MdwToProto( reply.mutable_capabilities(), session->Backend()->Capabilities() );
 
     return reply;
 }
@@ -340,12 +228,12 @@ HANDLER_RESULT<ListWorkspaceItemsResponse> API_HANDLER_WORKSPACE::handleListWork
         return reply;
 
     std::vector<MDW_ITEM_INFO> items;
-    MDW_ERROR_CODE code = service->ListItems( wxString::FromUTF8( aCtx.Request.folder_id() ), items );
+    MDW_ERROR_CODE code = service->ListItems( MdwFromUtf8( aCtx.Request.folder_id() ), items );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         for( const MDW_ITEM_INFO& item : items )
-            packItemInfo( reply.add_items(), item );
+            MdwToProto( reply.add_items(), item );
     }
 
     setError( reply.mutable_error(), code );
@@ -364,10 +252,10 @@ HANDLER_RESULT<GetWorkspaceItemInfoResponse> API_HANDLER_WORKSPACE::handleGetWor
         return reply;
 
     MDW_ITEM_INFO  item;
-    MDW_ERROR_CODE code = service->GetItemInfo( wxString::FromUTF8( aCtx.Request.item_id() ), item );
+    MDW_ERROR_CODE code = service->GetItemInfo( MdwFromUtf8( aCtx.Request.item_id() ), item );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        packItemInfo( reply.mutable_item(), item );
+        MdwToProto( reply.mutable_item(), item );
 
     setError( reply.mutable_error(), code );
 
@@ -385,8 +273,8 @@ HANDLER_RESULT<CheckoutItemResponse> API_HANDLER_WORKSPACE::handleCheckoutItem(
         return reply;
 
     MDW_CHECKOUT_REQUEST request;
-    request.item_id = wxString::FromUTF8( aCtx.Request.item_id() );
-    request.local_path = wxString::FromUTF8( aCtx.Request.local_path() );
+    request.item_id = MdwFromUtf8( aCtx.Request.item_id() );
+    request.local_path = MdwFromUtf8( aCtx.Request.local_path() );
     request.lock = aCtx.Request.lock();
 
     MDW_CHECKOUT_RESULT result;
@@ -394,8 +282,8 @@ HANDLER_RESULT<CheckoutItemResponse> API_HANDLER_WORKSPACE::handleCheckoutItem(
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
-        packItemInfo( reply.mutable_item(), result.item );
-        reply.set_local_path( std::string( result.local_path.utf8_string() ) );
+        MdwToProto( reply.mutable_item(), result.item );
+        reply.set_local_path( MdwToUtf8( result.local_path ) );
     }
 
     setError( reply.mutable_error(), code );
@@ -414,16 +302,16 @@ HANDLER_RESULT<CheckinItemResponse> API_HANDLER_WORKSPACE::handleCheckinItem(
         return reply;
 
     MDW_CHECKIN_REQUEST request;
-    request.item_id = wxString::FromUTF8( aCtx.Request.item_id() );
-    request.local_path = wxString::FromUTF8( aCtx.Request.local_path() );
-    request.comment = wxString::FromUTF8( aCtx.Request.comment() );
-    request.attributes = toStruct( aCtx.Request.attributes() );
+    request.item_id = MdwFromUtf8( aCtx.Request.item_id() );
+    request.local_path = MdwFromUtf8( aCtx.Request.local_path() );
+    request.comment = MdwFromUtf8( aCtx.Request.comment() );
+    request.attributes = MdwToStruct( aCtx.Request.attributes() );
 
     MDW_CHECKIN_RESULT result;
     MDW_ERROR_CODE     code = service->CheckinSync( request, result );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        packRevision( reply.mutable_revision(), result.revision );
+        MdwToProto( reply.mutable_revision(), result.revision );
 
     setError( reply.mutable_error(), code );
 
@@ -440,8 +328,8 @@ HANDLER_RESULT<CancelCheckoutResponse> API_HANDLER_WORKSPACE::handleCancelChecko
     if( !service )
         return reply;
 
-    MDW_ERROR_CODE code = service->CancelCheckout( wxString::FromUTF8( aCtx.Request.item_id() ),
-                                                   wxString::FromUTF8( aCtx.Request.local_path() ) );
+    MDW_ERROR_CODE code = service->CancelCheckout( MdwFromUtf8( aCtx.Request.item_id() ),
+                                                   MdwFromUtf8( aCtx.Request.local_path() ) );
     setError( reply.mutable_error(), code );
 
     return reply;
@@ -458,10 +346,10 @@ HANDLER_RESULT<LockItemResponse> API_HANDLER_WORKSPACE::handleLockItem(
         return reply;
 
     MDW_LOCK_INFO  lock;
-    MDW_ERROR_CODE code = service->LockSync( wxString::FromUTF8( aCtx.Request.item_id() ), lock );
+    MDW_ERROR_CODE code = service->LockSync( MdwFromUtf8( aCtx.Request.item_id() ), lock );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        packLockInfo( reply.mutable_lock(), lock );
+        MdwToProto( reply.mutable_lock(), lock );
 
     setError( reply.mutable_error(), code );
 
@@ -479,10 +367,10 @@ HANDLER_RESULT<LockItemResponse> API_HANDLER_WORKSPACE::handleUnlockItem(
         return reply;
 
     MDW_LOCK_INFO  lock;
-    MDW_ERROR_CODE code = service->UnlockSync( wxString::FromUTF8( aCtx.Request.item_id() ), lock );
+    MDW_ERROR_CODE code = service->UnlockSync( MdwFromUtf8( aCtx.Request.item_id() ), lock );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        packLockInfo( reply.mutable_lock(), lock );
+        MdwToProto( reply.mutable_lock(), lock );
 
     setError( reply.mutable_error(), code );
 
@@ -500,10 +388,10 @@ HANDLER_RESULT<GetItemLockInfoResponse> API_HANDLER_WORKSPACE::handleGetItemLock
         return reply;
 
     MDW_LOCK_INFO  lock;
-    MDW_ERROR_CODE code = service->GetLockInfo( wxString::FromUTF8( aCtx.Request.item_id() ), lock );
+    MDW_ERROR_CODE code = service->GetLockInfo( MdwFromUtf8( aCtx.Request.item_id() ), lock );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        packLockInfo( reply.mutable_lock(), lock );
+        MdwToProto( reply.mutable_lock(), lock );
 
     setError( reply.mutable_error(), code );
 
@@ -521,11 +409,11 @@ HANDLER_RESULT<GetItemAttributesResponse> API_HANDLER_WORKSPACE::handleGetItemAt
         return reply;
 
     MDW_ATTRIBUTE_SET attributes;
-    MDW_ERROR_CODE code = service->GetAttributes( wxString::FromUTF8( aCtx.Request.item_id() ),
+    MDW_ERROR_CODE code = service->GetAttributes( MdwFromUtf8( aCtx.Request.item_id() ),
                                                   attributes );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
-        packAttributeSet( reply.mutable_attributes(), attributes );
+        MdwToProto( reply.mutable_attributes(), attributes );
 
     setError( reply.mutable_error(), code );
 
@@ -542,8 +430,8 @@ HANDLER_RESULT<SetItemAttributesResponse> API_HANDLER_WORKSPACE::handleSetItemAt
     if( !service )
         return reply;
 
-    MDW_ERROR_CODE code = service->SetAttributes( wxString::FromUTF8( aCtx.Request.item_id() ),
-                                                  toStruct( aCtx.Request.attributes() ) );
+    MDW_ERROR_CODE code = service->SetAttributes( MdwFromUtf8( aCtx.Request.item_id() ),
+                                                  MdwToStruct( aCtx.Request.attributes() ) );
     setError( reply.mutable_error(), code );
 
     return reply;
@@ -560,13 +448,13 @@ HANDLER_RESULT<GetRevisionHistoryResponse> API_HANDLER_WORKSPACE::handleGetRevis
         return reply;
 
     std::vector<MDW_REVISION> revisions;
-    MDW_ERROR_CODE code = service->GetRevisionHistory( wxString::FromUTF8( aCtx.Request.item_id() ),
+    MDW_ERROR_CODE code = service->GetRevisionHistory( MdwFromUtf8( aCtx.Request.item_id() ),
                                                        revisions );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         for( const MDW_REVISION& revision : revisions )
-            packRevision( reply.add_revisions(), revision );
+            MdwToProto( reply.add_revisions(), revision );
     }
 
     setError( reply.mutable_error(), code );
@@ -584,9 +472,9 @@ HANDLER_RESULT<DownloadRevisionResponse> API_HANDLER_WORKSPACE::handleDownloadRe
     if( !service )
         return reply;
 
-    MDW_ERROR_CODE code = service->DownloadRevision( wxString::FromUTF8( aCtx.Request.item_id() ),
-                                                     wxString::FromUTF8( aCtx.Request.revision_id() ),
-                                                     wxString::FromUTF8( aCtx.Request.local_path() ) );
+    MDW_ERROR_CODE code = service->DownloadRevision( MdwFromUtf8( aCtx.Request.item_id() ),
+                                                     MdwFromUtf8( aCtx.Request.revision_id() ),
+                                                     MdwFromUtf8( aCtx.Request.local_path() ) );
     setError( reply.mutable_error(), code );
 
     return reply;
@@ -604,13 +492,13 @@ HANDLER_RESULT<GetLifecycleCategoryResponse> API_HANDLER_WORKSPACE::handleGetLif
 
     MDW_LIFECYCLE_CATEGORY category = MDW_LIFECYCLE_CATEGORY::EDITABLE;
     wxString               customStateId;
-    MDW_ERROR_CODE code = service->GetLifecycleCategory( wxString::FromUTF8( aCtx.Request.item_id() ),
+    MDW_ERROR_CODE code = service->GetLifecycleCategory( MdwFromUtf8( aCtx.Request.item_id() ),
                                                          category, customStateId );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         reply.set_category( static_cast<LifecycleCategory>( category ) );
-        reply.set_custom_state_id( std::string( customStateId.utf8_string() ) );
+        reply.set_custom_state_id( MdwToUtf8( customStateId ) );
     }
 
     setError( reply.mutable_error(), code );
@@ -631,14 +519,14 @@ HANDLER_RESULT<TransitionLifecycleResponse> API_HANDLER_WORKSPACE::handleTransit
     MDW_LIFECYCLE_CATEGORY category = MDW_LIFECYCLE_CATEGORY::EDITABLE;
     wxString               stateId;
     MDW_ERROR_CODE code = service->TransitionLifecycle(
-            wxString::FromUTF8( aCtx.Request.item_id() ),
-            wxString::FromUTF8( aCtx.Request.target_state_id() ),
-            wxString::FromUTF8( aCtx.Request.comment() ), category, stateId );
+            MdwFromUtf8( aCtx.Request.item_id() ),
+            MdwFromUtf8( aCtx.Request.target_state_id() ),
+            MdwFromUtf8( aCtx.Request.comment() ), category, stateId );
 
     if( code == MDW_ERROR_CODE::SUCCESS )
     {
         reply.set_new_category( static_cast<LifecycleCategory>( category ) );
-        reply.set_new_state_id( std::string( stateId.utf8_string() ) );
+        reply.set_new_state_id( MdwToUtf8( stateId ) );
     }
 
     setError( reply.mutable_error(), code );
@@ -685,8 +573,8 @@ API_HANDLER_WORKSPACE::handleSubscribeWorkspaceEvents(
         return reply;
     }
 
-    reply.set_event_socket_url( std::string( url.utf8_string() ) );
-    reply.set_topic_prefix( std::string( topicPrefix.utf8_string() ) );
+    reply.set_event_socket_url( MdwToUtf8( url ) );
+    reply.set_topic_prefix( MdwToUtf8( topicPrefix ) );
     reply.set_current_seq( seq );
 
     return reply;
@@ -708,10 +596,10 @@ HANDLER_RESULT<RegisterContextActionResponse> API_HANDLER_WORKSPACE::handleRegis
     const ContextActionSpec& spec = aCtx.Request.spec();
 
     MDW_CONTEXT_ACTION action;
-    action.client_identity = wxString::FromUTF8( aCtx.ClientName );
-    action.item_type_predicate = wxString::FromUTF8( spec.item_type_predicate() );
-    action.label = wxString::FromUTF8( spec.label() );
-    action.target_method = wxString::FromUTF8( spec.target_method() );
+    action.client_identity = MdwFromUtf8( aCtx.ClientName );
+    action.item_type_predicate = MdwFromUtf8( spec.item_type_predicate() );
+    action.label = MdwFromUtf8( spec.label() );
+    action.target_method = MdwFromUtf8( spec.target_method() );
 
     if( !fw->ContextActions().Register( action ) )
     {
@@ -719,7 +607,7 @@ HANDLER_RESULT<RegisterContextActionResponse> API_HANDLER_WORKSPACE::handleRegis
         return reply;
     }
 
-    reply.set_action_id( std::string( action.action_id.utf8_string() ) );
+    reply.set_action_id( MdwToUtf8( action.action_id ) );
 
     return reply;
 }
@@ -737,8 +625,8 @@ HANDLER_RESULT<UnregisterContextActionResponse> API_HANDLER_WORKSPACE::handleUnr
         return reply;
     }
 
-    if( !fw->ContextActions().Unregister( wxString::FromUTF8( aCtx.Request.action_id() ),
-                                          wxString::FromUTF8( aCtx.ClientName ) ) )
+    if( !fw->ContextActions().Unregister( MdwFromUtf8( aCtx.Request.action_id() ),
+                                          MdwFromUtf8( aCtx.ClientName ) ) )
     {
         setError( reply.mutable_error(), MDW_ERROR_CODE::ITEM_NOT_FOUND );
     }

@@ -26,6 +26,7 @@
 #include <wx/log.h>
 
 #include <future>
+#include <utility>
 
 
 /**
@@ -313,14 +314,37 @@ std::uint64_t KINNG_REQUEST_CLIENT::Request( const std::string& aPayload, int aT
         return 0;
     }
 
+    // The request reaches its callback as a void*, so nothing but a raw pointer
+    // can own it once nng takes over. This guard owns it up to that handoff and
+    // unwinds whichever pieces were built if the handoff never happens.
+    struct CLEANUP
+    {
+        ~CLEANUP()
+        {
+            if( !request )
+                return;
+
+            if( request->aio )
+            {
+                if( nng_msg* msg = nng_aio_get_msg( request->aio ) )
+                    nng_msg_free( msg );
+
+                nng_aio_free( request->aio );
+            }
+
+            nng_ctx_close( request->ctx );
+            delete request;
+        }
+
+        void Release() { request = nullptr; }
+
+        REQUEST* request;
+    } cleanup{ req };
+
     retCode = nng_aio_alloc( &req->aio, &KINNG_REQUEST_CLIENT::aioCallback, req );
 
     if( retCode != 0 )
-    {
-        nng_ctx_close( req->ctx );
-        delete req;
         return 0;
-    }
 
     if( aTimeoutMs > 0 )
         nng_aio_set_timeout( req->aio, aTimeoutMs );
@@ -329,12 +353,7 @@ std::uint64_t KINNG_REQUEST_CLIENT::Request( const std::string& aPayload, int aT
     retCode = nng_msg_alloc( &msg, 0 );
 
     if( retCode != 0 )
-    {
-        nng_aio_free( req->aio );
-        nng_ctx_close( req->ctx );
-        delete req;
         return 0;
-    }
 
     if( !aPayload.empty() )
         nng_msg_append( msg, aPayload.data(), aPayload.size() );
@@ -359,16 +378,10 @@ std::uint64_t KINNG_REQUEST_CLIENT::Request( const std::string& aPayload, int aT
     }
 
     if( id == 0 )
-    {
-        if( nng_msg* pending = nng_aio_get_msg( req->aio ) )
-            nng_msg_free( pending );
-
-        nng_aio_free( req->aio );
-        nng_ctx_close( req->ctx );
-        delete req;
         return 0;
-    }
 
+    // The callback can run, and free the request, before nng_ctx_send returns.
+    cleanup.Release();
     nng_ctx_send( req->ctx, req->aio );
 
     return id;
@@ -473,22 +486,26 @@ void KINNG_REQUEST_CLIENT::reaperThread()
                                     || ( !m_impl->running.load() && m_impl->outstanding.empty() );
                          } );
 
-        while( !m_impl->completed.empty() )
-        {
-            REQUEST* req = m_impl->completed.back();
-            m_impl->completed.pop_back();
+        // Take the whole batch in one go so callbacks fire in completion order
+        // rather than reversed, and so the lock cycles once per batch.
+        std::vector<REQUEST*> batch = std::exchange( m_impl->completed, {} );
 
+        if( !batch.empty() )
+        {
             lock.unlock();
 
-            // Freeing the aio here, not inside its own callback, avoids the
-            // self-join deadlock nng_aio_free would hit within the callback.
-            nng_aio_free( req->aio );
-            nng_ctx_close( req->ctx );
+            for( REQUEST* req : batch )
+            {
+                // Freeing the aio here, not inside its own callback, avoids the
+                // self-join deadlock nng_aio_free would hit within the callback.
+                nng_aio_free( req->aio );
+                nng_ctx_close( req->ctx );
 
-            if( req->callback )
-                req->callback( req->result );
+                if( req->callback )
+                    req->callback( req->result );
 
-            delete req;
+                delete req;
+            }
 
             lock.lock();
         }

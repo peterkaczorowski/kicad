@@ -144,6 +144,12 @@ private:
  * An nng PUB server. KiCad publishes workspace events to external IPC clients
  * over this socket. Messages are framed as a topic prefix, a NUL separator, and
  * the payload so nng's prefix subscription matches on the topic.
+ *
+ * The owner drives the lifecycle from one thread; Start and Stop must not
+ * overlap each other or a Publish. KINNG_REQUEST_CLIENT serializes its own Start
+ * and Stop, but only because its Stop joins the reaper thread. The same lock
+ * here would buy nothing, since Stop closes the socket out from under a
+ * concurrent Publish either way.
  */
 class KINNG_PUB_SERVER
 {
