@@ -30,8 +30,10 @@
 #ifndef GIT_OPERATIONS_H
 #define GIT_OPERATIONS_H
 
+#include <mdw_sdk/mdw_strings.h>
 #include <mdw_sdk/mdw_subprocess.h>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,11 +43,10 @@ std::string GitRepo();
 /// Run git in the repo, prefixing {"git", "-C", repo} onto aArgs.
 MDW_PROCESS_RESULT Git( const std::vector<std::string>& aArgs );
 
-/// The tracked files under aPrefix (empty for the whole tree), one path each.
-/// When aOk is given it reports whether the underlying git invocation ran and
-/// succeeded, so callers can tell an empty repo from a failed one.
-std::vector<std::string> GitLsFiles( const std::string& aPrefix = std::string(),
-                                     bool* aOk = nullptr );
+/// Every tracked file in the working tree, one path each. Empty when the repo
+/// has no tracked files, and nullopt when git itself failed, so a caller can
+/// tell the two apart.
+std::optional<std::vector<std::string>> GitLsFiles();
 
 /// True when git tracks aPath in the working tree.
 bool GitTracked( const std::string& aPath );
@@ -57,11 +58,5 @@ bool IsSafeRef( const std::string& aRef );
 /// True when aPath is safe to pass to git as a repo-relative path. Rejects
 /// empty, a leading '-', an absolute path, and any ".." path component.
 bool IsSafePath( const std::string& aPath );
-
-/// Trim leading and trailing whitespace.
-std::string Trimmed( const std::string& aText );
-
-/// Split aText into records on aDelim, dropping a trailing empty record.
-std::vector<std::string> Split( const std::string& aText, char aDelim );
 
 #endif // GIT_OPERATIONS_H

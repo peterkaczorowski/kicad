@@ -44,26 +44,14 @@ MDW_PROCESS_RESULT Git( const std::vector<std::string>& aArgs )
 }
 
 
-std::vector<std::string> GitLsFiles( const std::string& aPrefix, bool* aOk )
+std::optional<std::vector<std::string>> GitLsFiles()
 {
-    std::vector<std::string> args = { "-c", "core.quotePath=false", "ls-files", "-z" };
+    MDW_PROCESS_RESULT result = Git( { "-c", "core.quotePath=false", "ls-files", "-z" } );
 
-    if( !aPrefix.empty() )
-    {
-        args.push_back( "--" );
-        args.push_back( aPrefix );
-    }
+    if( !result.started || result.exit_code != 0 )
+        return std::nullopt;
 
-    MDW_PROCESS_RESULT result = Git( args );
-    bool               succeeded = result.started && result.exit_code == 0;
-
-    if( aOk )
-        *aOk = succeeded;
-
-    if( !succeeded )
-        return {};
-
-    return Split( result.out, '\0' );
+    return MdwSplit( result.out, '\0' );
 }
 
 
@@ -98,57 +86,11 @@ bool IsSafePath( const std::string& aPath )
     if( aPath.empty() || aPath[0] == '-' || aPath[0] == '/' )
         return false;
 
-    for( const std::string& component : Split( aPath, '/' ) )
+    for( const std::string& component : MdwSplit( aPath, '/' ) )
     {
         if( component == ".." )
             return false;
     }
 
     return true;
-}
-
-
-std::string Trimmed( const std::string& aText )
-{
-    std::size_t begin = 0;
-    std::size_t end = aText.size();
-
-    while( begin < end && ( aText[begin] == ' ' || aText[begin] == '\t' || aText[begin] == '\n'
-                            || aText[begin] == '\r' ) )
-    {
-        ++begin;
-    }
-
-    while( end > begin && ( aText[end - 1] == ' ' || aText[end - 1] == '\t' || aText[end - 1] == '\n'
-                            || aText[end - 1] == '\r' ) )
-    {
-        --end;
-    }
-
-    return aText.substr( begin, end - begin );
-}
-
-
-std::vector<std::string> Split( const std::string& aText, char aDelim )
-{
-    std::vector<std::string> parts;
-    std::string              token;
-
-    for( char c : aText )
-    {
-        if( c == aDelim )
-        {
-            parts.push_back( token );
-            token.clear();
-        }
-        else
-        {
-            token.push_back( c );
-        }
-    }
-
-    if( !token.empty() )
-        parts.push_back( token );
-
-    return parts;
 }

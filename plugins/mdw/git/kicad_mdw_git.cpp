@@ -37,9 +37,11 @@
 #include <api/mdw/backend_revisions.pb.h>
 #include <api/workspace/workspace_types.pb.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -52,6 +54,9 @@ namespace
 
 const char FIELD_SEP = '\x1f';
 
+/// Fields in the revision log format, hash through subject.
+const std::size_t LOG_FIELDS = 5;
+
 
 /// The value of a git config key, or aFallback when it is unset.
 std::string configValue( const std::string& aKey, const std::string& aFallback )
@@ -61,36 +66,9 @@ std::string configValue( const std::string& aKey, const std::string& aFallback )
     if( !result.started || result.exit_code != 0 )
         return aFallback;
 
-    std::string value = Trimmed( result.out );
+    std::string value = MdwTrimmed( result.out );
 
     return value.empty() ? aFallback : value;
-}
-
-
-/// Split aRecord into exactly aCount fields on aSep, taking the remainder as the
-/// final field so a legitimately empty trailing field (an empty commit subject)
-/// is preserved. Fewer than aCount separators yields fewer fields.
-std::vector<std::string> splitFields( const std::string& aRecord, char aSep, std::size_t aCount )
-{
-    std::vector<std::string> fields;
-    std::size_t              start = 0;
-
-    for( std::size_t i = 0; i + 1 < aCount; ++i )
-    {
-        std::size_t pos = aRecord.find( aSep, start );
-
-        if( pos == std::string::npos )
-        {
-            fields.push_back( aRecord.substr( start ) );
-            return fields;
-        }
-
-        fields.push_back( aRecord.substr( start, pos - start ) );
-        start = pos + 1;
-    }
-
-    fields.push_back( aRecord.substr( start ) );
-    return fields;
 }
 
 
@@ -109,7 +87,7 @@ ws::ItemInfo itemInfo( const std::string& aPath )
 
     if( last.started && last.exit_code == 0 )
     {
-        std::vector<std::string> fields = Split( Trimmed( last.out ), FIELD_SEP );
+        std::vector<std::string> fields = MdwSplit( MdwTrimmed( last.out ), FIELD_SEP );
 
         if( fields.size() >= 1 && !fields[0].empty() )
             item.set_revision_id( fields[0] );
@@ -152,17 +130,16 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::GetRootFoldersRequest&,
                 mdw::GetRootFoldersReply& aReply ) -> ws::WorkspaceError
             {
-                bool                     gitOk = false;
-                std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
+                std::optional<std::vector<std::string>> files = GitLsFiles();
 
-                if( !gitOk )
+                if( !files )
                     return MdwFail( ws::WE_INTERNAL, "git failed" );
 
                 ws::Folder* folder = aReply.add_folders();
                 folder->set_folder_id( "" );
                 folder->set_display_name( "Root" );
 
-                for( const std::string& path : files )
+                for( const std::string& path : *files )
                 {
                     if( path.find( '/' ) != std::string::npos )
                     {
@@ -178,17 +155,16 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::GetChildFoldersRequest& aRequest,
                 mdw::GetChildFoldersReply& aReply ) -> ws::WorkspaceError
             {
-                bool                     gitOk = false;
-                std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
+                std::optional<std::vector<std::string>> files = GitLsFiles();
 
-                if( !gitOk )
+                if( !files )
                     return MdwFail( ws::WE_INTERNAL, "git failed" );
 
                 // git tracks files, not directories, so the folders are the
                 // directories the tracked files sit in.
                 std::set<std::string> folders;
 
-                for( const std::string& path : files )
+                for( const std::string& path : *files )
                 {
                     std::string dir = MdwParentDir( path );
 
@@ -206,13 +182,12 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::ListItemsRequest& aRequest,
                 mdw::ListItemsReply& aReply ) -> ws::WorkspaceError
             {
-                bool                     gitOk = false;
-                std::vector<std::string> files = GitLsFiles( std::string(), &gitOk );
+                std::optional<std::vector<std::string>> files = GitLsFiles();
 
-                if( !gitOk )
+                if( !files )
                     return MdwFail( ws::WE_INTERNAL, "git failed" );
 
-                for( const std::string& path : files )
+                for( const std::string& path : *files )
                 {
                     if( MdwParentDir( path ) == aRequest.folder_id() )
                         *aReply.add_items() = itemInfo( path );
@@ -283,7 +258,7 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 MDW_PROCESS_RESULT head = Git( { "rev-parse", "--short", "HEAD" } );
 
                 ws::Revision* rev = aReply.mutable_revision();
-                rev->set_revision_id( Trimmed( head.out ) );
+                rev->set_revision_id( MdwTrimmed( head.out ) );
                 rev->set_author( configValue( "user.email", "local" ) );
                 rev->set_comment( aRequest.comment() );
                 return MdwOk();
@@ -318,20 +293,20 @@ void registerHandlers( MDW_BACKEND_SERVER& aServer )
                 if( !log.started || log.exit_code != 0 )
                     return MdwFail( ws::WE_ITEM_NOT_FOUND, log.err );
 
-                for( const std::string& record : Split( log.out, '\0' ) )
+                for( const std::string& record : MdwSplit( log.out, '\0' ) )
                 {
                     if( record.empty() )
                         continue;
 
-                    std::vector<std::string> fields = splitFields( record, FIELD_SEP, 5 );
+                    std::vector<std::string> fields = MdwSplit( record, FIELD_SEP, LOG_FIELDS );
 
-                    if( fields.size() < 5 )
+                    if( fields.size() < LOG_FIELDS )
                         continue;
 
                     ws::Revision* rev = aReply.add_revisions();
                     rev->set_revision_id( fields[0] );
 
-                    for( const std::string& parent : Split( fields[1], ' ' ) )
+                    for( const std::string& parent : MdwSplit( fields[1], ' ' ) )
                     {
                         if( !parent.empty() )
                             rev->add_parent_revision_ids( parent );

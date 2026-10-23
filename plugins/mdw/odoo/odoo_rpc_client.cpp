@@ -35,16 +35,6 @@ std::size_t writeToString( char* aData, std::size_t aSize, std::size_t aCount, v
 } // namespace
 
 
-ODOO_RPC_CLIENT::ODOO_RPC_CLIENT()
-{
-}
-
-
-ODOO_RPC_CLIENT::~ODOO_RPC_CLIENT()
-{
-}
-
-
 void ODOO_RPC_CLIENT::SetServer( const std::string& aServerUrl, const std::string& aDatabase )
 {
     m_serverUrl = aServerUrl;
@@ -57,7 +47,6 @@ void ODOO_RPC_CLIENT::SetServer( const std::string& aServerUrl, const std::strin
 
 void ODOO_RPC_CLIENT::Reset()
 {
-    m_login.clear();
     m_password.clear();
     m_uid = 0;
     m_authenticated = false;
@@ -85,7 +74,6 @@ ODOO_RPC_RESULT ODOO_RPC_CLIENT::Authenticate( const std::string& aLogin,
         if( uid > 0 )
         {
             m_uid = uid;
-            m_login = aLogin;
             m_password = aPassword;
             m_authenticated = true;
             return result;

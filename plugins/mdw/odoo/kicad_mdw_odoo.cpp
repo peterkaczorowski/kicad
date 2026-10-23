@@ -42,9 +42,11 @@
 
 #include <curl/curl.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -53,6 +55,10 @@ namespace ws = kiapi::workspace;
 
 namespace
 {
+
+/// The record fields every handler that returns an ItemInfo has to read.
+const nlohmann::json ITEM_FIELDS = nlohmann::json::array( { "id", "name", "folder", "state" } );
+
 
 /// The shared Odoo session. Handlers run on worker threads, so the client and
 /// its request counter are serialized behind one mutex.
@@ -90,16 +96,9 @@ ODOO_STATE& odooState()
 
 bool isAllDigits( const std::string& aText )
 {
-    if( aText.empty() )
-        return false;
-
-    for( char c : aText )
-    {
-        if( c < '0' || c > '9' )
-            return false;
-    }
-
-    return true;
+    return !aText.empty()
+           && std::all_of( aText.begin(), aText.end(),
+                           []( char c ) { return c >= '0' && c <= '9'; } );
 }
 
 
@@ -145,25 +144,41 @@ ws::ItemInfo itemInfo( const nlohmann::json& aRecord )
 }
 
 
-/// Resolve a request item_id to its Odoo record id, or -1 when it does not
-/// resolve. A numeric id is taken verbatim; any other value is looked up by name.
-long long resolveRecordId( ODOO_STATE& aState, const std::string& aItemId, ODOO_RPC_RESULT& aResult )
+/**
+ * Resolve a request item_id into aId. A numeric id is taken verbatim; any other
+ * value is looked up by name. The caller must already hold the state mutex.
+ *
+ * Returns the error to answer the request with when the id does not resolve, so
+ * a handler can forward it unchanged and otherwise proceed with aId.
+ */
+std::optional<ws::WorkspaceError> resolveOrFail( ODOO_STATE& aState, const std::string& aItemId,
+                                                 long long& aId )
 {
+    if( aItemId.empty() )
+        return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
+
     if( isAllDigits( aItemId ) )
-        return std::strtoll( aItemId.c_str(), nullptr, 10 );
+    {
+        aId = std::strtoll( aItemId.c_str(), nullptr, 10 );
+        return std::nullopt;
+    }
 
     nlohmann::json domain = nlohmann::json::array();
     domain.push_back( nlohmann::json::array( { "name", "=", aItemId } ) );
 
-    aResult = aState.client.SearchRead( aState.model, domain, nlohmann::json::array( { "id" } ), 1 );
+    ODOO_RPC_RESULT lookup =
+            aState.client.SearchRead( aState.model, domain, nlohmann::json::array( { "id" } ), 1 );
 
-    if( aResult.success && aResult.result.is_array() && !aResult.result.empty()
-        && aResult.result[0].contains( "id" ) )
+    if( !lookup.success )
+        return OdooMapError( lookup, ws::WE_ITEM_NOT_FOUND );
+
+    if( lookup.result.is_array() && !lookup.result.empty() && lookup.result[0].contains( "id" ) )
     {
-        return aResult.result[0]["id"].get<long long>();
+        aId = lookup.result[0]["id"].get<long long>();
+        return std::nullopt;
     }
 
-    return -1;
+    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
 }
 
 
@@ -284,9 +299,8 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
                 domain.push_back(
                         nlohmann::json::array( { "folder", "=", aRequest.folder_id() } ) );
 
-                ODOO_RPC_RESULT result = state.client.SearchRead(
-                        state.model, domain,
-                        nlohmann::json::array( { "id", "name", "folder", "state" } ) );
+                ODOO_RPC_RESULT result =
+                        state.client.SearchRead( state.model, domain, ITEM_FIELDS );
 
                 if( !result.success )
                     return OdooMapError( result );
@@ -301,26 +315,20 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::GetItemInfoRequest& aRequest,
                 mdw::GetItemInfoReply& aReply ) -> ws::WorkspaceError
             {
-                if( aRequest.item_id().empty() )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
-
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
 
-                ODOO_RPC_RESULT lookup;
-                long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
+                long long id = 0;
 
-                if( id < 0 )
+                if( std::optional<ws::WorkspaceError> failure =
+                            resolveOrFail( state, aRequest.item_id(), id ) )
                 {
-                    if( !lookup.success )
-                        return OdooMapError( lookup, ws::WE_ITEM_NOT_FOUND );
-
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                    return *failure;
                 }
 
-                ODOO_RPC_RESULT result = state.client.Read(
-                        state.model, nlohmann::json::array( { id } ),
-                        nlohmann::json::array( { "id", "name", "folder", "state" } ) );
+                ODOO_RPC_RESULT result =
+                        state.client.Read( state.model, nlohmann::json::array( { id } ),
+                                           ITEM_FIELDS );
 
                 if( !result.success )
                     return OdooMapError( result, ws::WE_ITEM_NOT_FOUND );
@@ -336,21 +344,20 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::CheckoutRequest& aRequest,
                 mdw::CheckoutReply& aReply ) -> ws::WorkspaceError
             {
-                if( aRequest.item_id().empty() )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
-
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
 
-                ODOO_RPC_RESULT lookup;
-                long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
+                long long id = 0;
 
-                if( id < 0 )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                if( std::optional<ws::WorkspaceError> failure =
+                            resolveOrFail( state, aRequest.item_id(), id ) )
+                {
+                    return *failure;
+                }
 
-                ODOO_RPC_RESULT result = state.client.Read(
-                        state.model, nlohmann::json::array( { id } ),
-                        nlohmann::json::array( { "id", "name", "folder", "state" } ) );
+                ODOO_RPC_RESULT result =
+                        state.client.Read( state.model, nlohmann::json::array( { id } ),
+                                           ITEM_FIELDS );
 
                 if( !result.success || !result.result.is_array() || result.result.empty() )
                     return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
@@ -364,17 +371,16 @@ void registerBaseHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::CheckinRequest& aRequest,
                 mdw::CheckinReply& aReply ) -> ws::WorkspaceError
             {
-                if( aRequest.item_id().empty() )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
-
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
 
-                ODOO_RPC_RESULT lookup;
-                long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
+                long long id = 0;
 
-                if( id < 0 )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                if( std::optional<ws::WorkspaceError> failure =
+                            resolveOrFail( state, aRequest.item_id(), id ) )
+                {
+                    return *failure;
+                }
 
                 nlohmann::json values;
                 values["last_comment"] = aRequest.comment();
@@ -408,17 +414,16 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::GetAttributesRequest& aRequest,
                 mdw::GetAttributesReply& aReply ) -> ws::WorkspaceError
             {
-                if( aRequest.item_id().empty() )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
-
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
 
-                ODOO_RPC_RESULT lookup;
-                long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
+                long long id = 0;
 
-                if( id < 0 )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                if( std::optional<ws::WorkspaceError> failure =
+                            resolveOrFail( state, aRequest.item_id(), id ) )
+                {
+                    return *failure;
+                }
 
                 ODOO_RPC_RESULT result = state.client.Read(
                         state.model, nlohmann::json::array( { id } ),
@@ -454,17 +459,16 @@ void registerAttributeHandlers( MDW_BACKEND_SERVER& aServer )
             []( const mdw::SetAttributesRequest& aRequest,
                 mdw::SetAttributesReply& ) -> ws::WorkspaceError
             {
-                if( aRequest.item_id().empty() )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "empty item id" );
-
                 ODOO_STATE&                 state = odooState();
                 std::lock_guard<std::mutex> lock( state.mutex );
 
-                ODOO_RPC_RESULT lookup;
-                long long       id = resolveRecordId( state, aRequest.item_id(), lookup );
+                long long id = 0;
 
-                if( id < 0 )
-                    return MdwFail( ws::WE_ITEM_NOT_FOUND, "no such item" );
+                if( std::optional<ws::WorkspaceError> failure =
+                            resolveOrFail( state, aRequest.item_id(), id ) )
+                {
+                    return *failure;
+                }
 
                 nlohmann::json attributes = nlohmann::json::object();
 

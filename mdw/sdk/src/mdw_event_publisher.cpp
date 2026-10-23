@@ -26,6 +26,20 @@
 
 #include <chrono>
 
+namespace
+{
+/// Free whatever message an aio still holds and clear the reference. The aio is
+/// reused across attempts, so a stale pointer must not outlive the message.
+void releaseMsg( nng_aio* aAio )
+{
+    if( nng_msg* msg = nng_aio_get_msg( aAio ) )
+        nng_msg_free( msg );
+
+    nng_aio_set_msg( aAio, nullptr );
+}
+}
+
+
 struct MDW_EVENT_PUBLISHER::IMPL
 {
     nng_socket                                    socket = NNG_SOCKET_INITIALIZER;
@@ -111,6 +125,13 @@ bool MDW_EVENT_PUBLISHER::Publish( const kiapi::workspace::EventEnvelope& aEvent
 
 void MDW_EVENT_PUBLISHER::publishLoop()
 {
+    // One aio serves the whole thread; nng reuses it freely once nng_aio_wait
+    // has returned, and allocating per attempt would churn on every retry.
+    nng_aio* aio = nullptr;
+
+    if( nng_aio_alloc( &aio, nullptr, nullptr ) != 0 )
+        return;
+
     while( true )
     {
         kiapi::workspace::EventEnvelope event;
@@ -121,7 +142,7 @@ void MDW_EVENT_PUBLISHER::publishLoop()
                              { return !m_impl->running.load() || !m_impl->queue.empty(); } );
 
             if( !m_impl->running.load() && m_impl->queue.empty() )
-                return;
+                break;
 
             if( m_impl->queue.empty() )
                 continue;
@@ -158,25 +179,16 @@ void MDW_EVENT_PUBLISHER::publishLoop()
 
             nng_msg_append( msg, out.data(), out.size() );
 
-            nng_aio* aio = nullptr;
-
-            if( nng_aio_alloc( &aio, nullptr, nullptr ) != 0 )
-            {
-                nng_msg_free( msg );
-                break;
-            }
-
             nng_aio_set_timeout( aio, 2000 );
             nng_aio_set_msg( aio, msg );
             nng_send_aio( m_impl->socket, aio );
             nng_aio_wait( aio );
 
+            // A failed send hands the message back; a successful exchange leaves
+            // the acknowledgement. Either way the message is ours to release.
             if( nng_aio_result( aio ) != 0 )
             {
-                if( nng_msg* unsent = nng_aio_get_msg( aio ) )
-                    nng_msg_free( unsent );
-
-                nng_aio_free( aio );
+                releaseMsg( aio );
             }
             else
             {
@@ -185,17 +197,15 @@ void MDW_EVENT_PUBLISHER::publishLoop()
 
                 if( nng_aio_result( aio ) == 0 )
                 {
-                    if( nng_msg* ack = nng_aio_get_msg( aio ) )
-                        nng_msg_free( ack );
-
+                    releaseMsg( aio );
                     delivered = true;
                 }
-
-                nng_aio_free( aio );
             }
 
             if( !delivered && m_impl->running.load() )
                 std::this_thread::sleep_for( std::chrono::milliseconds( 200 ) );
         }
     }
+
+    nng_aio_free( aio );
 }

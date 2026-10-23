@@ -51,14 +51,8 @@ struct ODOO_RPC_RESULT
 class ODOO_RPC_CLIENT
 {
 public:
-    ODOO_RPC_CLIENT();
-
-    ~ODOO_RPC_CLIENT();
-
     /// Set the base server url (trailing slash trimmed) and the database name.
     void SetServer( const std::string& aServerUrl, const std::string& aDatabase );
-
-    void SetTimeout( long aTimeoutSeconds ) { m_timeoutSeconds = aTimeoutSeconds; }
 
     /// Log in through the "common" service and cache the uid and password for the
     /// execute_kw calls that follow. On success the returned result holds the uid.
@@ -93,7 +87,6 @@ private:
 
     std::string m_serverUrl;
     std::string m_database;
-    std::string m_login;
     std::string m_password;
     int         m_uid = 0;
     bool        m_authenticated = false;

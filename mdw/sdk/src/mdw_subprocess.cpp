@@ -234,6 +234,49 @@ void readReady( int aFd, std::string& aInto, bool& aOpen )
     else
         aOpen = false;
 }
+
+
+/// A pipe that closes whichever ends it still owns. The spawn path has several
+/// early returns and each would otherwise have to unwind every descriptor opened
+/// before it by hand.
+struct PIPE_PAIR
+{
+    int read = -1;
+    int write = -1;
+
+    ~PIPE_PAIR()
+    {
+        CloseRead();
+        CloseWrite();
+    }
+
+    bool Open()
+    {
+        int fds[2];
+
+        if( pipe( fds ) != 0 )
+            return false;
+
+        read = fds[0];
+        write = fds[1];
+
+        return true;
+    }
+
+    void CloseRead() { closeEnd( read ); }
+
+    void CloseWrite() { closeEnd( write ); }
+
+private:
+    static void closeEnd( int& aFd )
+    {
+        if( aFd >= 0 )
+        {
+            ::close( aFd );
+            aFd = -1;
+        }
+    }
+};
 }
 
 
@@ -245,54 +288,32 @@ MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
     if( aArgv.empty() )
         return result;
 
-    int inPipe[2];
-    int outPipe[2];
-    int errPipe[2];
+    PIPE_PAIR in;
+    PIPE_PAIR out;
+    PIPE_PAIR err;
 
-    if( pipe( inPipe ) != 0 )
+    if( !in.Open() || !out.Open() || !err.Open() )
         return result;
-
-    if( pipe( outPipe ) != 0 )
-    {
-        ::close( inPipe[0] );
-        ::close( inPipe[1] );
-        return result;
-    }
-
-    if( pipe( errPipe ) != 0 )
-    {
-        ::close( inPipe[0] );
-        ::close( inPipe[1] );
-        ::close( outPipe[0] );
-        ::close( outPipe[1] );
-        return result;
-    }
 
     pid_t pid = fork();
 
     if( pid < 0 )
-    {
-        ::close( inPipe[0] );
-        ::close( inPipe[1] );
-        ::close( outPipe[0] );
-        ::close( outPipe[1] );
-        ::close( errPipe[0] );
-        ::close( errPipe[1] );
         return result;
-    }
 
     if( pid == 0 )
     {
-        dup2( inPipe[0], STDIN_FILENO );
-        dup2( outPipe[1], STDOUT_FILENO );
-        dup2( errPipe[1], STDERR_FILENO );
+        dup2( in.read, STDIN_FILENO );
+        dup2( out.write, STDOUT_FILENO );
+        dup2( err.write, STDERR_FILENO );
 
-        ::close( inPipe[0] );
-        ::close( inPipe[1] );
-        ::close( outPipe[0] );
-        ::close( outPipe[1] );
-        ::close( errPipe[0] );
-        ::close( errPipe[1] );
+        // _exit and execvp both skip destructors, so the child closes its
+        // inherited copies itself.
+        in.CloseRead();
+        in.CloseWrite();
+        out.CloseRead();
+        out.CloseWrite();
+        err.CloseRead();
+        err.CloseWrite();
 
         if( !aWorkingDir.empty() && chdir( aWorkingDir.c_str() ) != 0 )
             _exit( 127 );
@@ -308,9 +329,11 @@ MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
         _exit( 127 );
     }
 
-    ::close( inPipe[0] );
-    ::close( outPipe[1] );
-    ::close( errPipe[1] );
+    // Holding a copy of an end the child owns would keep that pipe open and the
+    // drain below would never see EOF.
+    in.CloseRead();
+    out.CloseWrite();
+    err.CloseWrite();
 
     // Stdin for these backends is small (a commit message at most), so feed it
     // fully before draining stdout and stderr.
@@ -320,7 +343,7 @@ MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
 
         while( written < aStdin.size() )
         {
-            ssize_t count = ::write( inPipe[1], aStdin.data() + written, aStdin.size() - written );
+            ssize_t count = ::write( in.write, aStdin.data() + written, aStdin.size() - written );
 
             if( count <= 0 )
                 break;
@@ -329,7 +352,9 @@ MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
         }
     }
 
-    ::close( inPipe[1] );
+    // The child waits on stdin until it sees EOF, so this close cannot be left
+    // to the destructor.
+    in.CloseWrite();
 
     bool outOpen = true;
     bool errOpen = true;
@@ -337,21 +362,18 @@ MDW_PROCESS_RESULT MDW_RunProcess( const std::vector<std::string>& aArgv,
     while( outOpen || errOpen )
     {
         struct pollfd fds[2];
-        fds[0] = { outPipe[0], POLLIN, 0 };
-        fds[1] = { errPipe[0], POLLIN, 0 };
+        fds[0] = { out.read, POLLIN, 0 };
+        fds[1] = { err.read, POLLIN, 0 };
 
         if( poll( fds, 2, -1 ) < 0 )
             break;
 
         if( outOpen && ( fds[0].revents & ( POLLIN | POLLHUP ) ) )
-            readReady( outPipe[0], result.out, outOpen );
+            readReady( out.read, result.out, outOpen );
 
         if( errOpen && ( fds[1].revents & ( POLLIN | POLLHUP ) ) )
-            readReady( errPipe[0], result.err, errOpen );
+            readReady( err.read, result.err, errOpen );
     }
-
-    ::close( outPipe[0] );
-    ::close( errPipe[0] );
 
     int status = 0;
     waitpid( pid, &status, 0 );
