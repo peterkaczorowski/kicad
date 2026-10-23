@@ -33,6 +33,7 @@
 #include <mdw/mdw_navigation.h>
 #include <mdw/mdw_state_mapper.h>
 #include <widgets/mdw_property_editor.h>
+#include <widgets/ui_common.h>
 
 #include <wx/button.h>
 #include <wx/listctrl.h>
@@ -65,7 +66,7 @@ private:
 DIALOG_WORKSPACE_BROWSER::DIALOG_WORKSPACE_BROWSER( wxWindow* aParent, MDW_FRAMEWORK* aFramework,
                                                     const wxString& aProjectPath ) :
         DIALOG_SHIM( aParent, wxID_ANY, _( "Design Workspace Browser" ), wxDefaultPosition,
-                     wxSize( 900, 560 ), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER ),
+                     wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER ),
         m_framework( aFramework ),
         m_projectPath( aProjectPath ),
         m_session( nullptr ),
@@ -74,26 +75,33 @@ DIALOG_WORKSPACE_BROWSER::DIALOG_WORKSPACE_BROWSER( wxWindow* aParent, MDW_FRAME
     m_session = m_framework ? m_framework->Session( m_projectPath ) : nullptr;
     m_svc = m_session ? m_session->Service() : nullptr;
 
+    const int margin = FromDIP( KIUI::GetStdMargin() );
+    const int dlgMargin = 2 * margin;
+
     wxBoxSizer* topSizer = new wxBoxSizer( wxVERTICAL );
 
     wxBoxSizer* panes = new wxBoxSizer( wxHORIZONTAL );
 
-    m_tree = new wxTreeCtrl( this, wxID_ANY, wxDefaultPosition, wxSize( 220, -1 ),
+    m_tree = new wxTreeCtrl( this, wxID_ANY, wxDefaultPosition, FromDIP( wxSize( 220, -1 ) ),
                              wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT | wxTR_SINGLE );
-    panes->Add( m_tree, 1, wxEXPAND | wxRIGHT, 6 );
+    panes->Add( m_tree, 1, wxEXPAND | wxRIGHT, margin );
 
-    m_list = new wxListCtrl( this, wxID_ANY, wxDefaultPosition, wxSize( 360, -1 ),
+    m_list = new wxListCtrl( this, wxID_ANY, wxDefaultPosition, FromDIP( wxSize( 360, -1 ) ),
                              wxLC_REPORT | wxLC_SINGLE_SEL );
-    m_list->AppendColumn( _( "Name" ), wxLIST_FORMAT_LEFT, 170 );
-    m_list->AppendColumn( _( "Revision" ), wxLIST_FORMAT_LEFT, 70 );
-    m_list->AppendColumn( _( "State" ), wxLIST_FORMAT_LEFT, 70 );
-    m_list->AppendColumn( _( "Lock" ), wxLIST_FORMAT_LEFT, 90 );
-    panes->Add( m_list, 2, wxEXPAND | wxRIGHT, 6 );
+    m_list->AppendColumn( _( "Name" ), wxLIST_FORMAT_LEFT, FromDIP( 170 ) );
+    m_list->AppendColumn( _( "Revision" ), wxLIST_FORMAT_LEFT, FromDIP( 70 ) );
+    m_list->AppendColumn( _( "State" ), wxLIST_FORMAT_LEFT, FromDIP( 70 ) );
+    m_list->AppendColumn( _( "Lock" ), wxLIST_FORMAT_LEFT, FromDIP( 90 ) );
+    panes->Add( m_list, 2, wxEXPAND | wxRIGHT, margin );
 
     m_props = new MDW_PROPERTY_EDITOR( this );
     panes->Add( m_props, 2, wxEXPAND );
 
-    topSizer->Add( panes, 1, wxEXPAND | wxALL, 10 );
+    // finishDialogSettings fits the dialog to its sizer, so the wanted opening size has to
+    // come from the content minimum rather than from a frame size.
+    panes->SetMinSize( FromDIP( wxSize( 880, 430 ) ) );
+
+    topSizer->Add( panes, 1, wxEXPAND | wxALL, dlgMargin );
 
     wxBoxSizer* actionRow = new wxBoxSizer( wxHORIZONTAL );
     m_checkoutButton = new wxButton( this, wxID_ANY, _( "Checkout" ) );
@@ -101,18 +109,18 @@ DIALOG_WORKSPACE_BROWSER::DIALOG_WORKSPACE_BROWSER( wxWindow* aParent, MDW_FRAME
     m_refreshButton = new wxButton( this, wxID_ANY, _( "Refresh" ) );
     m_statusText = new wxStaticText( this, wxID_ANY, wxEmptyString );
 
-    actionRow->Add( m_checkoutButton, 0, wxRIGHT, 6 );
-    actionRow->Add( m_checkinButton, 0, wxRIGHT, 6 );
-    actionRow->Add( m_refreshButton, 0, wxRIGHT, 12 );
+    actionRow->Add( m_checkoutButton, 0, wxRIGHT, margin );
+    actionRow->Add( m_checkinButton, 0, wxRIGHT, margin );
+    actionRow->Add( m_refreshButton, 0, wxRIGHT, dlgMargin );
     actionRow->Add( m_statusText, 1, wxALIGN_CENTER_VERTICAL );
-    topSizer->Add( actionRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10 );
+    topSizer->Add( actionRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, dlgMargin );
 
-    topSizer->Add( new wxStaticLine( this ), 0, wxEXPAND | wxLEFT | wxRIGHT, 10 );
+    topSizer->Add( new wxStaticLine( this ), 0, wxEXPAND | wxLEFT | wxRIGHT, dlgMargin );
 
     wxStdDialogButtonSizer* buttons = new wxStdDialogButtonSizer();
-    buttons->AddButton( new wxButton( this, wxID_CLOSE ) );
+    buttons->AddButton( new wxButton( this, wxID_CANCEL ) );
     buttons->Realize();
-    topSizer->Add( buttons, 0, wxEXPAND | wxALL, 10 );
+    topSizer->Add( buttons, 0, wxEXPAND | wxALL, dlgMargin );
 
     SetSizer( topSizer );
 
@@ -122,13 +130,6 @@ DIALOG_WORKSPACE_BROWSER::DIALOG_WORKSPACE_BROWSER( wxWindow* aParent, MDW_FRAME
     m_checkoutButton->Bind( wxEVT_BUTTON, &DIALOG_WORKSPACE_BROWSER::onCheckout, this );
     m_checkinButton->Bind( wxEVT_BUTTON, &DIALOG_WORKSPACE_BROWSER::onCheckin, this );
     m_refreshButton->Bind( wxEVT_BUTTON, &DIALOG_WORKSPACE_BROWSER::onRefresh, this );
-
-    Bind( wxEVT_BUTTON,
-          [this]( wxCommandEvent& )
-          {
-              Close();
-          },
-          wxID_CLOSE );
 
     if( m_svc )
     {
@@ -144,6 +145,8 @@ DIALOG_WORKSPACE_BROWSER::DIALOG_WORKSPACE_BROWSER( wxWindow* aParent, MDW_FRAME
     }
 
     updateButtons();
+
+    SetupStandardButtons( { { wxID_CANCEL, _( "Close" ) } } );
 
     finishDialogSettings();
 }
@@ -277,24 +280,15 @@ void DIALOG_WORKSPACE_BROWSER::onItemSelected( wxListEvent& aEvent )
         return;
 
     m_selectedItemId = m_items[index].item_id;
-    loadItem( m_selectedItemId );
+    loadItem( m_items[index] );
     updateButtons();
 }
 
 
-void DIALOG_WORKSPACE_BROWSER::loadItem( const wxString& aItemId )
+void DIALOG_WORKSPACE_BROWSER::loadItem( const MDW_ITEM_INFO& aInfo )
 {
-    MDW_ITEM_INFO  info;
-    MDW_ERROR_CODE code = m_svc->GetItemInfo( aItemId, info );
-
-    if( code != MDW_ERROR_CODE::SUCCESS )
-    {
-        reportError( code, _( "Reading item metadata" ) );
-        return;
-    }
-
     MDW_ATTRIBUTE_SET attrs;
-    code = m_svc->GetAttributes( aItemId, attrs );
+    MDW_ERROR_CODE    code = m_svc->GetAttributes( aInfo.item_id, attrs );
 
     if( code != MDW_ERROR_CODE::SUCCESS )
     {
@@ -304,8 +298,8 @@ void DIALOG_WORKSPACE_BROWSER::loadItem( const wxString& aItemId )
 
     // Editable only when the lifecycle allows writes and the item is not locked
     // by someone else. A lock this user holds still permits editing.
-    bool lockedByOther = info.is_locked && !m_session->LockTracker().LockedByMe( aItemId );
-    bool readOnly = lockedByOther || MDW_STATE_MAPPER::CategoryBlocksWrites( info.category );
+    bool lockedByOther = aInfo.is_locked && !m_session->LockTracker().LockedByMe( aInfo.item_id );
+    bool readOnly = lockedByOther || MDW_STATE_MAPPER::CategoryBlocksWrites( aInfo.category );
 
     m_props->SetValues( attrs );
     m_props->SetReadOnly( readOnly );

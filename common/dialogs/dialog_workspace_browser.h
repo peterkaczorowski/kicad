@@ -73,8 +73,9 @@ private:
     /// List a folder's items into the center list, clearing any prior selection.
     void loadFolderItems( const wxString& aFolderId );
 
-    /// Load one item's metadata and attributes into the property editor.
-    void loadItem( const wxString& aItemId );
+    /// Load one listed item's attributes into the property editor. The lock and lifecycle
+    /// state come from the cached listing entry rather than a fresh metadata call.
+    void loadItem( const MDW_ITEM_INFO& aInfo );
 
     /// Enable or disable the action buttons for the current selection state.
     void updateButtons();

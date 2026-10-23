@@ -30,6 +30,7 @@
 #include <mdw/mdw_backend.h>
 #include <mdw/mdw_backend_registry.h>
 #include <mdw/mdw_credential_store.h>
+#include <widgets/ui_common.h>
 
 #include <wx/button.h>
 #include <wx/choice.h>
@@ -54,9 +55,12 @@ DIALOG_WORKSPACE_CONFIG::DIALOG_WORKSPACE_CONFIG( wxWindow* aParent, MDW_FRAMEWO
         m_projectPath( aProjectPath ),
         m_binding( aBinding )
 {
+    const int margin = FromDIP( KIUI::GetStdMargin() );
+    const int dlgMargin = 2 * margin;
+
     wxBoxSizer* topSizer = new wxBoxSizer( wxVERTICAL );
 
-    wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 2, 5, 8 );
+    wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 2, margin, dlgMargin );
     grid->AddGrowableCol( 1 );
     grid->SetFlexibleDirection( wxHORIZONTAL );
 
@@ -84,26 +88,28 @@ DIALOG_WORKSPACE_CONFIG::DIALOG_WORKSPACE_CONFIG( wxWindow* aParent, MDW_FRAMEWO
                                      wxDefaultSize, wxTE_PASSWORD );
     addRow( _( "Password:" ), m_passwordCtrl );
 
-    topSizer->Add( grid, 0, wxEXPAND | wxALL, 10 );
+    topSizer->Add( grid, 0, wxEXPAND | wxALL, dlgMargin );
 
     wxBoxSizer* testRow = new wxBoxSizer( wxHORIZONTAL );
     wxButton*   testButton = new wxButton( this, wxID_ANY, _( "Test Connection" ) );
     m_statusText = new wxStaticText( this, wxID_ANY, wxEmptyString );
-    testRow->Add( testButton, 0, wxRIGHT, 8 );
+    testRow->Add( testButton, 0, wxRIGHT, margin );
     testRow->Add( m_statusText, 1, wxALIGN_CENTER_VERTICAL );
-    topSizer->Add( testRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10 );
+    topSizer->Add( testRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, dlgMargin );
 
-    topSizer->Add( new wxStaticLine( this ), 0, wxEXPAND | wxLEFT | wxRIGHT, 10 );
+    topSizer->Add( new wxStaticLine( this ), 0, wxEXPAND | wxLEFT | wxRIGHT, dlgMargin );
 
     wxStdDialogButtonSizer* buttons = new wxStdDialogButtonSizer();
     buttons->AddButton( new wxButton( this, wxID_OK ) );
     buttons->AddButton( new wxButton( this, wxID_CANCEL ) );
     buttons->Realize();
-    topSizer->Add( buttons, 0, wxEXPAND | wxALL, 10 );
+    topSizer->Add( buttons, 0, wxEXPAND | wxALL, dlgMargin );
 
     SetSizer( topSizer );
 
     testButton->Bind( wxEVT_BUTTON, &DIALOG_WORKSPACE_CONFIG::onTestConnection, this );
+
+    SetupStandardButtons();
 
     finishDialogSettings();
 }

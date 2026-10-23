@@ -27,6 +27,7 @@
 #include <settings/common_settings.h>
 #include <mdw/mdw_framework.h>
 #include <mdw/mdw_backend_registry.h>
+#include <widgets/ui_common.h>
 
 #include <wx/checkbox.h>
 #include <wx/choice.h>
@@ -39,6 +40,9 @@ PANEL_WORKSPACE_SETTINGS::PANEL_WORKSPACE_SETTINGS( wxWindow* aParent ) :
         m_enableIntegration( nullptr ),
         m_defaultBackend( nullptr )
 {
+    const int margin = FromDIP( KIUI::GetStdMargin() );
+    const int panelMargin = 2 * margin;
+
     wxBoxSizer* topSizer = new wxBoxSizer( wxVERTICAL );
 
     wxStaticText* intro =
@@ -46,22 +50,22 @@ PANEL_WORKSPACE_SETTINGS::PANEL_WORKSPACE_SETTINGS( wxWindow* aParent ) :
                               _( "A Managed Design Workspace binds a project to a backend such as a "
                                  "Git repository or a PLM system, and surfaces its lock, revision "
                                  "and lifecycle state inside KiCad." ) );
-    intro->Wrap( wxWindow::FromDIP( 640, this ) );
-    topSizer->Add( intro, 0, wxALL, wxWindow::FromDIP( 10, this ) );
+    intro->Wrap( FromDIP( 640 ) );
+    topSizer->Add( intro, 0, wxALL, panelMargin );
 
     m_enableIntegration =
             new wxCheckBox( this, wxID_ANY, _( "Enable workspace integration" ) );
-    topSizer->Add( m_enableIntegration, 0, wxLEFT | wxRIGHT | wxTOP, wxWindow::FromDIP( 10, this ) );
+    topSizer->Add( m_enableIntegration, 0, wxLEFT | wxRIGHT | wxTOP, panelMargin );
 
     wxBoxSizer* backendSizer = new wxBoxSizer( wxHORIZONTAL );
 
     wxStaticText* backendLabel = new wxStaticText( this, wxID_ANY, _( "Default backend:" ) );
-    backendSizer->Add( backendLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, wxWindow::FromDIP( 6, this ) );
+    backendSizer->Add( backendLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, margin );
 
     m_defaultBackend = new wxChoice( this, wxID_ANY );
     backendSizer->Add( m_defaultBackend, 1, wxALIGN_CENTER_VERTICAL, 0 );
 
-    topSizer->Add( backendSizer, 0, wxALL | wxEXPAND, wxWindow::FromDIP( 10, this ) );
+    topSizer->Add( backendSizer, 0, wxALL | wxEXPAND, panelMargin );
 
     SetSizer( topSizer );
     Layout();

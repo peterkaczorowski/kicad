@@ -30,6 +30,7 @@
 #include <mdw/mdw_workspace_service.h>
 
 #include <diff_merge/merge_dispatch.h>
+#include <widgets/ui_common.h>
 
 #include <wx/button.h>
 #include <wx/filename.h>
@@ -43,8 +44,8 @@
 DIALOG_WORKSPACE_HISTORY::DIALOG_WORKSPACE_HISTORY( wxWindow* aParent, MDW_FRAMEWORK* aFramework,
                                                     const wxString& aProjectPath,
                                                     const wxString& aItemId ) :
-        DIALOG_SHIM( aParent, wxID_ANY, _( "Revision History" ), wxDefaultPosition,
-                     wxSize( 640, 420 ), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER ),
+        DIALOG_SHIM( aParent, wxID_ANY, _( "Revision History" ), wxDefaultPosition, wxDefaultSize,
+                     wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER ),
         m_framework( aFramework ),
         m_projectPath( aProjectPath ),
         m_itemId( aItemId ),
@@ -54,41 +55,42 @@ DIALOG_WORKSPACE_HISTORY::DIALOG_WORKSPACE_HISTORY( wxWindow* aParent, MDW_FRAME
     m_session = m_framework ? m_framework->Session( m_projectPath ) : nullptr;
     m_svc = m_session ? m_session->Service() : nullptr;
 
+    const int margin = FromDIP( KIUI::GetStdMargin() );
+    const int dlgMargin = 2 * margin;
+
     wxBoxSizer* topSizer = new wxBoxSizer( wxVERTICAL );
 
     m_list = new wxListCtrl( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT );
-    m_list->AppendColumn( _( "Revision" ), wxLIST_FORMAT_LEFT, 110 );
-    m_list->AppendColumn( _( "Author" ), wxLIST_FORMAT_LEFT, 120 );
-    m_list->AppendColumn( _( "Date" ), wxLIST_FORMAT_LEFT, 140 );
-    m_list->AppendColumn( _( "Comment" ), wxLIST_FORMAT_LEFT, 240 );
-    topSizer->Add( m_list, 1, wxEXPAND | wxALL, 10 );
+    m_list->AppendColumn( _( "Revision" ), wxLIST_FORMAT_LEFT, FromDIP( 110 ) );
+    m_list->AppendColumn( _( "Author" ), wxLIST_FORMAT_LEFT, FromDIP( 120 ) );
+    m_list->AppendColumn( _( "Date" ), wxLIST_FORMAT_LEFT, FromDIP( 140 ) );
+    m_list->AppendColumn( _( "Comment" ), wxLIST_FORMAT_LEFT, FromDIP( 240 ) );
+
+    // finishDialogSettings fits the dialog to its sizer, so the wanted opening size has to
+    // come from the content minimum rather than from a frame size.
+    m_list->SetMinSize( FromDIP( wxSize( 620, 300 ) ) );
+
+    topSizer->Add( m_list, 1, wxEXPAND | wxALL, dlgMargin );
 
     wxBoxSizer* actionRow = new wxBoxSizer( wxHORIZONTAL );
     m_compareButton = new wxButton( this, wxID_ANY, _( "Compare" ) );
     m_statusText = new wxStaticText( this, wxID_ANY, wxEmptyString );
-    actionRow->Add( m_compareButton, 0, wxRIGHT, 12 );
+    actionRow->Add( m_compareButton, 0, wxRIGHT, dlgMargin );
     actionRow->Add( m_statusText, 1, wxALIGN_CENTER_VERTICAL );
-    topSizer->Add( actionRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 10 );
+    topSizer->Add( actionRow, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, dlgMargin );
 
-    topSizer->Add( new wxStaticLine( this ), 0, wxEXPAND | wxLEFT | wxRIGHT, 10 );
+    topSizer->Add( new wxStaticLine( this ), 0, wxEXPAND | wxLEFT | wxRIGHT, dlgMargin );
 
     wxStdDialogButtonSizer* buttons = new wxStdDialogButtonSizer();
-    buttons->AddButton( new wxButton( this, wxID_CLOSE ) );
+    buttons->AddButton( new wxButton( this, wxID_CANCEL ) );
     buttons->Realize();
-    topSizer->Add( buttons, 0, wxEXPAND | wxALL, 10 );
+    topSizer->Add( buttons, 0, wxEXPAND | wxALL, dlgMargin );
 
     SetSizer( topSizer );
 
     m_list->Bind( wxEVT_LIST_ITEM_SELECTED, &DIALOG_WORKSPACE_HISTORY::onSelectionChanged, this );
     m_list->Bind( wxEVT_LIST_ITEM_DESELECTED, &DIALOG_WORKSPACE_HISTORY::onSelectionChanged, this );
     m_compareButton->Bind( wxEVT_BUTTON, &DIALOG_WORKSPACE_HISTORY::onCompare, this );
-
-    Bind( wxEVT_BUTTON,
-          [this]( wxCommandEvent& )
-          {
-              Close();
-          },
-          wxID_CLOSE );
 
     if( m_svc )
     {
@@ -101,6 +103,8 @@ DIALOG_WORKSPACE_HISTORY::DIALOG_WORKSPACE_HISTORY( wxWindow* aParent, MDW_FRAME
     }
 
     updateButtons();
+
+    SetupStandardButtons( { { wxID_CANCEL, _( "Close" ) } } );
 
     finishDialogSettings();
 }

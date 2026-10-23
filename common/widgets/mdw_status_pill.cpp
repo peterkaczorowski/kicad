@@ -223,8 +223,7 @@ void MDW_STATUS_PILL::onPaint( wxPaintEvent& aEvent )
     wxColour fillColour = fill.ToColour();
 
     // Pick a text color that stays legible on the fill.
-    double   luminance = 0.299 * fill.r + 0.587 * fill.g + 0.114 * fill.b;
-    wxColour textColour = luminance > 0.5 ? *wxBLACK : *wxWHITE;
+    wxColour textColour = fill.GetBrightness() > 0.5 ? *wxBLACK : *wxWHITE;
 
     wxRect area = GetClientRect();
     area.Deflate( 1, 1 );
@@ -234,10 +233,5 @@ void MDW_STATUS_PILL::onPaint( wxPaintEvent& aEvent )
     dc.DrawRoundedRectangle( area, area.GetHeight() / 2 );
 
     dc.SetTextForeground( textColour );
-
-    wxString label = LabelFor( m_state );
-    wxSize   text = dc.GetTextExtent( label );
-
-    dc.DrawText( label, area.GetX() + ( area.GetWidth() - text.GetWidth() ) / 2,
-                 area.GetY() + ( area.GetHeight() - text.GetHeight() ) / 2 );
+    dc.DrawLabel( LabelFor( m_state ), area, wxALIGN_CENTER_HORIZONTAL | wxALIGN_CENTER_VERTICAL );
 }
