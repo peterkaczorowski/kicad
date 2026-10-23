@@ -34,9 +34,10 @@ class SHAPE_LINE_CHAIN;
  * True when the user is allowed to pick this handle.
  *
  * The parent item has to be DEFORMABLE. Corner handles can be picked. An edge handle
- * can be picked on a zone or a graphic polygon, where dragging an edge is part of the
- * normal point editor. Midpoints of rectangles and segments are left out, because the
- * two corners they drive are the handles that really define the shape.
+ * can be picked on a zone, a graphic polygon or a polygon generator such as a via
+ * stitch, where dragging an edge is part of the normal point editor. Midpoints of
+ * rectangles and segments are left out, because the two corners they drive are the handles
+ * that really define the shape.
  *
  * Pass an item's own handle collection. The scaling box drawn around a multi-selection
  * borrows one member as its parent, so it does not belong here.

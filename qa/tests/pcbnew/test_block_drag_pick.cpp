@@ -20,6 +20,7 @@
 #include <qa_utils/wx_utils/unit_test_utils.h>
 
 #include <board.h>
+#include <pcb_generator.h>
 #include <pcb_shape.h>
 #include <zone.h>
 #include <constraints/pcb_constraint.h>
@@ -31,6 +32,32 @@
 
 namespace
 {
+
+// A polygon generator with nothing behind it, enough for the capability and pick rules
+class TEST_POLY_GENERATOR : public PCB_GENERATOR_POLY
+{
+public:
+    TEST_POLY_GENERATOR( BOARD_ITEM* aParent, const wxString& aGeneratorType ) :
+            PCB_GENERATOR_POLY( aParent, F_Cu ),
+            m_testGeneratorType( aGeneratorType )
+    {
+    }
+
+    wxString GetGeneratorType() const override { return m_testGeneratorType; }
+
+    void EditStart( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit ) override {}
+    bool Update( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit ) override { return true; }
+    void EditFinish( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit ) override {}
+    void EditCancel( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit ) override {}
+    void Remove( GENERATOR_TOOL* aTool, BOARD* aBoard, BOARD_COMMIT* aCommit ) override {}
+
+    wxString GetPluralName() const override { return wxT( "Test Generators" ); }
+    wxString GetCommitMessage() const override { return wxT( "Test Generator" ); }
+
+private:
+    wxString m_testGeneratorType;
+};
+
 
 std::shared_ptr<EDIT_POINTS> makeCollection( EDA_ITEM* aParent )
 {
@@ -76,6 +103,29 @@ BOOST_AUTO_TEST_CASE( PickableFollowsCapabilityAndHandleKind )
 
     // An item that only travels whole offers nothing to pick
     BOOST_CHECK( !BlockDragHandlePickable( *arcPoints, arcPoints->Point( 0 ) ) );
+}
+
+
+// A via stitch is an outline like a zone, so its edges can be picked like a zone's. A
+// tuning pattern is carried whole and offers nothing to pick
+BOOST_AUTO_TEST_CASE( PolygonGeneratorEdgeIsPickableLikeAZone )
+{
+    BOARD board;
+
+    TEST_POLY_GENERATOR* stitch = new TEST_POLY_GENERATOR( &board, wxS( "via_stitch" ) );
+    TEST_POLY_GENERATOR* tuning = new TEST_POLY_GENERATOR( &board, wxS( "tuning_pattern" ) );
+    board.Add( stitch );
+    board.Add( tuning );
+
+    std::shared_ptr<EDIT_POINTS> stitchPoints = makeCollection( stitch );
+    std::shared_ptr<EDIT_POINTS> tuningPoints = makeCollection( tuning );
+
+    BOOST_REQUIRE( BlockDragCapability( *stitch ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+    BOOST_CHECK( BlockDragHandlePickable( *stitchPoints, stitchPoints->Point( 0 ) ) );
+    BOOST_CHECK( BlockDragHandlePickable( *stitchPoints, stitchPoints->Line( 0 ) ) );
+
+    BOOST_REQUIRE( BlockDragCapability( *tuning ) == BLOCK_DRAG_CAPABILITY::RIGID );
+    BOOST_CHECK( !BlockDragHandlePickable( *tuningPoints, tuningPoints->Point( 0 ) ) );
 }
 
 

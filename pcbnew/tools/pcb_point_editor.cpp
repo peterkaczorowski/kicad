@@ -4542,6 +4542,38 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                         }
                     }
 
+                    // A reshaped generator keeps its members where they were while the drag
+                    // runs and re-places them once the outline is final, as Move() leaves them
+                    // for the next Update(). It comes after the router's push, so the router
+                    // never meets a via this replaces, and joins the same undo entry. A revert
+                    // above has already ended the gesture
+                    if( GENERATOR_TOOL* genTool = inBlockDrag ? m_toolMgr->GetTool<GENERATOR_TOOL>() : nullptr )
+                    {
+                        BOARD_COMMIT genCommit( editFrame );
+                        bool         regenerated = false;
+
+                        for( auto& [targetPoints, behavior] : blockTargets )
+                        {
+                            EDA_ITEM* parent = targetPoints->GetParent();
+
+                            if( !parent || parent->Type() != PCB_GENERATOR_T )
+                                continue;
+
+                            PCB_GENERATOR* gen = static_cast<PCB_GENERATOR*>( parent );
+
+                            if( !gen->IsDirty() )
+                                continue;
+
+                            gen->EditStart( genTool, board(), &genCommit );
+                            gen->Update( genTool, board(), &genCommit );
+                            gen->EditFinish( genTool, board(), &genCommit );
+                            regenerated = true;
+                        }
+
+                        if( regenerated )
+                            genCommit.Push( label, APPEND_UNDO | ZONE_FILL_OP );
+                    }
+
                     endBlockDrag( true );
                 }
             }

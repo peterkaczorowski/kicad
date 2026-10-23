@@ -290,7 +290,7 @@ BOOST_AUTO_TEST_CASE( GeneratorSafetyAllowList )
 
     BOOST_CHECK( BlockDragCapability( *tuning ) == BLOCK_DRAG_CAPABILITY::RIGID );
     BOOST_CHECK( BlockDragCapability( *viaStack ) == BLOCK_DRAG_CAPABILITY::RIGID );
-    BOOST_CHECK( BlockDragCapability( *viaStitch ) == BLOCK_DRAG_CAPABILITY::UNSUPPORTED );
+    BOOST_CHECK( BlockDragCapability( *viaStitch ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
     BOOST_CHECK( BlockDragCapability( *unknown ) == BLOCK_DRAG_CAPABILITY::UNSUPPORTED );
 }
 

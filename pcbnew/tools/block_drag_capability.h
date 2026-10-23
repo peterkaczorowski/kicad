@@ -57,7 +57,8 @@ enum class BLOCK_DRAG_CAPABILITY
  *
  * Expand groups with BlockDragExpandSelection() first. A group container on its own is
  * UNSUPPORTED. A generator is RIGID only when its Move() takes all of its members with
- * it.
+ * it. A via stitch is DEFORMABLE, since it is an outline whose vias are re-placed by the
+ * regeneration that follows the drag.
  */
 BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem );
 

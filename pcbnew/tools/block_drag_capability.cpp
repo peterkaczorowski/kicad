@@ -114,9 +114,13 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem )
 
     case PCB_GENERATOR_T:
     {
-        // Safe to carry only when Move() takes every member along. A via stitch
-        // pattern re-places its vias when it regenerates, so it needs the router.
+        // Safe to carry only when Move() takes every member along. A via stitch is an
+        // outline like a zone's. Its vias are re-placed by the regeneration that follows
+        // the drag, so it can be reshaped.
         wxString genType = static_cast<const PCB_GENERATOR&>( aItem ).GetGeneratorType();
+
+        if( genType == wxS( "via_stitch" ) )
+            return BLOCK_DRAG_CAPABILITY::DEFORMABLE;
 
         if( genType == wxS( "tuning_pattern" ) || genType == wxS( "via_stack" ) )
             return BLOCK_DRAG_CAPABILITY::RIGID;
