@@ -88,6 +88,20 @@ static bool isSymmetricMinOptMax( const DRC_CONSTRAINT* aConstraint )
 }
 
 
+// An absent bound reads back as the largest value of its type, so a panel that writes a bound
+// out cannot be given a range that names only the other end.
+static bool hasBothBounds( const DRC_CONSTRAINT* aConstraint )
+{
+    return !aConstraint || ( aConstraint->GetValue().HasMin() && aConstraint->GetValue().HasMax() );
+}
+
+
+static bool hasMaxBound( const DRC_CONSTRAINT* aConstraint )
+{
+    return !aConstraint || aConstraint->GetValue().HasMax();
+}
+
+
 // The DRC lexer treats a line whose first non-blank character is # as a comment
 static bool isOnCommentLine( const wxString& aContent, size_t aPos )
 {
@@ -391,7 +405,7 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
         const DRC_CONSTRAINT* diffGap = findConstraint( aRule, DIFF_PAIR_GAP_CONSTRAINT );
         const DRC_CONSTRAINT* uncoupled = findConstraint( aRule, MAX_UNCOUPLED_CONSTRAINT );
 
-        if( !isSymmetricMinOptMax( trackWidth ) || !isSymmetricMinOptMax( diffGap ) )
+        if( !isSymmetricMinOptMax( trackWidth ) || !isSymmetricMinOptMax( diffGap ) || !hasMaxBound( uncoupled ) )
         {
             return makeCustomRuleData( aRule );
         }
@@ -471,7 +485,7 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
     {
         const DRC_CONSTRAINT* length = findConstraint( aRule, LENGTH_CONSTRAINT );
 
-        if( !isSymmetricMinOptMax( length ) )
+        if( !isSymmetricMinOptMax( length ) || !hasBothBounds( length ) )
             return makeCustomRuleData( aRule );
 
         auto data = std::make_shared<DRC_RE_ABSOLUTE_LENGTH_TWO_CONSTRAINT_DATA>();
@@ -504,8 +518,9 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
     case MATCHED_LENGTH_DIFF_PAIR:
     {
         const DRC_CONSTRAINT* length = findConstraint( aRule, LENGTH_CONSTRAINT );
+        const DRC_CONSTRAINT* skew = findConstraint( aRule, SKEW_CONSTRAINT );
 
-        if( !isSymmetricMinOptMax( length ) )
+        if( !isSymmetricMinOptMax( length ) || !hasBothBounds( length ) || !hasMaxBound( skew ) )
             return makeCustomRuleData( aRule );
 
         auto data = std::make_shared<DRC_RE_MATCHED_LENGTH_DIFF_PAIR_CONSTRAINT_DATA>();
@@ -521,8 +536,6 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
             data->SetOptimumLength( optMM );
             data->SetTolerance( ( maxMM - minMM ) / 2.0 );
         }
-
-        const DRC_CONSTRAINT* skew = findConstraint( aRule, SKEW_CONSTRAINT );
 
         if( skew )
         {
@@ -874,7 +887,7 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadRule( const DRC_RULE
 }
 
 
-std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wxString& aRulesText )
+std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wxString& aRulesText, bool* aParsed )
 {
     std::vector<DRC_RE_LOADED_PANEL_ENTRY> allEntries;
     std::vector<std::shared_ptr<DRC_RULE>> parsedRules;
@@ -897,8 +910,14 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wx
     }
     catch( const IO_ERROR& )
     {
+        if( aParsed )
+            *aParsed = false;
+
         return allEntries;
     }
+
+    if( aParsed )
+        *aParsed = true;
 
     // The parser accepted the text, so its non-version expressions are the rules in parse order
     // and everything between them is kept verbatim for the saver
