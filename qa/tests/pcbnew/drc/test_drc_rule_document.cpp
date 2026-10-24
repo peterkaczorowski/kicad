@@ -101,7 +101,7 @@ BOOST_AUTO_TEST_CASE( AddingARuleLeavesTheOthersUntouched )
 
     document.SetText( TWO_CLEARANCES_AND_A_HOLE );
 
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), 0, wxS( "added" ) );
+    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "added" ) );
     auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( MINIMUM_CLEARANCE, base );
     data->SetConstraintCode( wxS( "clearance" ) );
     std::dynamic_pointer_cast<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA>( data )->SetNumericInputValue( 0.7 );
@@ -140,7 +140,7 @@ BOOST_AUTO_TEST_CASE( AMergedRuleIsWrittenBackAsOneRule )
 
     // Adding elsewhere is what sends the document back through the saver, since untouched text
     // is otherwise returned as it was read.
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), 0, wxS( "added" ) );
+    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "added" ) );
     auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( MINIMUM_CLEARANCE, base );
     data->SetConstraintCode( wxS( "clearance" ) );
     std::dynamic_pointer_cast<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA>( data )->SetNumericInputValue( 0.7 );
@@ -202,7 +202,7 @@ BOOST_AUTO_TEST_CASE( TextOnlyRuleListsUnderEachConstraintItSets )
     BOARD             board;
     DRC_RULE_DOCUMENT document( &board );
 
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), 0, wxS( "combo" ) );
+    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "combo" ) );
     auto                        custom = std::make_shared<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( base );
     custom->SetRuleText( wxS( "(constraint clearance (min 0.2mm))\n(constraint hole_size (min 0.3mm))" ) );
 
@@ -224,7 +224,7 @@ BOOST_AUTO_TEST_CASE( ARuleNeverAppliedLeavesNoTrace )
     document.Load();
     BOOST_REQUIRE( !document.IsModified() );
 
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), 0, wxS( "draft" ) );
+    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "draft" ) );
     auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( MINIMUM_CLEARANCE, base );
     data->SetIsNew( true );
 
@@ -401,7 +401,7 @@ BOOST_AUTO_TEST_CASE( RulesAddedSeparatelyStayApartWhenTheyShareAName )
 
     for( DRC_RULE_EDITOR_CONSTRAINT_NAME type : { MINIMUM_CLEARANCE, HOLE_SIZE } )
     {
-        DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), 0, wxS( "same name" ) );
+        DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "same name" ) );
         auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( type, base );
         data->SetConstraintCode( DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( type ) );
         std::dynamic_pointer_cast<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA>( data )->SetNumericInputValue( 0.3 );
@@ -423,7 +423,7 @@ BOOST_AUTO_TEST_CASE( TextRuleMovesAmongTheRulesOfThePageItIsShownOn )
 
     document.SetText( TWO_CLEARANCES_AND_A_HOLE );
 
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), 0, wxS( "combo" ) );
+    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "combo" ) );
     auto                        custom = std::make_shared<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( base );
     custom->SetRuleText( wxS( "(constraint clearance (min 0.2mm))\n(constraint hole_size (min 0.3mm))" ) );
 
