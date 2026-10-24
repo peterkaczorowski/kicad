@@ -111,7 +111,6 @@ public:
      * @param aData The constraint data instance to update.
      * @return True if a matching constraint type was found.
      */
-    static bool ConstraintFromKicadDrc( const wxString& aCode, DRC_RE_BASE_CONSTRAINT_DATA* aData );
 
     /**
      * Validates a numeric input control, checking if the value is valid, non-empty, and greater than zero.

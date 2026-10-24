@@ -523,9 +523,7 @@ void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONST
     m_editingData = aData;
     m_editingType = aPanelType;
 
-    wxString title = aPanelType == CUSTOM_RULE ? _( "Custom rule" ) : m_title;
-
-    m_editor = new PANEL_DRC_RULE_EDITOR( m_editorHost, m_frame->GetBoard(), aPanelType, &title, aData );
+    m_editor = new PANEL_DRC_RULE_EDITOR( m_editorHost, m_frame->GetBoard(), aPanelType, aData );
     m_editorSizer->Insert( 0, m_editor, 0, wxEXPAND | wxRIGHT, 8 );
     m_editor->TransferDataToWindow();
 
@@ -559,7 +557,7 @@ void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONST
 
 void CONSTRAINT_RULES_LIST::showNewRule()
 {
-    DRC_RE_BASE_CONSTRAINT_DATA                  base( m_document->NextId(), 0, m_document->UniqueRuleName( m_title ) );
+    DRC_RE_BASE_CONSTRAINT_DATA                  base( m_document->NextId(), m_document->UniqueRuleName( m_title ) );
     std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( m_type, base );
 
     data->SetConstraintCode( DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( m_type ) );

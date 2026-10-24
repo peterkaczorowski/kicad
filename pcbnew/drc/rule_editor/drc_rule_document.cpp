@@ -315,7 +315,7 @@ int DRC_RULE_DOCUMENT::Duplicate( int aIndex )
     }
 
     wxString                                     name = UniqueRuleName( baseName );
-    DRC_RE_BASE_CONSTRAINT_DATA                  base( NextId(), 0, name );
+    DRC_RE_BASE_CONSTRAINT_DATA                  base( NextId(), name );
     std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> data =
             DRC_RULE_EDITOR_UTILS::CreateConstraintData( source.panelType, base );
 

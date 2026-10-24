@@ -179,7 +179,7 @@ static void RegisterDefaultConverters()
                 }
                 else if( DRC_RULE_EDITOR_UTILS::IsBoolInputType( type ) )
                 {
-                    auto data = std::make_shared<DRC_RE_BOOL_INPUT_CONSTRAINT_DATA>( 0, 0, true, aRule->m_Name );
+                    auto data = std::make_shared<DRC_RE_BOOL_INPUT_CONSTRAINT_DATA>( 0, true, aRule->m_Name );
                     data->SetConstraintCode( code );
                     return data;
                 }
@@ -193,8 +193,7 @@ static void RegisterDefaultConverters()
                     if( optW > 0 )
                         tol = std::max( optW - minW, maxW - optW );
 
-                    auto data =
-                            std::make_shared<DRC_RE_ROUTING_WIDTH_CONSTRAINT_DATA>( 0, 0, aRule->m_Name, optW, tol );
+                    auto data = std::make_shared<DRC_RE_ROUTING_WIDTH_CONSTRAINT_DATA>( 0, aRule->m_Name, optW, tol );
                     data->SetConstraintCode( code );
                     return data;
                 }
@@ -233,7 +232,7 @@ static void RegisterDefaultConverters()
                         viaType = VIA_STYLE_TYPE::BURIED;
                 }
 
-                auto data = std::make_shared<DRC_RE_VIA_STYLE_CONSTRAINT_DATA>( 0, 0, aRule->m_Name, minDia, maxDia,
+                auto data = std::make_shared<DRC_RE_VIA_STYLE_CONSTRAINT_DATA>( 0, aRule->m_Name, minDia, maxDia,
                                                                                 minDrill, maxDrill, viaType );
                 data->SetConstraintCode( "via_style" );
                 return data;
@@ -283,23 +282,6 @@ std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME> DRC_RULE_EDITOR_UTILS::SectionFor
 wxString DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( DRC_RULE_EDITOR_CONSTRAINT_NAME aType )
 {
     return GetConstraintCode( aType );
-}
-
-
-bool DRC_RULE_EDITOR_UTILS::ConstraintFromKicadDrc( const wxString& aCode, DRC_RE_BASE_CONSTRAINT_DATA* aData )
-{
-    if( !aData )
-        return false;
-
-    auto type = GetConstraintTypeFromCode( aCode );
-    if( type )
-    {
-        aData->SetConstraintCode( GetConstraintCode( *type ) );
-        return true;
-    }
-
-    aData->SetConstraintCode( aCode );
-    return false;
 }
 
 
@@ -760,7 +742,7 @@ std::vector<std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA>> DRC_RULE_EDITOR_UTILS:
 
         if( !data )
         {
-            auto customData = std::make_shared<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( 0, 0, rule->m_Name );
+            auto customData = std::make_shared<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( 0, rule->m_Name );
             customData->SetRuleText( wxString::Format( "(rule \"%s\" ...)", rule->m_Name ) );
             data = customData;
         }
