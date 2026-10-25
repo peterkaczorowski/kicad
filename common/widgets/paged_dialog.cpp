@@ -268,6 +268,21 @@ bool PAGED_DIALOG::TransferDataFromWindow()
 }
 
 
+wxWindow* PAGED_DIALOG::ShowPage( const wxString& aTitle )
+{
+    for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
+    {
+        if( m_treebook->GetPageText( i ) == aTitle )
+        {
+            m_treebook->SetSelection( i );
+            return m_treebook->GetResolvedPage( i );
+        }
+    }
+
+    return nullptr;
+}
+
+
 PAGED_DIALOG* PAGED_DIALOG::GetDialog( wxWindow* aParent )
 {
     while( aParent )
