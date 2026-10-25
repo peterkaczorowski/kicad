@@ -40,6 +40,14 @@ public:
 
     void SetInitialPage( const wxString& aPage, const wxString& aParentPage = wxEmptyString );
 
+    /**
+     * Select the page with the given title.
+     *
+     * @return the page, resolved if it was created lazily, or nullptr where no page carries
+     *         that title.
+     */
+    wxWindow* ShowPage( const wxString& aTitle );
+
     void SetModified() { m_modified = true; }
 
     void SetError( const wxString& aMessage, const wxString& aPageName, int aCtrlId, int aRow = -1,
