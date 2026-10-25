@@ -57,10 +57,13 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
     m_scrolled->SetScrollRate( 0, 10 );
     m_scrolled->SetSizer( new wxBoxSizer( wxVERTICAL ) );
 
-    if( !m_section.defaults.empty() )
+    // The note describes the rule list, so it belongs wherever there is one. Most pages carry
+    // rules without carrying a board default.
+    if( m_section.ruleType )
     {
-        m_noteText = _( "The value is resolved in this order: the board default, then the matching net class, "
-                        "then the rules from top to bottom. The last match wins." );
+        m_noteText = _( "The rules below are read from top to bottom and the last one that matches "
+                        "decides the value." );
+
         m_note = new wxStaticText( m_scrolled, wxID_ANY, m_noteText );
         m_note->SetFont( KIUI::GetInfoFont( this ).Italic() );
         m_scrolled->GetSizer()->Add( m_note, 0, wxALL, 8 );
