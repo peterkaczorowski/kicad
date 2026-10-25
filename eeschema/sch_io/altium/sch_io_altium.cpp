@@ -5938,6 +5938,17 @@ void SCH_IO_ALTIUM::ParseImplementation( const std::map<wxString, wxString>& aPr
     if( elem.type != wxS( "PCBLIB" ) )
         return;
 
+    auto appendFootprintFilter =
+            []( LIB_SYMBOL* aSymbol, const wxString& aFilter )
+            {
+                wxArrayString filters = aSymbol->GetFPFilters();
+
+                if( filters.Index( aFilter ) == wxNOT_FOUND )
+                    filters.Add( aFilter );
+
+                aSymbol->SetFPFilters( filters );
+            };
+
     // For schematic files, we need to check if the model is current.
     if( aSymbol.size() == 0 && !elem.isCurrent )
         return;
@@ -5947,8 +5958,7 @@ void SCH_IO_ALTIUM::ParseImplementation( const std::map<wxString, wxString>& aPr
     // matches the nickname project import registers in the footprint library table.
     wxString libName = m_isIntLib ? m_libName : wxFileName( elem.libname, wxPATH_WIN ).GetName();
 
-    wxArrayString fpFilters;
-    fpFilters.Add( wxString::Format( wxS( "*%s*" ), elem.name ) );
+    wxString fpFilter = wxString::Format( wxS( "*%s*" ), elem.name );
 
     // Parse the footprint fields for the library symbol
     if( !aSymbol.empty() )
@@ -5957,8 +5967,12 @@ void SCH_IO_ALTIUM::ParseImplementation( const std::map<wxString, wxString>& aPr
         {
             LIB_ID fpLibId = AltiumToKiCadLibID( libName, elem.name );
 
-            symbol->SetFPFilters( fpFilters );
-            symbol->GetField( FIELD_T::FOOTPRINT )->SetText( fpLibId.Format() );
+            appendFootprintFilter( symbol, fpFilter );
+
+            SCH_FIELD* footprintField = symbol->GetField( FIELD_T::FOOTPRINT );
+
+            if( elem.isCurrent || footprintField->GetText().IsEmpty() )
+                footprintField->SetText( fpLibId.Format() );
         }
 
         return;
@@ -5986,7 +6000,7 @@ void SCH_IO_ALTIUM::ParseImplementation( const std::map<wxString, wxString>& aPr
 
     LIB_ID fpLibId = AltiumToKiCadLibID( libName, elem.name );
 
-    libSymbolIt->second->SetFPFilters( fpFilters ); // TODO: not ideal as we overwrite it
+    appendFootprintFilter( libSymbolIt->second, fpFilter );
 
     SCH_SYMBOL* symbol = m_symbols.at( libSymbolIt->first );
 
