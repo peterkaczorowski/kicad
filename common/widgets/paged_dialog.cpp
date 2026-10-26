@@ -135,6 +135,7 @@ PAGED_DIALOG::PAGED_DIALOG( wxWindow* aParent, const wxString& aTitle, bool aSho
     m_treebook->Bind( wxEVT_CHAR_HOOK, &PAGED_DIALOG::onCharHook, this );
     m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::onPageChanged, this );
     m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::onPageChanging, this );
+    m_treebook->GetTreeCtrl()->Bind( wxEVT_LEFT_DOWN, &PAGED_DIALOG::onTreeLeftDown, this );
 }
 
 
@@ -409,6 +410,25 @@ void PAGED_DIALOG::onCharHook( wxKeyEvent& aEvent )
     else
     {
         aEvent.Skip();
+    }
+}
+
+
+void PAGED_DIALOG::onTreeLeftDown( wxMouseEvent& aEvent )
+{
+    aEvent.Skip();
+
+    wxTreeCtrl*  tree = m_treebook->GetTreeCtrl();
+    int          flags = 0;
+    wxTreeItemId item = tree->HitTest( aEvent.GetPosition(), flags );
+
+    // Clicking the label asks to see what is in the branch, so open it and let onPageChanged()
+    // go on to the first sub-page. A click on the expander is left alone, or the branch could
+    // never be closed.
+    if( item.IsOk() && ( flags & wxTREE_HITTEST_ONITEMLABEL ) && !tree->IsExpanded( item )
+        && tree->ItemHasChildren( item ) )
+    {
+        tree->Expand( item );
     }
 }
 
