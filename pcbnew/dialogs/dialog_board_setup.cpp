@@ -187,9 +187,22 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame, wxWindow* aParen
     {
         size_t familyPage = m_treebook->GetPageCount();
 
-        // An empty page, so selecting the family drops through to its first constraint, as the
-        // other tree level nodes do.
+        // An empty page, so selecting the family drops through to the first page under it, as
+        // the other tree level nodes do.
         m_treebook->AddSubPage( new wxPanel( GetTreebook() ), familyTitle );
+
+        if( family == PANEL_SETUP_CONSTRAINT_RULES::FAMILY::SOLDER_MASK )
+        {
+            // The rules in this family are read against these defaults, so they sit together.
+            m_maskAndPastePage = m_treebook->GetPageCount();
+            m_treebook->InsertLazySubPage(
+                    familyPage,
+                    [this]( wxWindow* aParent ) -> wxWindow*
+                    {
+                        return new PANEL_SETUP_MASK_AND_PASTE( aParent, m_frame );
+                    },
+                    _( "Solder Mask/Paste" ) );
+        }
 
         for( const CONSTRAINT_SECTION& section : PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( family ) )
         {
@@ -217,14 +230,6 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame, wxWindow* aParen
                 return new PANEL_SETUP_VIA_STACKS( aParent, m_frame );
             },
             _( "Microvia Stacks" ) );
-
-    m_maskAndPastePage = m_treebook->GetPageCount();
-    m_treebook->AddLazySubPage(
-            [this]( wxWindow* aParent ) -> wxWindow*
-            {
-                return new PANEL_SETUP_MASK_AND_PASTE( aParent, m_frame );
-            },
-            _( "Solder Mask/Paste" ) );
 
     m_zonesPage = m_treebook->GetPageCount();
     m_treebook->AddLazySubPage(
