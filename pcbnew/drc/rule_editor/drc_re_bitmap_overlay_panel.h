@@ -146,6 +146,12 @@ protected:
     void PositionFields();
 
     /**
+     * Asks for a panel taller than its illustration.  The height is kept in DIP so it follows
+     * the display the panel is shown on.
+     */
+    void SetMinimumHeightDIP( int aHeight ) { m_minHeightDIP = aHeight; }
+
+    /**
      * Apply transparent styling to a field control.
      *
      * @param aControl The control to style.
@@ -183,6 +189,7 @@ protected:
     wxBitmap                                        m_bitmap;       ///< Current background bitmap
     BITMAPS                                         m_bitmapId;     ///< BITMAPS enum value
     wxSize                                          m_logicalBitmapSize; ///< Bitmap size in logical pixels
+    int                                             m_minHeightDIP = 0;  ///< Height a subclass asks for, in DIP
 
     /// Set where the port cannot show a transparent background, so the paint handler erases it
     bool                                            m_erasesBackground = false;

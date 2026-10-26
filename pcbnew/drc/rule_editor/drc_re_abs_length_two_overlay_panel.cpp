@@ -83,7 +83,7 @@ DRC_RE_ABS_LENGTH_TWO_OVERLAY_PANEL::DRC_RE_ABS_LENGTH_TWO_OVERLAY_PANEL(
                                     TransferDataToWindow();
                                 } );
 
-    SetMinSize( wxSize( GetMinSize().x, FromDIP( 190 ) ) );
+    SetMinimumHeightDIP( 190 );
 
     // Position all fields and update the panel layout
     updateDomainUnits();

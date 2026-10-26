@@ -76,6 +76,9 @@ public:
      */
     static PANEL_DRC_RULE_EDITOR* FindEditor( wxWindow* aChild );
 
+    /// Lays out the editor's parents, out to the page it scrolls in
+    void RelayoutHost();
+
     bool GetIsValidationSucceeded() { return m_validationSucceeded; }
 
     wxString GetValidationMessage() { return m_validationMessage; }
@@ -98,7 +101,6 @@ private:
 
     void clearMatchReport();
 
-    void relayoutHost();
 
     /**
      * Handles the save button click event, validating inputs and invoking the save callback if valid.
