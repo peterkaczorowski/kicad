@@ -203,6 +203,8 @@ PANEL_DRC_RULE_EDITOR::PANEL_DRC_RULE_EDITOR( wxWindow* aParent, BOARD* aBoard,
         m_LayersComboBoxSizer->Show( false );
         m_staticText711->Hide();
         m_staticline111->Hide();
+
+        stretchConstraintColumn();
     }
 
     // Hide the base class syntax check controls since we use inline validation
@@ -1287,6 +1289,27 @@ PANEL_DRC_RULE_EDITOR* PANEL_DRC_RULE_EDITOR::FindEditor( wxWindow* aChild )
     }
 
     return nullptr;
+}
+
+
+void PANEL_DRC_RULE_EDITOR::stretchConstraintColumn()
+{
+    // A custom rule is written in the constraint column and the column beside it is hidden,
+    // so move the stretch across or the rule text stays at its smallest.
+    for( wxSizerItem* item : bContentSizer->GetChildren() )
+    {
+        wxSizer* columns = item->GetSizer();
+
+        if( !columns || !columns->GetItem( m_constraintSizer ) )
+            continue;
+
+        for( wxSizerItem* column : columns->GetChildren() )
+            column->SetProportion( column->GetSizer() == m_constraintSizer ? 1 : 0 );
+
+        return;
+    }
+
+    wxFAIL_MSG( wxS( "Constraint column not found; the generated layout has changed." ) );
 }
 
 
