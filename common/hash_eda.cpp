@@ -243,6 +243,9 @@ size_t hash_fp_item( const EDA_ITEM* aItem, int aFlags )
         if( shape->GetShape() == SHAPE_T::ARC || shape->GetShape() == SHAPE_T::CIRCLE )
             hash_combine( ret, shape->GetRadius() );
 
+        if( shape->GetShape() == SHAPE_T::RECTANGLE )
+            hash_combine( ret, shape->GetCornerRadius() );
+
         if( shape->GetShape() == SHAPE_T::ELLIPSE || shape->GetShape() == SHAPE_T::ELLIPSE_ARC )
         {
             hash_combine( ret, shape->GetEllipseMajorRadius() );
