@@ -189,6 +189,10 @@ public:
      * point no constraint binds. Those are read as constants, since the caller has already
      * put the item there. If a constraint then breaks, the solve is still refused.
      *
+     * A point a FIXED_POSITION constraint pins is the exception. It is never read from the
+     * caller: a pinned anchor is left uncommanded so the solve puts it back, and a shape
+     * that would carry one along is refused outright.
+     *
      * @param aPinnedAnchors the anchors the user placed, each with its target in IU.
      * @param aTranslatedShapes shapes that travelled whole, with all of their coordinates held.
      * @param aTranslation how far those shapes travelled from the current parameters.
@@ -421,6 +425,10 @@ private:
 
     /// Parameter indices the solver may not move, so a rigid translation may not either.
     std::set<int>                    m_fixedParams;
+
+    /// The subset of those grounded by a FIXED_POSITION constraint rather than by a lock
+    /// or a driving constant, which a block edit may not command to a new place.
+    std::set<int>                    m_groundedPositionParams;
     std::map<int, KIID>              m_tagToConstraint;
     std::set<int>                    m_nonDrivingTags;       ///< Measurement-only; excluded from conflict residuals.
     std::map<int, std::vector<KIID>> m_tagMembers;           ///< Member items per tag, for collapse attribution.

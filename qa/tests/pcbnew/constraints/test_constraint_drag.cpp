@@ -112,6 +112,14 @@ struct DRAG_FIXTURE
         return poly;
     }
 
+    PCB_CONSTRAINT* addFixedPosition( PCB_SHAPE* aShape, CONSTRAINT_ANCHOR aAnchor )
+    {
+        PCB_CONSTRAINT* c = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::FIXED_POSITION );
+        c->AddMember( aShape->m_Uuid, aAnchor );
+        board.Add( c );
+        return c;
+    }
+
     PCB_CONSTRAINT* addCoincident( PCB_SHAPE* aA, CONSTRAINT_ANCHOR aAnchorA, PCB_SHAPE* aB,
                                    CONSTRAINT_ANCHOR aAnchorB )
     {
@@ -1476,6 +1484,138 @@ BOOST_FIXTURE_TEST_CASE( ArcCentreDragHoldsEndpoints, DRAG_FIXTURE )
     BOOST_CHECK_LE( ( arc->GetEnd() - end0 ).EuclideanNorm(), 20000.0 );
     BOOST_CHECK( ( arc->GetCenter() - VECTOR2I( 0, 0 ) ).EuclideanNorm() > 100000.0 );
     BOOST_CHECK_GT( std::abs( arc->GetRadius() - radius0 ), 100000 );
+}
+
+
+// Picking the very point a FIXED_POSITION constraint nails down. The drag writes the cursor
+// into the shape before the solve, so the solve has to put that point back.
+BOOST_FIXTURE_TEST_CASE( BlockEditHoldsAFixedPositionAnchor, DRAG_FIXTURE )
+{
+    PCB_SHAPE* seg = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    addFixedPosition( seg, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { seg } ) );
+
+    const VECTOR2I delta( 2 * MM, 3 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( seg );
+    seg->SetStart( seg->GetStart() + delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result =
+            session.Solve( { { CONSTRAINT_MEMBER( seg->m_Uuid, CONSTRAINT_ANCHOR::START ), delta } }, {}, delta, &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               commit.Modify( aItem );
+                           } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( seg->GetStart(), VECTOR2I( 0, 0 ) );
+    BOOST_CHECK_EQUAL( seg->GetEnd(), VECTOR2I( 10 * MM, 0 ) );
+
+    commit.Revert();
+}
+
+
+// The constraint holds one end, it does not freeze the shape. Picking both ends has to leave
+// the free one exactly where the user put it.
+BOOST_FIXTURE_TEST_CASE( BlockEditMovesAFreeEndWhileHoldingAFixedStart, DRAG_FIXTURE )
+{
+    PCB_SHAPE* seg = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    addFixedPosition( seg, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { seg } ) );
+
+    const VECTOR2I delta( 2 * MM, 3 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( seg );
+    seg->SetStart( seg->GetStart() + delta );
+    seg->SetEnd( seg->GetEnd() + delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result = session.Solve(
+            { { CONSTRAINT_MEMBER( seg->m_Uuid, CONSTRAINT_ANCHOR::START ), delta },
+              { CONSTRAINT_MEMBER( seg->m_Uuid, CONSTRAINT_ANCHOR::END ), VECTOR2I( 10 * MM, 0 ) + delta } },
+            {}, delta, &moved,
+            [&]( BOARD_ITEM* aItem )
+            {
+                commit.Modify( aItem );
+            } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( seg->GetStart(), VECTOR2I( 0, 0 ) );
+    BOOST_CHECK_EQUAL( seg->GetEnd(), VECTOR2I( 12 * MM, 3 * MM ) );
+
+    commit.Revert();
+}
+
+
+// A fixed point on one shape must not stop its coincident neighbour being dragged by a point
+// of its own that nothing pins.
+BOOST_FIXTURE_TEST_CASE( BlockEditStillMovesAFreeNeighborOfAFixedPoint, DRAG_FIXTURE )
+{
+    PCB_SHAPE* pinned = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    PCB_SHAPE* free = addSegment( { 10 * MM, 0 }, { 20 * MM, 0 } );
+    addFixedPosition( pinned, CONSTRAINT_ANCHOR::START );
+    addCoincident( pinned, CONSTRAINT_ANCHOR::END, free, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { free } ) );
+
+    const VECTOR2I target( 22 * MM, 4 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( free );
+    free->SetEnd( target );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result =
+            session.Solve( { { CONSTRAINT_MEMBER( free->m_Uuid, CONSTRAINT_ANCHOR::END ), target } }, {},
+                           VECTOR2I( 2 * MM, 4 * MM ), &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               commit.Modify( aItem );
+                           } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::SOLVED );
+    BOOST_CHECK_EQUAL( free->GetEnd(), target );
+    BOOST_CHECK_EQUAL( pinned->GetStart(), VECTOR2I( 0, 0 ) );
+
+    commit.Revert();
+}
+
+
+// A shape that travels whole cannot take a pinned point along, so the gesture is refused
+// rather than quietly dragging the point off its constraint. SolveRigidTranslation already
+// refuses the same move for the stock drag.
+BOOST_FIXTURE_TEST_CASE( BlockEditRefusesCarryingAFixedPoint, DRAG_FIXTURE )
+{
+    PCB_SHAPE* seg = addSegment( { 0, 0 }, { 10 * MM, 0 } );
+    addFixedPosition( seg, CONSTRAINT_ANCHOR::START );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { seg } ) );
+
+    const VECTOR2I delta( 2 * MM, 3 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( seg );
+    seg->Move( delta );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result = session.Solve( {}, { seg->m_Uuid }, delta, &moved,
+                                                    [&]( BOARD_ITEM* aItem )
+                                                    {
+                                                        commit.Modify( aItem );
+                                                    } );
+
+    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::REFUSED );
+
+    commit.Revert();
 }
 
 

@@ -885,6 +885,10 @@ bool BOARD_CONSTRAINT_ADAPTER::Build( const std::vector<PCB_SHAPE*>&          aS
     // locked-shape params go here; everything else stays an unknown.
     std::set<int> fixedParams;
 
+    // Of those, the ones a FIXED_POSITION constraint nails down, kept apart because a block
+    // edit is allowed to place a locked shape but never a point the user pinned
+    std::set<int> groundedPositions;
+
     for( const auto& [first, last] : lockedRanges )
     {
         for( int i = first; i < last; ++i )
@@ -1080,6 +1084,8 @@ bool BOARD_CONSTRAINT_ADAPTER::Build( const std::vector<PCB_SHAPE*>&          aS
             {
                 fixedParams.insert( a.x );
                 fixedParams.insert( a.y );
+                groundedPositions.insert( a.x );
+                groundedPositions.insert( a.y );
                 mapped = true;   // enforced by omission from the unknowns, not a solver constraint
             }
 
@@ -1512,6 +1518,7 @@ bool BOARD_CONSTRAINT_ADAPTER::Build( const std::vector<PCB_SHAPE*>&          aS
     }
 
     m_fixedParams = fixedParams;
+    m_groundedPositionParams = groundedPositions;
     m_gcs->declareUnknowns( unknowns );
     m_gcs->initSolution();
     m_gcs->maxIter = MAX_SOLVE_ITERATIONS;
@@ -2152,11 +2159,28 @@ BOARD_CONSTRAINT_ADAPTER::SolveBlockEdit( const std::vector<std::pair<CONSTRAINT
 
     const RIGID_STATE carried = collectRigidState( aTranslatedShapes );
 
+    // A shape travelling whole cannot carry a point the user pinned, the same refusal
+    // SolveRigidTranslation makes. A locked shape is different and stays placeable, since
+    // the caller has already put it where the user asked
+    const bool carriesGroundedPoint = std::ranges::any_of(
+            carried.points,
+            [&]( int aPointX )
+            {
+                return m_groundedPositionParams.contains( aPointX ) || m_groundedPositionParams.contains( aPointX + 1 );
+            } );
+
+    if( carriesGroundedPoint && aTranslation != VECTOR2I() )
+        return CONSTRAINT_BLOCK_RESULT::REFUSED;
+
     for( int pointX : carried.points )
     {
         targetsX[pointX] = KiROUND( denormalizeX( m_params[pointX] ) ) + aTranslation.x;
         targetsY[pointX + 1] = KiROUND( denormalizeY( m_params[pointX + 1] ) ) + aTranslation.y;
     }
+
+    // Whether the user picked a point this cluster nails down. The solve still has to run in
+    // that case, with nothing commanded, so the point is put back where the constraint says
+    bool groundedAnchorPicked = false;
 
     for( const auto& [member, target] : aPinnedAnchors )
     {
@@ -2164,12 +2188,21 @@ BOARD_CONSTRAINT_ADAPTER::SolveBlockEdit( const std::vector<std::pair<CONSTRAINT
         // model, is skipped so the rest of the block still solves
         if( ANCHOR_PARAMS anchor = anchorParams( member ); anchor.IsValid() )
         {
+            // A FIXED_POSITION constraint grounds this point. The caller has already written
+            // the cursor into the item, so commanding it here would hold the violation and
+            // then report it solved, because the check below reads back what was just written
+            if( m_groundedPositionParams.contains( anchor.x ) || m_groundedPositionParams.contains( anchor.y ) )
+            {
+                groundedAnchorPicked = true;
+                continue;
+            }
+
             targetsX[anchor.x] = target.x;
             targetsY[anchor.y] = target.y;
         }
     }
 
-    if( targetsX.empty() && targetsY.empty() )
+    if( targetsX.empty() && targetsY.empty() && !groundedAnchorPicked )
         return CONSTRAINT_BLOCK_RESULT::NOT_MODELED;
 
     beginTemporaryParameters();
