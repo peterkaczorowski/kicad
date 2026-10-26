@@ -67,6 +67,9 @@ public:
     /// Rebuilds the line saying what the rule being edited displaces
     void RefreshOverrideNote() { showOverrideNote(); }
 
+    /// Selects a rule and opens it in the editor
+    void EditRule( int aIndex );
+
     /**
      * Called after this list changed the document. The page uses it to refresh every list,
      * since the entries are shared.
