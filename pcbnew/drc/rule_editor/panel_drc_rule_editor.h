@@ -102,6 +102,8 @@ private:
     void clearMatchReport();
 
 
+    void stretchConstraintColumn();
+
     /**
      * Handles the save button click event, validating inputs and invoking the save callback if valid.
      *
