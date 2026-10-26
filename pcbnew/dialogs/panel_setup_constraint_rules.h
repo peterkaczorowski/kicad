@@ -95,6 +95,11 @@ public:
      */
     void ImportSettingsFrom( BOARD* aBoard, const wxString& aSettingsPage );
 
+    /**
+     * Opens a rule of this constraint type in the editor, if this page holds that constraint.
+     */
+    void ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex );
+
     void RefreshFromDocument();
 
     bool TransferDataToWindow() override;

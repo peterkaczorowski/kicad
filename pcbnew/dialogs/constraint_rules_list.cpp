@@ -645,6 +645,13 @@ void CONSTRAINT_RULES_LIST::showNewRule()
 }
 
 
+void CONSTRAINT_RULES_LIST::EditRule( int aIndex )
+{
+    selectIndex( aIndex );
+    showRule( aIndex );
+}
+
+
 void CONSTRAINT_RULES_LIST::showRule( int aIndex )
 {
     if( aIndex < 0 || aIndex >= (int) m_document->Entries().size() )

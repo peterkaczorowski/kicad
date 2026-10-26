@@ -18,6 +18,7 @@
  */
 
 #include <algorithm>
+#include <functional>
 #include <map>
 
 #include <board_design_settings.h>
@@ -32,8 +33,116 @@
 #include <drc/rule_editor/drc_rule_document.h>
 #include <widgets/paged_dialog.h>
 #include <wx/treebook.h>
+#include <wx/hyperlink.h>
+#include <wx/popupwin.h>
+#include <wx/scrolwin.h>
+#include <wx/settings.h>
 #include <bitmaps.h>
 #include <advanced_config.h>
+
+
+namespace
+{
+
+/// The height a popup grows to before its list starts scrolling, before DPI scaling
+constexpr int MAX_POPUP_HEIGHT = 360;
+
+
+/**
+ * The rules overriding one board constraint, each one a link that opens it in its editor.
+ */
+class OVERRIDING_RULES_POPUP : public wxPopupTransientWindow
+{
+public:
+    OVERRIDING_RULES_POPUP( wxWindow* aParent ) :
+            wxPopupTransientWindow( aParent, wxBORDER_SIMPLE )
+    {
+        m_panel = new wxPanel( this, wxID_ANY );
+        m_panel->SetBackgroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOW ) );
+
+        wxStaticText* heading = new wxStaticText( m_panel, wxID_ANY, _( "Rules overriding this constraint" ) );
+        heading->SetFont( heading->GetFont().Bold() );
+
+        m_scrolled = new wxScrolledWindow( m_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL );
+        m_scrolled->SetScrollRate( 0, 10 );
+        m_scrolled->SetBackgroundColour( m_panel->GetBackgroundColour() );
+
+        m_rows = new wxBoxSizer( wxVERTICAL );
+        m_scrolled->SetSizer( m_rows );
+
+        m_outer = new wxBoxSizer( wxVERTICAL );
+        m_outer->Add( heading, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP( 8 ) );
+        m_outer->Add( m_scrolled, 1, wxEXPAND | wxALL, FromDIP( 8 ) );
+        m_panel->SetSizer( m_outer );
+    }
+
+    void AddRule( const wxString& aName, const wxString& aDetail, std::function<void()> aOpen )
+    {
+        wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
+        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( m_scrolled, wxID_ANY, aName, wxEmptyString );
+
+        link->Bind( wxEVT_HYPERLINK,
+                    [this, aOpen]( wxHyperlinkEvent& )
+                    {
+                        Dismiss();
+                        aOpen();
+                    } );
+
+        row->Add( link, 0, wxALIGN_CENTER_VERTICAL );
+        row->Add( new wxStaticText( m_scrolled, wxID_ANY, aDetail ), 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
+                  FromDIP( 8 ) );
+
+        m_rows->Add( row, 0, wxTOP, FromDIP( 3 ) );
+    }
+
+    /// Destroyed on dismissal so repeated clicks do not leave hidden popups behind
+    void OnDismiss() override { Destroy(); }
+
+    void PopupUnder( wxWindow* aAnchor )
+    {
+        wxSize content = m_rows->GetMinSize();
+        int    width = content.x;
+        int    height = content.y;
+
+        if( height > FromDIP( MAX_POPUP_HEIGHT ) )
+        {
+            height = FromDIP( MAX_POPUP_HEIGHT );
+            width += wxSystemSettings::GetMetric( wxSYS_VSCROLL_X, m_scrolled );
+        }
+
+        m_scrolled->SetVirtualSize( content );
+        m_scrolled->SetMinSize( wxSize( width, height ) );
+
+        m_outer->Fit( m_panel );
+        SetClientSize( m_panel->GetSize() );
+
+        Position( aAnchor->GetScreenPosition(), wxSize( 0, aAnchor->GetSize().y ) );
+        Popup();
+    }
+
+private:
+    wxPanel*          m_panel;
+    wxScrolledWindow* m_scrolled;
+    wxBoxSizer*       m_rows;
+    wxBoxSizer*       m_outer;
+};
+
+
+/**
+ * Selects the tree page holding a constraint's rules and opens one of them in its editor.
+ */
+void openRuleInEditor( wxWindow* aContext, const wxString& aTitle, DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex )
+{
+    PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( aContext );
+
+    if( !dialog )
+        return;
+
+    if( auto* page = dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( dialog->ShowPage( aTitle ) ) )
+        page->ShowRule( aType, aIndex );
+}
+
+} // namespace
 
 
 PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame,
@@ -115,12 +224,9 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
             field.m_Override = new FIELD_WARNING_ICON( field.m_Ctrl, BITMAPS::small_new_window, 1 );
             field.m_Override->SetCursor( wxCURSOR_HAND );
             field.m_Override->Bind( wxEVT_LEFT_DOWN,
-                                    [this, setting = field.m_Setting]( wxMouseEvent& )
+                                    [this, setting = field.m_Setting, icon = field.m_Override]( wxMouseEvent& )
                                     {
-                                        wxString page;
-
-                                        if( PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( setting, nullptr, &page ) )
-                                            showRulePage( page );
+                                        showOverridingRules( setting, icon );
                                     } );
         }
 
@@ -269,9 +375,8 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
             continue;
 
         DRC_RULE_EDITOR_CONSTRAINT_NAME type;
-        wxString                        page;
 
-        if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, &type, &page ) )
+        if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, &type, nullptr ) )
             continue;
 
         const std::vector<int> indices = m_document->IndicesFor( type );
@@ -282,40 +387,52 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
             continue;
         }
 
-        wxArrayString lines;
-
-        lines.Add( wxString::Format( wxPLURAL( "%zu rule on the %s page overrides this. Click to open it.",
-                                               "%zu rules on the %s page override this. Click to open it.",
-                                               indices.size() ),
-                                     indices.size(), page ) );
-
-        // Each rule is named with the value it sets and what selects it, so the interaction can be
-        // read without opening the page.
-        for( int index : indices )
-        {
-            const DRC_RE_LOADED_PANEL_ENTRY& entry = m_document->Entries()[index];
-            wxString                         value = CONSTRAINT_RULES_LIST::ConstraintText( entry, type, m_Frame );
-
-            if( entry.condition.IsEmpty() )
-            {
-                lines.Add( wxString::Format( _( "    \"%s\"  %s  everywhere" ), entry.ruleName, value ) );
-            }
-            else
-            {
-                lines.Add(
-                        wxString::Format( _( "    \"%s\"  %s  where %s" ), entry.ruleName, value, entry.condition ) );
-            }
-        }
-
-        field.m_Override->SetWarnings( lines );
+        field.m_Override->SetWarning(
+                wxString::Format( wxPLURAL( "%zu rule overrides this. Click to see it.",
+                                            "%zu rules override this. Click to see them.", indices.size() ),
+                                  indices.size() ) );
     }
 }
 
 
-void PANEL_SETUP_CONSTRAINTS::showRulePage( const wxString& aTitle )
+void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxWindow* aAnchor )
 {
-    if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
-        dialog->ShowPage( aTitle );
+    DRC_RULE_EDITOR_CONSTRAINT_NAME type;
+    wxString                        page;
+
+    if( !m_document || !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &type, &page ) )
+        return;
+
+    const std::vector<int> indices = m_document->IndicesFor( type );
+
+    if( indices.empty() )
+        return;
+
+    OVERRIDING_RULES_POPUP* popup = new OVERRIDING_RULES_POPUP( this );
+
+    for( int index : indices )
+    {
+        const DRC_RE_LOADED_PANEL_ENTRY& entry = m_document->Entries()[index];
+        wxString                         value = CONSTRAINT_RULES_LIST::ConstraintText( entry, type, m_Frame );
+        wxString                         detail;
+
+        if( entry.condition.IsEmpty() && entry.layerSource.IsEmpty() )
+            detail = wxString::Format( _( "%s, everywhere" ), value );
+        else if( entry.condition.IsEmpty() )
+            detail = wxString::Format( _( "%s, on %s" ), value, entry.layerSource );
+        else if( entry.layerSource.IsEmpty() )
+            detail = wxString::Format( _( "%s, where %s" ), value, entry.condition );
+        else
+            detail = wxString::Format( _( "%s, on %s where %s" ), value, entry.layerSource, entry.condition );
+
+        popup->AddRule( entry.ruleName, detail,
+                        [this, page, type, index]()
+                        {
+                            openRuleInEditor( this, page, type, index );
+                        } );
+    }
+
+    popup->PopupUnder( aAnchor );
 }
 
 

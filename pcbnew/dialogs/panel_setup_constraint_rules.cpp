@@ -353,6 +353,13 @@ void PANEL_SETUP_CONSTRAINT_RULES::ImportSettingsFrom( BOARD* aBoard, const wxSt
 }
 
 
+void PANEL_SETUP_CONSTRAINT_RULES::ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex )
+{
+    if( m_list && m_section.ruleType == aType )
+        m_list->EditRule( aIndex );
+}
+
+
 bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType,
                                                      wxString* aPage )
 {

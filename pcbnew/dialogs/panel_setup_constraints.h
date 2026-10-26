@@ -56,7 +56,8 @@ private:
     /// Show a warning icon, with the reason as its tooltip, over each field whose value has an issue.
     void updateWarnings();
 
-    void showRulePage( const wxString& aTitle );
+    /// Opens a popup listing the rules that override a board constraint
+    void showOverridingRules( const wxString& aSetting, wxWindow* aAnchor );
 
     struct CONSTRAINT_FIELD
     {
