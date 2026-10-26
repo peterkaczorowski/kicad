@@ -4192,12 +4192,17 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         }
 
         // A running gesture holds a staged commit, and with copper in it a live router
-        // session. Refuse any command that would edit the board underneath it. Undo is
-        // already held off for as long as the gesture runs
+        // session. Refuse any command that would edit the board underneath it, because a
+        // commit pushed now would record the gesture's half-dragged geometry as the state
+        // its own undo returns to. Undo is already held off while the gesture runs
         if( inBlockDrag && evt->Category() == TC_COMMAND
             && ( evt->IsAction( &ACTIONS::cut ) || evt->IsAction( &ACTIONS::copy ) || evt->IsAction( &ACTIONS::paste )
                  || evt->IsAction( &ACTIONS::pasteSpecial ) || evt->IsAction( &ACTIONS::doDelete )
-                 || evt->IsAction( &ACTIONS::deleteTool ) || ZONE_FILLER_TOOL::IsZoneFillAction( evt ) ) )
+                 || evt->IsAction( &ACTIONS::deleteTool ) || ZONE_FILLER_TOOL::IsZoneFillAction( evt )
+                 || evt->IsAction( &PCB_ACTIONS::rotateCw ) || evt->IsAction( &PCB_ACTIONS::rotateCcw )
+                 || evt->IsAction( &PCB_ACTIONS::flip ) || evt->IsAction( &PCB_ACTIONS::mirrorH )
+                 || evt->IsAction( &PCB_ACTIONS::mirrorV ) || evt->IsAction( &PCB_ACTIONS::swap )
+                 || evt->IsAction( &PCB_ACTIONS::properties ) || evt->IsAction( &ACTIONS::save ) ) )
         {
             wxBell();
             continue;
