@@ -74,6 +74,7 @@ protected:
     virtual void onPageChanged( wxBookCtrlEvent& aEvent );
     virtual void onPageChanging( wxBookCtrlEvent& aEvent );
     virtual void onCharHook( wxKeyEvent& aEvent );
+    void         onTreeLeftDown( wxMouseEvent& aEvent );
 
     WX_TREEBOOK* m_treebook;
     wxButton*    m_auxiliaryButton;
