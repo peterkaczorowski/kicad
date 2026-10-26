@@ -188,7 +188,7 @@ PANEL_DRC_RULE_EDITOR::PANEL_DRC_RULE_EDITOR( wxWindow* aParent, BOARD* aBoard,
             [this]()
             {
                 clearMatchReport();
-                relayoutHost();
+                RelayoutHost();
             } );
 
     wxLogTrace( KI_TRACE_DRC_RULE_EDITOR, wxS( "[PANEL_DRC_RULE_EDITOR] inserting conditionGroupPanel" ) );
@@ -1290,7 +1290,7 @@ PANEL_DRC_RULE_EDITOR* PANEL_DRC_RULE_EDITOR::FindEditor( wxWindow* aChild )
 }
 
 
-void PANEL_DRC_RULE_EDITOR::relayoutHost()
+void PANEL_DRC_RULE_EDITOR::RelayoutHost()
 {
     for( wxWindow* window = GetParent(); window; window = window->GetParent() )
     {

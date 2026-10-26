@@ -21,6 +21,7 @@
 
 #include "drc_re_bitmap_overlay_panel.h"
 #include "drc_re_overlay_field.h"
+#include "panel_drc_rule_editor.h"
 
 #include <bitmaps.h>
 
@@ -90,6 +91,14 @@ void DRC_RE_BITMAP_OVERLAY_PANEL::OnDPIChanged( wxDPIChangedEvent& aEvent )
 {
     LoadBitmap();
     PositionFields();
+
+    // Positioning the fields changed the panel's minimum size, which only reaches the screen
+    // once the sizers above it run again.
+    if( PANEL_DRC_RULE_EDITOR* editor = PANEL_DRC_RULE_EDITOR::FindEditor( this ) )
+        editor->RelayoutHost();
+    else if( wxWindow* parent = GetParent() )
+        parent->Layout();
+
     Refresh();
     aEvent.Skip();
 }
@@ -200,6 +209,29 @@ void DRC_RE_BITMAP_OVERLAY_PANEL::PositionFields()
         if( field->HasPrefixLabel() )
             PositionPrefixLabel( field.get() );
     }
+
+    // A field, and the unit label after it, can reach past the right edge of the drawing, so
+    // ask for the room they use rather than the room the bitmap takes.
+    int used = m_logicalBitmapSize.x;
+
+    for( const auto& field : m_fields )
+    {
+        if( wxControl* ctrl = field->GetControl() )
+            used = std::max( used, ctrl->GetPosition().x + ctrl->GetSize().x );
+
+        if( field->HasLabel() )
+            used = std::max( used, field->GetLabel()->GetPosition().x + field->GetLabel()->GetSize().x );
+
+        if( field->HasPrefixLabel() )
+            used = std::max( used, field->GetPrefixLabel()->GetPosition().x + field->GetPrefixLabel()->GetSize().x );
+    }
+
+    int height = m_logicalBitmapSize.y;
+
+    if( m_minHeightDIP > 0 )
+        height = std::max( height, FromDIP( m_minHeightDIP ) );
+
+    SetMinSize( wxSize( used, height ) );
 }
 
 
