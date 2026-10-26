@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 #include <wx/panel.h>
 
@@ -36,6 +37,7 @@ class DRC_RE_BASE_CONSTRAINT_DATA;
 class DRC_RULE_DOCUMENT;
 class PANEL_DRC_RULE_EDITOR;
 class PCB_EDIT_FRAME;
+class UNITS_PROVIDER;
 struct DRC_RE_LOADED_PANEL_ENTRY;
 
 /**
@@ -56,11 +58,24 @@ public:
      */
     void SetTitleWindow( wxWindow* aWindow ) { m_titleWindow = aWindow; }
 
+    /// The board defaults this constraint falls back to, each with the name the note gives it
+    void SetDefaults( std::vector<std::pair<wxString, wxStaticText*>> aDefaults )
+    {
+        m_defaults = std::move( aDefaults );
+    }
+
+    /// Rebuilds the line saying what the rule being edited displaces
+    void RefreshOverrideNote() { showOverrideNote(); }
+
     /**
      * Called after this list changed the document. The page uses it to refresh every list,
      * since the entries are shared.
      */
     void SetChangeCallback( std::function<void()> aCallback ) { m_onChanged = std::move( aCallback ); }
+
+    /// The constraint a rule sets, written the way the rule table shows it
+    static wxString ConstraintText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry, DRC_RULE_EDITOR_CONSTRAINT_NAME aType,
+                                    UNITS_PROVIDER* aUnits );
 
 private:
     void onPrimary( wxCommandEvent& aEvent );
@@ -91,17 +106,19 @@ private:
 
     void fitColumns();
 
-    static wxString layersText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
-    wxString        constraintText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry ) const;
-    static wxString severityText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
-    wxString        sharedWithText( int aIndex ) const;
-    wxString        inUserUnits( const wxString& aClause ) const;
+    void showOverrideNote();
 
-    PCB_EDIT_FRAME*                 m_frame;
-    DRC_RULE_DOCUMENT*              m_document;
-    DRC_RULE_EDITOR_CONSTRAINT_NAME m_type;
-    wxString                        m_title;
-    wxWindow*                       m_titleWindow;
+    static wxString layersText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
+    static wxString severityText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
+    static wxString inUserUnits( const wxString& aClause, UNITS_PROVIDER* aUnits );
+    wxString        sharedWithText( int aIndex ) const;
+
+    PCB_EDIT_FRAME*                                 m_frame;
+    DRC_RULE_DOCUMENT*                              m_document;
+    DRC_RULE_EDITOR_CONSTRAINT_NAME                 m_type;
+    wxString                                        m_title;
+    wxWindow*                                       m_titleWindow;
+    std::vector<std::pair<wxString, wxStaticText*>> m_defaults;
 
     wxListCtrl*   m_list;
     wxStaticText* m_emptyLabel;

@@ -27,6 +27,7 @@
 #include <panel_setup_constraints_base.h>
 #include <pcb_edit_frame.h>
 #include <widgets/field_warning_icon.h>
+#include <dialogs/constraint_rules_list.h>
 #include <dialogs/panel_setup_constraint_rules.h>
 #include <drc/rule_editor/drc_rule_document.h>
 #include <widgets/paged_dialog.h>
@@ -273,20 +274,40 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
         if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, &type, &page ) )
             continue;
 
-        size_t count = m_document->IndicesFor( type ).size();
+        const std::vector<int> indices = m_document->IndicesFor( type );
 
-        if( count == 0 )
+        if( indices.empty() )
         {
             field.m_Override->SetWarning( wxEmptyString );
             continue;
         }
 
-        field.m_Override->SetWarning( wxString::Format( wxPLURAL( "%zu rule on the %s page overrides this. "
-                                                                  "Click to open it.",
-                                                                  "%zu rules on the %s page override this. "
-                                                                  "Click to open it.",
-                                                                  count ),
-                                                        count, page ) );
+        wxArrayString lines;
+
+        lines.Add( wxString::Format( wxPLURAL( "%zu rule on the %s page overrides this. Click to open it.",
+                                               "%zu rules on the %s page override this. Click to open it.",
+                                               indices.size() ),
+                                     indices.size(), page ) );
+
+        // Each rule is named with the value it sets and what selects it, so the interaction can be
+        // read without opening the page.
+        for( int index : indices )
+        {
+            const DRC_RE_LOADED_PANEL_ENTRY& entry = m_document->Entries()[index];
+            wxString                         value = CONSTRAINT_RULES_LIST::ConstraintText( entry, type, m_Frame );
+
+            if( entry.condition.IsEmpty() )
+            {
+                lines.Add( wxString::Format( _( "    \"%s\"  %s  everywhere" ), entry.ruleName, value ) );
+            }
+            else
+            {
+                lines.Add(
+                        wxString::Format( _( "    \"%s\"  %s  where %s" ), entry.ruleName, value, entry.condition ) );
+            }
+        }
+
+        field.m_Override->SetWarnings( lines );
     }
 }
 
