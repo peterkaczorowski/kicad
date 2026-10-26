@@ -90,5 +90,13 @@ bool MDW_SAVE_GUARD::ConfirmSaveOf( PROJECT& aProject, const wxString& aLocalPat
     if( service->GetLifecycleCategory( itemId, category, stateId ) != MDW_ERROR_CODE::SUCCESS )
         return true;
 
-    return ConfirmSave( category, wxFileName( aLocalPath ).GetFullName(), aParent );
+    if( !ConfirmSave( category, wxFileName( aLocalPath ).GetFullName(), aParent ) )
+        return false;
+
+    // Writing the file is what makes the working copy differ from the revision
+    // it was checked out at, and it stays that way until a check-in, which is
+    // where the service clears this again.
+    session->DirtyTracker().SetDirty( itemId, true );
+
+    return true;
 }
