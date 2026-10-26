@@ -212,6 +212,7 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
     m_newBtn->Show( blocker.IsEmpty() );
     m_upBtn->Show( any );
     m_downBtn->Show( any );
+    m_duplicateBtn->Show( any );
     m_removeBtn->Show( any );
 
     if( editingIndex() >= 0 )
