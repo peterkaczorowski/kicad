@@ -66,6 +66,15 @@ public:
         m_callBackRuleNameValidation = aCallbackRuleNameValidation;
     }
 
+    /// Called whenever a field is edited, so a caller can follow the form rather than the document
+    void SetFieldChangeCallback( std::function<void()> aCallback ) { m_callBackFieldChanged = aCallback; }
+
+    /// The condition the form currently describes, which is not yet the one the rule applies
+    wxString GetCondition() const;
+
+    /// The layers the form currently selects, empty for any layer
+    wxString GetLayerSource() const { return getSelectedLayerSource(); }
+
     void SetShowMatchesCallBack( std::function<int( int aNodeId )> aCallBackShowMatches )
     {
         m_callBackShowMatches = aCallBackShowMatches;
@@ -78,6 +87,9 @@ public:
 
     /// Lays out the editor's parents, out to the page it scrolls in
     void RelayoutHost();
+
+    /// Shows a line above the constraint saying what this rule displaces, or clears it when empty
+    void SetOverrideNote( const wxString& aText );
 
     bool GetIsValidationSucceeded() { return m_validationSucceeded; }
 
@@ -103,6 +115,8 @@ private:
 
 
     void stretchConstraintColumn();
+
+    wxStaticText* m_overrideNote = nullptr;
 
     /**
      * Handles the save button click event, validating inputs and invoking the save callback if valid.
@@ -178,6 +192,7 @@ private:
     std::function<void( int aNodeId )>                            m_callBackSave;
     std::function<bool( int aNodeId, const wxString& aRuleName )> m_callBackRuleNameValidation;
     std::function<int( int aNodeId )> m_callBackShowMatches;
+    std::function<void()>                                         m_callBackFieldChanged;
 
     HTML_MESSAGE_BOX* m_helpWindow;
 };

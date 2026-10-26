@@ -159,6 +159,31 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
         CONSTRAINT_RULES_LIST* list =
                 new CONSTRAINT_RULES_LIST( parent, m_frame, m_document, *m_section.ruleType, m_section.title );
         list->SetTitleWindow( heading );
+
+        if( !m_section.defaults.empty() )
+        {
+            std::vector<std::pair<wxString, wxStaticText*>> defaults;
+
+            for( size_t d = 0; d < m_section.defaults.size(); ++d )
+            {
+                // One default belongs to the section, so the section name reads best. Several are
+                // separate values and each has to carry its own name.
+                wxString name = m_section.title;
+
+                if( m_section.defaults.size() > 1 )
+                {
+                    name = m_section.defaults[d].label;
+
+                    if( name.EndsWith( wxS( ":" ) ) )
+                        name.RemoveLast();
+                }
+
+                defaults.emplace_back( name, m_defaultLabels[d] );
+            }
+
+            list->SetDefaults( std::move( defaults ) );
+        }
+
         list->SetChangeCallback(
                 [this]()
                 {
@@ -281,6 +306,10 @@ void PANEL_SETUP_CONSTRAINT_RULES::updateDefaultLabels()
 
         m_defaultLabels[i]->SetLabel( m_frame->StringFromValue( value, true ) );
     }
+
+    // A note on an open rule quotes the default, so it is rebuilt when the defaults change.
+    if( m_list )
+        m_list->RefreshOverrideNote();
 }
 
 

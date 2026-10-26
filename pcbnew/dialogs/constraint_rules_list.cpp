@@ -188,7 +188,9 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
             m_list->SetItem( item, 1, entry.ruleName );
             m_list->SetItem( item, 2, entry.condition );
             m_list->SetItem( item, 3, layersText( entry ) );
-            m_list->SetItem( item, 4, constraintText( entry ) + severityText( entry ) + sharedWithText( index ) );
+            m_list->SetItem( item, 4,
+                             ConstraintText( entry, m_type, m_frame ) + severityText( entry )
+                                     + sharedWithText( index ) );
 
             m_rowToIndex.push_back( index );
             row++;
@@ -276,9 +278,9 @@ wxString CONSTRAINT_RULES_LIST::layersText( const DRC_RE_LOADED_PANEL_ENTRY& aEn
 }
 
 
-wxString CONSTRAINT_RULES_LIST::inUserUnits( const wxString& aClause ) const
+wxString CONSTRAINT_RULES_LIST::inUserUnits( const wxString& aClause, UNITS_PROVIDER* aUnits )
 {
-    if( m_frame->GetUserUnits() == EDA_UNITS::MM )
+    if( aUnits->GetUserUnits() == EDA_UNITS::MM )
         return aClause;
 
     // Rule text carries its own units. Show numbers the way the rest of the page does.
@@ -295,7 +297,7 @@ wxString CONSTRAINT_RULES_LIST::inUserUnits( const wxString& aClause ) const
         double value =
                 EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, EDA_UNITS::MM, units.GetMatch( rest, 0 ) );
 
-        result << rest.Left( start ) << m_frame->StringFromValue( value, true );
+        result << rest.Left( start ) << aUnits->StringFromValue( value, true );
         rest = rest.Mid( start + length );
     }
 
@@ -303,15 +305,14 @@ wxString CONSTRAINT_RULES_LIST::inUserUnits( const wxString& aClause ) const
 }
 
 
-wxString CONSTRAINT_RULES_LIST::constraintText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry ) const
+wxString CONSTRAINT_RULES_LIST::ConstraintText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry,
+                                                DRC_RULE_EDITOR_CONSTRAINT_NAME aType, UNITS_PROVIDER* aUnits )
 {
-    DRC_RULE_EDITOR_CONSTRAINT_NAME type = m_type;
-
     if( aEntry.panelType == CUSTOM_RULE )
     {
         auto     custom = std::dynamic_pointer_cast<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( aEntry.constraintData );
         wxString text = custom ? custom->GetRuleText() : aEntry.originalRuleText;
-        wxString code = DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( type );
+        wxString code = DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( aType );
         wxString prefix = wxString::Format( wxS( "(constraint %s" ), code );
         size_t   start = DRC_RULE_DOCUMENT::FindConstraintClause( text, code );
 
@@ -329,7 +330,7 @@ wxString CONSTRAINT_RULES_LIST::constraintText( const DRC_RE_LOADED_PANEL_ENTRY&
                 wxString clause = text.Mid( start + prefix.length(), i - start - prefix.length() );
                 clause.Replace( wxS( "\n" ), wxS( " " ) );
                 clause.Replace( wxS( "\t" ), wxS( " " ) );
-                return inUserUnits( clause.Trim( true ).Trim( false ) ) + _( "  (text rule)" );
+                return inUserUnits( clause.Trim( true ).Trim( false ), aUnits ) + _( "  (text rule)" );
             }
         }
 
@@ -339,7 +340,7 @@ wxString CONSTRAINT_RULES_LIST::constraintText( const DRC_RE_LOADED_PANEL_ENTRY&
     RULE_GENERATION_CONTEXT context;
     context.ruleName = aEntry.ruleName;
     context.conditionExpression = aEntry.condition;
-    context.constraintCode = DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( type );
+    context.constraintCode = DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( aType );
 
     const wxString        opener = wxS( "(constraint " );
     std::vector<wxString> clauses = aEntry.constraintData->GetConstraintClauses( context );
@@ -362,7 +363,7 @@ wxString CONSTRAINT_RULES_LIST::constraintText( const DRC_RE_LOADED_PANEL_ENTRY&
         text << clause;
     }
 
-    return inUserUnits( text );
+    return inUserUnits( text, aUnits );
 }
 
 
@@ -512,6 +513,70 @@ void CONSTRAINT_RULES_LIST::onRemove( wxCommandEvent& aEvent )
 }
 
 
+void CONSTRAINT_RULES_LIST::showOverrideNote()
+{
+    if( !m_editor )
+        return;
+
+    wxString boardDefault;
+
+    // A section with one default is named by the section itself. One with several carries a name
+    // per value, or the note would quote one number under both names.
+    for( const auto& [name, label] : m_defaults )
+    {
+        if( !label || label->GetLabel().IsEmpty() )
+            continue;
+
+        wxString value = wxString::Format( wxS( "%s %s" ), name, label->GetLabel() );
+
+        boardDefault = boardDefault.IsEmpty() ? value : wxString::Format( _( "%s and %s" ), boardDefault, value );
+    }
+
+    if( boardDefault.IsEmpty() || m_editingType == CUSTOM_RULE )
+    {
+        m_editor->SetOverrideNote( wxEmptyString );
+        return;
+    }
+
+    int index = editingIndex();
+
+    // A rule the form is still writing is not in the document, so it displaces nothing yet and
+    // there is no scope to describe.
+    if( index < 0 || index >= (int) m_document->Entries().size() )
+    {
+        m_editor->SetOverrideNote( wxEmptyString );
+        return;
+    }
+
+    // The scope comes from the form rather than from the entry it was loaded from, so the note
+    // describes the rule being written rather than the one last applied.
+    wxString condition = m_editor->GetCondition();
+    wxString layers = m_editor->GetLayerSource();
+
+    wxString note;
+
+    if( condition.IsEmpty() && layers.IsEmpty() )
+    {
+        note = wxString::Format( _( "Overrides the board default, %s, everywhere" ), boardDefault );
+    }
+    else if( condition.IsEmpty() )
+    {
+        note = wxString::Format( _( "Overrides the board default, %s, on %s" ), boardDefault, layers );
+    }
+    else if( layers.IsEmpty() )
+    {
+        note = wxString::Format( _( "Overrides the board default, %s, where %s" ), boardDefault, condition );
+    }
+    else
+    {
+        note = wxString::Format( _( "Overrides the board default, %s, on %s where %s" ), boardDefault, layers,
+                                 condition );
+    }
+
+    m_editor->SetOverrideNote( note );
+}
+
+
 void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA>& aData,
                                          DRC_RULE_EDITOR_CONSTRAINT_NAME                     aPanelType )
 {
@@ -528,7 +593,14 @@ void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONST
     m_editorSizer->Insert( 0, m_editor, 0, wxEXPAND | wxRIGHT, 8 );
     m_editor->TransferDataToWindow();
 
+    showOverrideNote();
+
     // The editor calls back from its own event handlers, so never destroy it inside one.
+    m_editor->SetFieldChangeCallback(
+            [this]()
+            {
+                showOverrideNote();
+            } );
     m_editor->SetSaveCallback(
             [this]( int )
             {

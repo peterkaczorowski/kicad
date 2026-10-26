@@ -189,6 +189,9 @@ PANEL_DRC_RULE_EDITOR::PANEL_DRC_RULE_EDITOR( wxWindow* aParent, BOARD* aBoard,
             {
                 clearMatchReport();
                 RelayoutHost();
+
+                if( m_callBackFieldChanged )
+                    m_callBackFieldChanged();
             } );
 
     wxLogTrace( KI_TRACE_DRC_RULE_EDITOR, wxS( "[PANEL_DRC_RULE_EDITOR] inserting conditionGroupPanel" ) );
@@ -265,7 +268,17 @@ void PANEL_DRC_RULE_EDITOR::onFieldChanged( wxEvent& aEvent )
 {
     m_modified = true;
     clearMatchReport();
+
+    if( m_callBackFieldChanged )
+        m_callBackFieldChanged();
+
     aEvent.Skip();
+}
+
+
+wxString PANEL_DRC_RULE_EDITOR::GetCondition() const
+{
+    return m_conditionGroupPanel ? m_conditionGroupPanel->BuildCondition() : wxString();
 }
 
 
@@ -1289,6 +1302,52 @@ PANEL_DRC_RULE_EDITOR* PANEL_DRC_RULE_EDITOR::FindEditor( wxWindow* aChild )
     }
 
     return nullptr;
+}
+
+
+void PANEL_DRC_RULE_EDITOR::SetOverrideNote( const wxString& aText )
+{
+    if( aText.IsEmpty() )
+    {
+        if( m_overrideNote )
+            m_overrideNote->Hide();
+
+        return;
+    }
+
+    if( !m_overrideNote )
+    {
+        m_overrideNote =
+                new wxStaticText( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END );
+        m_overrideNote->SetFont( KIUI::GetInfoFont( this ).Italic() );
+
+        // A long condition would otherwise widen this column at the expense of the one beside it,
+        // so the line shortens to the room it is given and keeps its text on hover.
+        m_overrideNote->SetMinSize( wxSize( 1, -1 ) );
+
+        // Above the constraint, so the value being displaced is read before the one replacing it
+        size_t at = m_constraintSizer->GetItemCount();
+
+        for( size_t i = 0; i < m_constraintSizer->GetItemCount(); ++i )
+        {
+            if( m_constraintSizer->GetItem( i )->GetSizer() == m_constraintContentSizer )
+            {
+                at = i;
+                break;
+            }
+        }
+
+        m_constraintSizer->Insert( at, m_overrideNote, 0, wxEXPAND | wxTOP | wxRIGHT | wxLEFT, 5 );
+    }
+
+    // Reached on every keystroke, so an unchanged note costs nothing.
+    if( m_overrideNote->IsShown() && m_overrideNote->GetLabel() == aText )
+        return;
+
+    m_overrideNote->SetLabel( aText );
+    m_overrideNote->SetToolTip( aText );
+    m_overrideNote->Show();
+    Layout();
 }
 
 
