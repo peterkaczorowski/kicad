@@ -21,6 +21,7 @@
 
 #include <board.h>
 #include <board_item.h>
+#include <geometry/shape_line_chain.h>
 #include <geometry/shape_poly_set.h>
 #include <layer_ids.h>
 #include <zone.h>
@@ -29,22 +30,58 @@ namespace
 {
 
 /**
+ * Whether one contour crosses itself.
+ *
+ * IsSelfIntersecting() takes a polygon and its holes as one list of segments but
+ * computes segment adjacency from the length of that whole list, so as soon as a hole
+ * is present it reports even a contour's own closing segment as a crossing. Asking one
+ * contour at a time keeps that arithmetic right.
+ */
+bool contourIsSimple( const SHAPE_LINE_CHAIN& aContour )
+{
+    SHAPE_POLY_SET alone;
+
+    alone.AddOutline( aContour );
+
+    return !alone.IsSelfIntersecting();
+}
+
+
+/**
  * Whether a zone outline is sound enough to keep.
  *
- * IsSelfIntersecting() on its own accepts an outline that has collapsed below three
- * corners, and it accepts holes that meet at a corner. It also calls every zone that
- * has a hole self-intersecting, because it walks the outline and the holes as one
- * list of segments.
+ * Every contour has to be a simple polygon of at least three corners, and every hole
+ * has to still lie inside the outline it belongs to. A drag that pulls an outline
+ * across one of its own holes leaves a shape that fills as garbage, so each hole is
+ * checked against its outline and not only against the other holes.
  */
 bool zoneOutlineIsSound( const SHAPE_POLY_SET& aOutline )
 {
-    if( aOutline.OutlineCount() == 0 || aOutline.IsSelfIntersecting() || aOutline.HasTouchingHoles() )
+    if( aOutline.OutlineCount() == 0 || aOutline.HasTouchingHoles() )
         return false;
 
     for( int ii = 0; ii < aOutline.OutlineCount(); ++ii )
     {
-        if( aOutline.COutline( ii ).PointCount() < 3 )
+        const SHAPE_LINE_CHAIN& outline = aOutline.COutline( ii );
+
+        if( outline.PointCount() < 3 || !contourIsSimple( outline ) )
             return false;
+
+        for( int jj = 0; jj < aOutline.HoleCount( ii ); ++jj )
+        {
+            const SHAPE_LINE_CHAIN& hole = aOutline.CHole( ii, jj );
+
+            if( hole.PointCount() < 3 || !contourIsSimple( hole ) )
+                return false;
+
+            std::vector<SHAPE_LINE_CHAIN::INTERSECTION> crossings;
+
+            // A hole dragged across its outline, or right out of it, is no longer a hole
+            if( outline.Intersect( hole, crossings ) > 0 || !outline.PointInside( hole.CPoint( 0 ) ) )
+            {
+                return false;
+            }
+        }
     }
 
     return true;

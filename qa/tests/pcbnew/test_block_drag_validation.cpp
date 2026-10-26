@@ -57,6 +57,19 @@ struct BLOCK_DRAG_VALIDATION_FIXTURE
         return zone;
     }
 
+    /// A square zone with a square hole well inside it.
+    ZONE* makeHoledZone()
+    {
+        ZONE* zone = makeSquareZone();
+
+        zone->Outline()->NewHole( 0 );
+        zone->Outline()->Append( 30000, 30000, 0, 0 );
+        zone->Outline()->Append( 70000, 30000, 0, 0 );
+        zone->Outline()->Append( 70000, 70000, 0, 0 );
+        zone->Outline()->Append( 30000, 70000, 0, 0 );
+        return zone;
+    }
+
     PCB_SHAPE* makeEdgeSegment( const VECTOR2I& aStart, const VECTOR2I& aEnd )
     {
         PCB_SHAPE* segment = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
@@ -114,6 +127,49 @@ BOOST_AUTO_TEST_CASE( InvalidZoneRestoresStagedGeometry )
 
     BOOST_CHECK( !zone->Outline()->IsSelfIntersecting() );
     BOOST_CHECK( validation.Validate() == BLOCK_DRAG_VALIDATION_RESULT::OK );
+}
+
+
+// A zone with a hole has to count as valid at capture time, or the baseline comparison
+// accepts every later state including a broken one
+BOOST_AUTO_TEST_CASE( HoledZoneMovePasses )
+{
+    ZONE* zone = makeHoledZone();
+
+    BLOCK_DRAG_VALIDATION validation( board );
+    validation.CaptureBaseline( { zone } );
+
+    zone->Outline()->Move( VECTOR2I( 5000, 5000 ) );
+
+    BOOST_CHECK( validation.Validate() == BLOCK_DRAG_VALIDATION_RESULT::OK );
+}
+
+
+BOOST_AUTO_TEST_CASE( OutlineDraggedAcrossItsHoleRejects )
+{
+    ZONE* zone = makeHoledZone();
+
+    BLOCK_DRAG_VALIDATION validation( board );
+    validation.CaptureBaseline( { zone } );
+
+    // Pull the far corner of the outline into the middle of the hole
+    zone->Outline()->Outline( 0 ).SetPoint( 2, VECTOR2I( 40000, 40000 ) );
+
+    BOOST_CHECK( validation.Validate() == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE );
+}
+
+
+BOOST_AUTO_TEST_CASE( HoleDraggedOutOfItsOutlineRejects )
+{
+    ZONE* zone = makeHoledZone();
+
+    BLOCK_DRAG_VALIDATION validation( board );
+    validation.CaptureBaseline( { zone } );
+
+    // Clear of the outline altogether, so nothing crosses and only containment catches it
+    zone->Outline()->Hole( 0, 0 ).Move( VECTOR2I( 200000, 0 ) );
+
+    BOOST_CHECK( validation.Validate() == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE );
 }
 
 
