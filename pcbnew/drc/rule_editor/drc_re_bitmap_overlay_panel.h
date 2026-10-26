@@ -22,6 +22,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <wx/bitmap.h>
@@ -167,7 +168,7 @@ private:
 
     void drawBitmap( wxDC& aDC );
 
-    int  roomBeforeNextField( const DRC_RE_OVERLAY_FIELD* aField ) const;
+    std::optional<int> roomBeforeNextField( const DRC_RE_OVERLAY_FIELD* aField ) const;
     void OnFieldFocus( wxFocusEvent& aEvent );
     void OnFieldBlur( wxFocusEvent& aEvent );
 

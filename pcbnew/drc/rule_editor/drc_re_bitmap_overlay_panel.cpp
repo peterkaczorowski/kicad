@@ -30,6 +30,7 @@
 #include <wx/dcbuffer.h>
 #include <wx/dcclient.h>
 #include <wx/stattext.h>
+#include <wx/textctrl.h>
 
 
 /// Space between a field and the label beside it, in DIP. The positioning code places labels at
@@ -186,15 +187,23 @@ void DRC_RE_BITMAP_OVERLAY_PANEL::PositionFields()
 
         int heightLogical = ctrl->GetBestSize().GetHeight();
 
-        // The slots were drawn for millimetre values. Inch values need more room, so a field
-        // grows up to where its neighbour on the same line begins.
-        int widthLogical = std::max( FromDIP( pos.xEnd - pos.xStart ), FromDIP( 96 ) );
-        int roomLogical = roomBeforeNextField( field.get() );
+        // The slots were drawn for millimetre values. Give a longer one the room its text
+        // needs, up to where the next field on the line begins.
+        int slotLogical = FromDIP( pos.xEnd - pos.xStart );
+        int widthLogical = slotLogical;
 
-        if( roomLogical > 0 )
-            widthLogical = std::min( widthLogical, roomLogical );
+        if( wxTextCtrl* text = dynamic_cast<wxTextCtrl*>( ctrl ) )
+        {
+            int textWidth = 0;
+            int textHeight = 0;
 
-        widthLogical = std::max( widthLogical, FromDIP( pos.xEnd - pos.xStart ) );
+            text->GetTextExtent( text->GetValue(), &textWidth, &textHeight );
+            widthLogical = std::max( widthLogical, textWidth + FromDIP( 24 ) );
+        }
+        // Where there is a neighbour the field stops short of it, and it never goes below the
+        // slot the drawing was made for, however little room the neighbour leaves.
+        if( std::optional<int> roomLogical = roomBeforeNextField( field.get() ) )
+            widthLogical = std::min( widthLogical, std::max( *roomLogical, slotLogical ) );
 
         int xLogical = FromDIP( pos.xStart );
         int yLogical = FromDIP( pos.yCenter ) - heightLogical / 2;
@@ -235,10 +244,10 @@ void DRC_RE_BITMAP_OVERLAY_PANEL::PositionFields()
 }
 
 
-int DRC_RE_BITMAP_OVERLAY_PANEL::roomBeforeNextField( const DRC_RE_OVERLAY_FIELD* aField ) const
+std::optional<int> DRC_RE_BITMAP_OVERLAY_PANEL::roomBeforeNextField( const DRC_RE_OVERLAY_FIELD* aField ) const
 {
     const DRC_RE_FIELD_POSITION& pos = aField->GetPosition();
-    int                          room = 0;
+    std::optional<int>           room;
 
     // Leave room for what is drawn between the two fields: this field's unit label and the
     // next field's prefix.
@@ -259,7 +268,7 @@ int DRC_RE_BITMAP_OVERLAY_PANEL::roomBeforeNextField( const DRC_RE_OVERLAY_FIELD
         if( other->HasPrefixLabel() )
             limit -= other->GetPrefixLabel()->GetBestSize().GetWidth() + FromDIP( LABEL_GAP );
 
-        if( room == 0 || limit < room )
+        if( !room || limit < *room )
             room = limit;
     }
 
