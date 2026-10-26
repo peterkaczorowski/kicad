@@ -336,6 +336,11 @@ public:
         aPoints.AddPoint( VECTOR2I( botRight.x - aRectangle.GetCornerRadius(), topLeft.y ) );
         aPoints.Point( RECT_RADIUS ).SetDrawCircle();
 
+        // Neither is a corner the caller can place. The centre moves the whole rectangle and
+        // the radius rounds it, both read from the shape as it stands
+        aPoints.Point( RECT_CENTER ).SetDrivesWholeShape();
+        aPoints.Point( RECT_RADIUS ).SetDrivesWholeShape();
+
         aPoints.AddLine( aPoints.Point( RECT_TOP_LEFT ), aPoints.Point( RECT_TOP_RIGHT ) );
         aPoints.Line( RECT_TOP ).SetRelation(
                 EDIT_RELATION::PerpendicularTranslation( aPoints.Line( RECT_TOP ) ) );

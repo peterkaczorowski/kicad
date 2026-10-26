@@ -154,6 +154,33 @@ BOOST_AUTO_TEST_CASE( EdgeHandleIsOnlyPickableOnAnOutline )
 }
 
 
+// A handle that rebuilds the whole shape reads the shape as the other picked handles have
+// already left it, so two rebuilds in one frame compound. This covers the rule alone, with the
+// flag set by hand, because the rectangle behaviour that sets it lives inside the point editor
+// and cannot be built here. EllipseCentreIsMarkedAndRefused below covers a real behaviour
+// setting it.
+BOOST_AUTO_TEST_CASE( HandleThatDrivesTheWholeShapeIsNotPickable )
+{
+    BOARD board;
+
+    PCB_SHAPE* rect = new PCB_SHAPE( &board, SHAPE_T::RECTANGLE );
+    board.Add( rect );
+
+    std::shared_ptr<EDIT_POINTS> points = makeCollection( rect );
+
+    BOOST_REQUIRE( BlockDragCapability( *rect ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+    BOOST_REQUIRE( BlockDragHandlePickable( *points, points->Point( 1 ) ) );
+
+    points->Point( 1 ).SetDrivesWholeShape();
+
+    BOOST_CHECK( !BlockDragHandlePickable( *points, points->Point( 1 ) ) );
+
+    // The handles beside it are untouched
+    BOOST_CHECK( BlockDragHandlePickable( *points, points->Point( 0 ) ) );
+    BOOST_CHECK( BlockDragHandlePickable( *points, points->Point( 2 ) ) );
+}
+
+
 BOOST_AUTO_TEST_CASE( ConstrainedParentIsPickable )
 {
     BOARD board;

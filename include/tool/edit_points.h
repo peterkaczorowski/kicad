@@ -54,6 +54,7 @@ public:
             m_isSelected( false ),
             m_isDependent( false ),
             m_drawCircle( false ),
+            m_drivesWholeShape( false ),
             m_gridConstraint( SNAP_TO_GRID ),
             m_snapConstraint( OBJECT_LAYERS ),
             m_connected( aConnected )
@@ -176,6 +177,11 @@ public:
     bool DrawCircle() const { return m_drawCircle; }
     void SetDrawCircle( bool aDrawCircle = true ) { m_drawCircle = aDrawCircle; }
 
+    /// Whether dragging this handle rebuilds the whole shape instead of placing one of its
+    /// points, the way a rectangle's centre moves it and its radius handle rounds it.
+    bool DrivesWholeShape() const { return m_drivesWholeShape; }
+    void SetDrivesWholeShape( bool aDrives = true ) { m_drivesWholeShape = aDrives; }
+
     GRID_CONSTRAINT_TYPE GetGridConstraint() const { return m_gridConstraint; }
     void SetGridConstraint( GRID_CONSTRAINT_TYPE aConstraint ) { m_gridConstraint = aConstraint; }
 
@@ -205,6 +211,7 @@ private:
     bool                 m_isSelected;      ///< True if the user has picked this point.
     bool                 m_isDependent;     ///< True if this point follows a point the user picked.
     bool                 m_drawCircle;      ///< True if the point is drawn circular.
+    bool                 m_drivesWholeShape; ///< True if dragging it rebuilds the whole shape.
     GRID_CONSTRAINT_TYPE m_gridConstraint;  ///< Describe the grid snapping behavior.
     SNAP_CONSTRAINT_TYPE m_snapConstraint;  ///< Describe the object snapping behavior.
 

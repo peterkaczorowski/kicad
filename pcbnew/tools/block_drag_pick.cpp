@@ -39,6 +39,12 @@ bool BlockDragHandlePickable( const EDIT_POINTS& aCollection, const EDIT_POINT& 
     if( BlockDragCapability( item ) != BLOCK_DRAG_CAPABILITY::DEFORMABLE )
         return false;
 
+    // A block drag displaces the handles it picked and then asks the behavior to rebuild the
+    // item once per handle. A handle that rebuilds the whole shape reads the shape as the
+    // other handles have already left it, so picking both compounds
+    if( aPoint.DrivesWholeShape() )
+        return false;
+
     if( dynamic_cast<const EDIT_LINE*>( &aPoint ) )
     {
         if( item.Type() == PCB_ZONE_T || dynamic_cast<const PCB_GENERATOR_POLY*>( &item ) )
