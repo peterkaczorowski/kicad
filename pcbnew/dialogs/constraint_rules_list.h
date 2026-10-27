@@ -24,14 +24,11 @@
 #include <memory>
 #include <utility>
 #include <vector>
-#include <wx/panel.h>
 
 #include <drc/rule_editor/drc_rule_editor_enums.h>
 
-class wxButton;
-class wxBoxSizer;
-class wxListCtrl;
-class wxStaticText;
+#include "constraint_rules_list_base.h"
+
 class BOARD;
 class DRC_RE_BASE_CONSTRAINT_DATA;
 class DRC_RULE_DOCUMENT;
@@ -45,7 +42,7 @@ struct DRC_RE_LOADED_PANEL_ENTRY;
  *
  * Edits go to the shared DRC_RULE_DOCUMENT. Nothing is written to disk here.
  */
-class CONSTRAINT_RULES_LIST : public wxPanel
+class CONSTRAINT_RULES_LIST : public CONSTRAINT_RULES_LIST_BASE
 {
 public:
     CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument,
@@ -123,17 +120,6 @@ private:
     wxWindow*                                       m_titleWindow;
     std::vector<std::pair<wxString, wxStaticText*>> m_defaults;
 
-    wxListCtrl*   m_list;
-    wxStaticText* m_emptyLabel;
-    wxButton*     m_primaryBtn;
-    wxButton*     m_newBtn;
-    wxButton*     m_upBtn;
-    wxButton*     m_downBtn;
-    wxButton*     m_duplicateBtn;
-    wxButton*     m_removeBtn;
-
-    wxPanel*                                     m_editorHost;
-    wxBoxSizer*                                  m_editorSizer;
     PANEL_DRC_RULE_EDITOR*                       m_editor;
     std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> m_editingData;
     DRC_RULE_EDITOR_CONSTRAINT_NAME              m_editingType;

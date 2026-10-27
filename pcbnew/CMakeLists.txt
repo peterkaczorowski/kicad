@@ -229,6 +229,7 @@ set( PCBNEW_DIALOGS
     dialogs/panel_setup_constraints_base.cpp
     dialogs/panel_setup_constraint_rules.cpp
     dialogs/constraint_rules_list.cpp
+    dialogs/constraint_rules_list_base.cpp
     dialogs/panel_setup_defaults.cpp
     dialogs/panel_setup_defaults_base.cpp
     dialogs/panel_setup_dimensions.cpp
