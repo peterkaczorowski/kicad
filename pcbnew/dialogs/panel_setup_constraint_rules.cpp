@@ -39,6 +39,33 @@
 #include "constraint_rules_list.h"
 
 
+/**
+ * The classes that set their own value through aValue, grouped so classes sharing a value read
+ * as one entry.
+ */
+static std::map<int, std::vector<wxString>>
+groupByValue( const std::function<std::optional<int>( const NETCLASS& )>& aValue, const NET_SETTINGS& aNetSettings )
+{
+    std::map<int, std::vector<wxString>> byValue;
+
+    auto collect = [&]( const std::shared_ptr<NETCLASS>& aNetclass )
+    {
+        if( !aNetclass )
+            return;
+
+        if( std::optional<int> value = aValue( *aNetclass ) )
+            byValue[*value].push_back( aNetclass->GetName() );
+    };
+
+    collect( aNetSettings.GetDefaultNetclass() );
+
+    for( const auto& [name, netclass] : aNetSettings.GetNetclasses() )
+        collect( netclass );
+
+    return byValue;
+}
+
+
 PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, PCB_EDIT_FRAME* aFrame,
                                                             DRC_RULE_DOCUMENT*        aDocument,
                                                             const CONSTRAINT_SECTION& aSection ) :
@@ -202,22 +229,7 @@ void PANEL_SETUP_CONSTRAINT_RULES::updateNetclassLabels()
     {
         std::shared_ptr<NET_SETTINGS>& netSettings = m_frame->Prj().GetProjectFile().NetSettings();
 
-        // List classes that share a value together, so the common case reads as one entry.
-        std::map<int, std::vector<wxString>> byValue;
-
-        auto collect = [&]( const std::shared_ptr<NETCLASS>& aNetclass )
-        {
-            if( !aNetclass )
-                return;
-
-            if( std::optional<int> value = m_section.netclassValue( *aNetclass ) )
-                byValue[*value].push_back( aNetclass->GetName() );
-        };
-
-        collect( netSettings->GetDefaultNetclass() );
-
-        for( const auto& [name, netclass] : netSettings->GetNetclasses() )
-            collect( netclass );
+        std::map<int, std::vector<wxString>> byValue = groupByValue( m_section.netclassValue, *netSettings );
 
         wxString text;
         wxString fullText;
@@ -360,34 +372,52 @@ void PANEL_SETUP_CONSTRAINT_RULES::ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aTy
 }
 
 
-bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType,
-                                                     wxString* aPage )
+std::optional<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::sectionForSetting( const wxString& aSetting )
 {
     for( FAMILY family : { FAMILY::CLEARANCE, FAMILY::TRACKS_AND_VIAS, FAMILY::HOLES, FAMILY::SILKSCREEN,
                            FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINTS } )
     {
-        for( const CONSTRAINT_SECTION& section : SectionsFor( family ) )
+        for( CONSTRAINT_SECTION& section : SectionsFor( family ) )
         {
-            if( !section.ruleType )
-                continue;
-
             for( const CONSTRAINT_DEFAULT_FIELD& field : section.defaults )
             {
-                if( field.settingName != aSetting )
-                    continue;
-
-                if( aType )
-                    *aType = *section.ruleType;
-
-                if( aPage )
-                    *aPage = section.title;
-
-                return true;
+                if( field.settingName == aSetting )
+                    return std::move( section );
             }
         }
     }
 
-    return false;
+    return std::nullopt;
+}
+
+
+std::map<int, std::vector<wxString>> PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( const wxString&     aSetting,
+                                                                                      const NET_SETTINGS& aNetSettings )
+{
+    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
+
+    if( !section || !section->netclassValue )
+        return {};
+
+    return groupByValue( section->netclassValue, aNetSettings );
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType,
+                                                     wxString* aPage )
+{
+    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
+
+    if( !section || !section->ruleType )
+        return false;
+
+    if( aType )
+        *aType = *section->ruleType;
+
+    if( aPage )
+        *aPage = section->title;
+
+    return true;
 }
 
 

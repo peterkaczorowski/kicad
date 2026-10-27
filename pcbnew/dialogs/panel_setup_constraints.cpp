@@ -39,6 +39,10 @@
 #include <wx/settings.h>
 #include <bitmaps.h>
 #include <advanced_config.h>
+#include <netclass.h>
+#include <project.h>
+#include <project/net_settings.h>
+#include <project/project_file.h>
 
 
 namespace
@@ -60,9 +64,6 @@ public:
         m_panel = new wxPanel( this, wxID_ANY );
         m_panel->SetBackgroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOW ) );
 
-        wxStaticText* heading = new wxStaticText( m_panel, wxID_ANY, _( "Rules overriding this constraint" ) );
-        heading->SetFont( heading->GetFont().Bold() );
-
         m_scrolled = new wxScrolledWindow( m_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL );
         m_scrolled->SetScrollRate( 0, 10 );
         m_scrolled->SetBackgroundColour( m_panel->GetBackgroundColour() );
@@ -71,9 +72,21 @@ public:
         m_scrolled->SetSizer( m_rows );
 
         m_outer = new wxBoxSizer( wxVERTICAL );
-        m_outer->Add( heading, 0, wxLEFT | wxRIGHT | wxTOP, FromDIP( 8 ) );
         m_outer->Add( m_scrolled, 1, wxEXPAND | wxALL, FromDIP( 8 ) );
         m_panel->SetSizer( m_outer );
+    }
+
+    void AddHeading( const wxString& aText )
+    {
+        wxStaticText* heading = new wxStaticText( m_scrolled, wxID_ANY, aText );
+
+        heading->SetFont( heading->GetFont().Bold() );
+        m_rows->Add( heading, 0, wxTOP, m_rows->GetItemCount() ? FromDIP( 10 ) : 0 );
+    }
+
+    void AddLine( const wxString& aText )
+    {
+        m_rows->Add( new wxStaticText( m_scrolled, wxID_ANY, aText ), 0, wxTOP, FromDIP( 3 ) );
     }
 
     void AddRule( const wxString& aName, const wxString& aDetail, std::function<void()> aOpen )
@@ -381,16 +394,23 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
 
         const std::vector<int> indices = m_document->IndicesFor( type );
 
-        if( indices.empty() )
+        if( !indices.empty() )
+        {
+            field.m_Override->SetWarning(
+                    wxString::Format( wxPLURAL( "%zu rule overrides this. Click to see it.",
+                                                "%zu rules override this. Click to see them.", indices.size() ),
+                                      indices.size() ) );
+        }
+        else if( !PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( field.m_Setting,
+                                                                   *m_Frame->Prj().GetProjectFile().NetSettings() )
+                          .empty() )
+        {
+            field.m_Override->SetWarning( _( "Net classes set their own value for this. Click to see them." ) );
+        }
+        else
         {
             field.m_Override->SetWarning( wxEmptyString );
-            continue;
         }
-
-        field.m_Override->SetWarning(
-                wxString::Format( wxPLURAL( "%zu rule overrides this. Click to see it.",
-                                            "%zu rules override this. Click to see them.", indices.size() ),
-                                  indices.size() ) );
     }
 }
 
@@ -403,12 +423,17 @@ void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxW
     if( !m_document || !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &type, &page ) )
         return;
 
-    const std::vector<int> indices = m_document->IndicesFor( type );
+    const std::vector<int>                     indices = m_document->IndicesFor( type );
+    const std::map<int, std::vector<wxString>> netclasses =
+            PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( aSetting, *m_Frame->Prj().GetProjectFile().NetSettings() );
 
-    if( indices.empty() )
+    if( indices.empty() && netclasses.empty() )
         return;
 
     OVERRIDING_RULES_POPUP* popup = new OVERRIDING_RULES_POPUP( this );
+
+    if( !indices.empty() )
+        popup->AddHeading( _( "Overridden by user rules" ) );
 
     for( int index : indices )
     {
@@ -430,6 +455,24 @@ void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxW
                         {
                             openRuleInEditor( this, page, type, index );
                         } );
+    }
+
+    // A net class sets its own value rather than displacing the board one, which stays the
+    // minimum, so these are listed apart from the rules and without links to a page that edits
+    // them here.
+    if( !netclasses.empty() )
+    {
+        popup->AddHeading( _( "Net class values" ) );
+
+        for( const auto& [value, names] : netclasses )
+        {
+            wxString classes;
+
+            for( const wxString& name : names )
+                classes << ( classes.IsEmpty() ? wxS( "" ) : wxS( ", " ) ) << name;
+
+            popup->AddLine( wxString::Format( wxS( "%s: %s" ), m_Frame->StringFromValue( value, true ), classes ) );
+        }
     }
 
     popup->PopupUnder( aAnchor );
