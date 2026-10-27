@@ -3289,7 +3289,15 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     continue;
 
                 if( EDIT_POINT* moved = key.Resolve( *targetPoints ) )
+                {
                     behavior->UpdateItem( *moved, *targetPoints, commit, aUpdated );
+
+                    // A polygon rebuilds its whole outline from the point list, so it has just
+                    // taken every picked handle with it. Calling it again per handle repeats
+                    // the same work, which is quadratic in the number of points picked
+                    if( behavior->UpdateItemAppliesAllPoints() )
+                        break;
+                }
             }
         }
 
