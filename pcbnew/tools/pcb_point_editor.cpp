@@ -3052,6 +3052,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     bool                                                       inBlockDrag = false;
     bool                                                       blockKeyboardDrag = false;
     bool                                                       blockPressConsumed = false;
+    bool                                                       blockRefused = false;
     bool                                                       blockRevertRestarts = false;
     bool                                                       blockRouterActive = false;
     std::map<PCB_HANDLE_KEY, VECTOR2I>                         blockOrigins;
@@ -3438,6 +3439,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         auto refuse = [&]( const wxString& aMessage ) -> bool
         {
             frame()->ShowInfoBarError( aMessage );
+            blockRefused = true;
 
             // Only a mouse press has the rest of a button press left to ignore. A
             // keyboard start sets no flag here, so a refusal cannot eat the next click
@@ -4223,12 +4225,19 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             if( inDrag || inBlockDrag )
                 continue;
 
+            blockRefused = false;
+
             if( blockAnchorEditingEnabled() && beginBlockDrag( getViewControls()->GetCursorPosition( false ), false ) )
             {
                 // Handled here, so the loop's catch-all does not pass it on as well
                 blockKeyboardDrag = true;
                 continue;
             }
+
+            // The gesture already said why it refused, so keep the key here. Passed on, the
+            // edit tool would replace that message with one of its own
+            if( blockRefused )
+                continue;
 
             evt->SetPassEvent();
         }
