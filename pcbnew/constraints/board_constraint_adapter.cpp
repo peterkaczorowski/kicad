@@ -649,6 +649,7 @@ bool BOARD_CONSTRAINT_ADAPTER::Build( const std::vector<PCB_SHAPE*>&          aS
     m_rigidFootprints.clear();
     m_rigidMembers.clear();
     m_tagToConstraint.clear();
+    m_droppedTags.clear();
     m_nonDrivingTags.clear();
     m_tagMembers.clear();
     m_referenceConstraints.clear();
@@ -2370,19 +2371,47 @@ bool BOARD_CONSTRAINT_ADAPTER::hardRelationsSatisfied() const
     if( std::isfinite( structuralErr ) && std::abs( structuralErr ) > residualTol )
         return false;
 
+    return staleRelationTags().empty();
+}
+
+
+std::vector<int> BOARD_CONSTRAINT_ADAPTER::staleRelationTags() const
+{
+    const double     residualTol = 1e-3;
+    std::vector<int> stale;
+
     for( const auto& [tag, kiid] : m_tagToConstraint )
     {
         // A reference non-driving constraint only measures so its residual is never a failure
-        if( m_nonDrivingTags.contains( tag ) )
+        if( m_nonDrivingTags.contains( tag ) || m_droppedTags.contains( tag ) )
             continue;
 
         double err = m_gcs->calculateConstraintErrorByTag( tag );
 
         if( !std::isfinite( err ) || std::abs( err ) > residualTol )
-            return false;
+            stale.push_back( tag );
     }
 
-    return true;
+    return stale;
+}
+
+
+int BOARD_CONSTRAINT_ADAPTER::DropStaleRelations()
+{
+    const std::vector<int> stale = staleRelationTags();
+
+    for( int tag : stale )
+    {
+        m_gcs->clearByTag( tag );
+
+        // The mapping stays so Diagnose() can still attribute the relation to its constraint
+        m_droppedTags.insert( tag );
+    }
+
+    if( !stale.empty() )
+        m_gcs->initSolution();
+
+    return (int) stale.size();
 }
 
 
@@ -3422,7 +3451,16 @@ bool BOARD_CONSTRAINT_BLOCK_SESSION::Build( BOARD* aBoard, const std::vector<PCB
     if( sessionShapes.empty() )
         return false;
 
-    return buildCluster( aBoard, sessionShapes, sessionConstraints );
+    if( !buildCluster( aBoard, sessionShapes, sessionConstraints ) )
+        return false;
+
+    // One constraint that the geometry already fails marks the whole cluster conflicted, and a
+    // conflicted cluster is solved not at all, so the constraints that do hold are dropped with
+    // it. Take the stale ones out instead and keep enforcing the rest
+    if( m_baseConflict && m_adapter->DropStaleRelations() > 0 )
+        m_baseConflict = !m_adapter->CurrentRelationsSatisfied();
+
+    return true;
 }
 
 

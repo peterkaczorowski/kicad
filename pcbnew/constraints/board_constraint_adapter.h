@@ -252,6 +252,15 @@ public:
     bool QuantizedRelationsSatisfied();
     bool CurrentRelationsSatisfied() const { return hardRelationsSatisfied(); }
 
+    /**
+     * Remove the constraints the current geometry already fails to satisfy.
+     *
+     * A constraint that does not hold at the baseline records no live intent, and leaving it
+     * in the system makes the whole cluster count as conflicted, which switches off the
+     * constraints beside it that do hold. Returns how many were removed.
+     */
+    int DropStaleRelations();
+
 private:
     enum class SHAPE_KIND
     {
@@ -401,6 +410,9 @@ private:
     bool solveSucceeded( int aSolveResult );
     bool hardRelationsSatisfied() const;
 
+    /// Driving constraint tags whose residual is already out of tolerance, ignoring dropped ones.
+    std::vector<int> staleRelationTags() const;
+
     /// Indices into m_params of the coordinates an anchor maps to invalid if the shape has no
     /// such anchor for example a circle has no endpoints
     ANCHOR_PARAMS anchorParams( const CONSTRAINT_MEMBER& aMember ) const;
@@ -430,6 +442,7 @@ private:
     /// or a driving constant, which a block edit may not command to a new place.
     std::set<int>                    m_groundedPositionParams;
     std::map<int, KIID>              m_tagToConstraint;
+    std::set<int>                    m_droppedTags;          ///< Stale relations taken out of the system.
     std::set<int>                    m_nonDrivingTags;       ///< Measurement-only; excluded from conflict residuals.
     std::map<int, std::vector<KIID>> m_tagMembers;           ///< Member items per tag, for collapse attribution.
     std::vector<PCB_CONSTRAINT*>     m_referenceConstraints; ///< Non-driving valued, read back after a solve.

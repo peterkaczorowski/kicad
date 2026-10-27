@@ -112,6 +112,14 @@ struct DRAG_FIXTURE
         return poly;
     }
 
+    PCB_CONSTRAINT* addHorizontal( PCB_SHAPE* aShape )
+    {
+        PCB_CONSTRAINT* c = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::HORIZONTAL );
+        c->AddMember( aShape->m_Uuid, CONSTRAINT_ANCHOR::WHOLE );
+        board.Add( c );
+        return c;
+    }
+
     PCB_CONSTRAINT* addFixedPosition( PCB_SHAPE* aShape, CONSTRAINT_ANCHOR aAnchor )
     {
         PCB_CONSTRAINT* c = new PCB_CONSTRAINT( &board, PCB_CONSTRAINT_TYPE::FIXED_POSITION );
@@ -1619,6 +1627,78 @@ BOOST_FIXTURE_TEST_CASE( BlockEditRefusesCarryingAFixedPoint, DRAG_FIXTURE )
 }
 
 
+// One relation the geometry already fails used to mark the whole cluster conflicted, and a
+// conflicted cluster was not solved at all, so the relations beside it stopped holding too.
+// Here the stale horizontal belongs to the second segment and the first one's has to survive.
+BOOST_FIXTURE_TEST_CASE( BlockEditKeepsASatisfiedRelationBesideAStaleOne, DRAG_FIXTURE )
+{
+    PCB_SHAPE* holds = addSegment( { 0, 0 }, { 40 * MM, 0 } );
+    PCB_SHAPE* stale = addSegment( { 40 * MM, 0 }, { 80 * MM, 10 * MM } );
+
+    addCoincident( holds, CONSTRAINT_ANCHOR::END, stale, CONSTRAINT_ANCHOR::START );
+    addHorizontal( holds );
+    addHorizontal( stale ); // not satisfied, the segment rises 10 mm
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { holds, stale } ) );
+    BOOST_REQUIRE( !session.HasBaseConflict() );
+
+    const VECTOR2I target( 40 * MM, 8 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( holds );
+    holds->SetEnd( target );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result =
+            session.Solve( { { CONSTRAINT_MEMBER( holds->m_Uuid, CONSTRAINT_ANCHOR::END ), target } }, {},
+                           VECTOR2I( 0, 8 * MM ), &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               commit.Modify( aItem );
+                           } );
+
+    // The cluster is modelled now rather than skipped
+    BOOST_REQUIRE( result != CONSTRAINT_BLOCK_RESULT::NOT_MODELED );
+
+    // The surviving horizontal held, so the unpicked start came along
+    BOOST_CHECK_EQUAL( holds->GetStart().y, holds->GetEnd().y );
+
+    commit.Revert();
+}
+
+
+// The stale relation is out of the system, so it must not refuse the drag either.
+BOOST_FIXTURE_TEST_CASE( BlockEditDoesNotEnforceAStaleRelation, DRAG_FIXTURE )
+{
+    PCB_SHAPE* stale = addSegment( { 0, 0 }, { 40 * MM, 10 * MM } );
+    addHorizontal( stale );
+
+    BOARD_CONSTRAINT_BLOCK_SESSION session;
+    BOOST_REQUIRE( session.Build( &board, { stale } ) );
+
+    const VECTOR2I target( 40 * MM, 18 * MM );
+    BOARD_COMMIT   commit( tool );
+
+    commit.Modify( stale );
+    stale->SetEnd( target );
+
+    std::vector<PCB_SHAPE*> moved;
+    CONSTRAINT_BLOCK_RESULT result =
+            session.Solve( { { CONSTRAINT_MEMBER( stale->m_Uuid, CONSTRAINT_ANCHOR::END ), target } }, {},
+                           VECTOR2I( 0, 8 * MM ), &moved,
+                           [&]( BOARD_ITEM* aItem )
+                           {
+                               commit.Modify( aItem );
+                           } );
+
+    BOOST_CHECK( result != CONSTRAINT_BLOCK_RESULT::REFUSED );
+    BOOST_CHECK_EQUAL( stale->GetEnd(), target );
+
+    commit.Revert();
+}
+
+
 // A block drag reshapes the shape whose anchor was picked and carries the rest whole, which
 // leaves the joint between them broken until the solver tidies up what the drag left free.
 // Here only the loose end of the reshaped segment can move, and it has to follow the carried one.
@@ -1968,8 +2048,9 @@ BOOST_FIXTURE_TEST_CASE( BlockEditResultDoesNotDependOnThePath, DRAG_FIXTURE )
 }
 
 
-// A cluster whose constraints were already broken is left alone. The block drag did not break
-// it, so the drag neither repairs it nor is refused over it.
+// A relation that was already broken is left alone. The block drag did not break it, so the
+// drag neither repairs it nor is refused over it, and the neighbour it named stays put. The
+// relation is dropped at build time, so the cluster itself is no longer counted as conflicted.
 BOOST_FIXTURE_TEST_CASE( BlockEditLeavesAPreBrokenClusterAlone, DRAG_FIXTURE )
 {
     PCB_SHAPE* carried = addSegment( { 0, 0 }, { 10 * MM, 0 } );
@@ -1978,15 +2059,15 @@ BOOST_FIXTURE_TEST_CASE( BlockEditLeavesAPreBrokenClusterAlone, DRAG_FIXTURE )
 
     BOARD_CONSTRAINT_BLOCK_SESSION session;
     BOOST_REQUIRE( session.Build( &board, { carried } ) );
-    BOOST_REQUIRE( session.HasBaseConflict() );
+    BOOST_REQUIRE( !session.HasBaseConflict() );
 
     const VECTOR2I neighborStart0 = neighbor->GetStart();
 
     std::vector<PCB_SHAPE*> moved;
     CONSTRAINT_BLOCK_RESULT result = session.Solve( {}, { carried->m_Uuid }, VECTOR2I( 3 * MM, 0 ), &moved, {} );
 
-    BOOST_CHECK( result == CONSTRAINT_BLOCK_RESULT::NOT_MODELED );
-    BOOST_CHECK( moved.empty() );
+    BOOST_CHECK( result != CONSTRAINT_BLOCK_RESULT::REFUSED );
+    BOOST_CHECK( std::find( moved.begin(), moved.end(), neighbor ) == moved.end() );
     BOOST_CHECK_EQUAL( neighbor->GetStart(), neighborStart0 );
 }
 
