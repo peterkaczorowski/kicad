@@ -255,9 +255,10 @@ BOOST_AUTO_TEST_CASE( RigidOnlyTypes )
     BOOST_CHECK( BlockDragCapability( *dimension ) == BLOCK_DRAG_CAPABILITY::RIGID );
     BOOST_CHECK( BlockDragCapability( *target ) == BLOCK_DRAG_CAPABILITY::RIGID );
 
-    // A cell travels with the table it belongs to
     BOOST_CHECK( BlockDragCapability( *table ) == BLOCK_DRAG_CAPABILITY::RIGID );
-    BOOST_CHECK( BlockDragCapability( *cell ) == BLOCK_DRAG_CAPABILITY::RIGID );
+
+    // A cell cannot travel on its own, the table owns its rectangle
+    BOOST_CHECK( BlockDragCapability( *cell ) == BLOCK_DRAG_CAPABILITY::UNSUPPORTED );
 }
 
 

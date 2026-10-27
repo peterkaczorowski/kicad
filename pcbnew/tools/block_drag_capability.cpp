@@ -126,11 +126,16 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem )
         return BLOCK_DRAG_CAPABILITY::UNSUPPORTED;
     }
 
+    case PCB_TABLECELL_T:
+        // A cell's rectangle belongs to the table, which lays its cells out. Carrying the cell
+        // on its own takes it out of the table, and the move tool refuses a lone cell for the
+        // same reason, so say so instead
+        return BLOCK_DRAG_CAPABILITY::UNSUPPORTED;
+
     case PCB_TEXT_T:
     case PCB_FIELD_T:
     case PCB_TEXTBOX_T:
     case PCB_TABLE_T:
-    case PCB_TABLECELL_T:
     case PCB_REFERENCE_IMAGE_T:
     case PCB_BARCODE_T:
     case PCB_DIM_ALIGNED_T:
