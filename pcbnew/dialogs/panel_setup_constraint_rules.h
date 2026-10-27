@@ -21,6 +21,7 @@
 #define PANEL_SETUP_CONSTRAINT_RULES_H
 
 #include <functional>
+#include <map>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -35,6 +36,7 @@ class BOARD_DESIGN_SETTINGS;
 class CONSTRAINT_RULES_LIST;
 class DRC_RULE_DOCUMENT;
 class NETCLASS;
+class NET_SETTINGS;
 class PCB_EDIT_FRAME;
 
 
@@ -87,6 +89,13 @@ public:
     static bool RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType, wxString* aPage );
 
     /**
+     * The classes setting their own value for a board constraint, grouped by the value they set.
+     * Empty where no class sets one, or where net classes cannot set this constraint at all.
+     */
+    static std::map<int, std::vector<wxString>> NetclassValuesFor( const wxString&     aSetting,
+                                                                   const NET_SETTINGS& aNetSettings );
+
+    /**
      * Shows the board defaults from another board, but only where the page that owns them is
      * among those being imported. The values on a rule page belong to another page, so they
      * arrive with it rather than with the rules.
@@ -112,6 +121,9 @@ public:
     bool Validate() override { return true; }
 
 private:
+    /// The section whose board defaults include a setting, where one holds it
+    static std::optional<CONSTRAINT_SECTION> sectionForSetting( const wxString& aSetting );
+
     void buildSection();
     void updateNetclassLabels();
     void wrapLabels();
