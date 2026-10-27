@@ -4487,14 +4487,11 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                         if( revertBlockDrag( true ) )
                             break;
                     }
-                    else if( !zonesToFill.empty()
-                             && ( blockRouterActive || !editFrame->GetPcbNewSettings()->m_AutoRefillZones ) )
+                    else if( !zonesToFill.empty() && blockRouterActive
+                             && editFrame->GetPcbNewSettings()->m_AutoRefillZones )
                     {
-                        // Dragging an outline leaves its zone unfilled, so refill the carried zones
-                        // here whenever the automatic refill will miss them. That happens when the
-                        // user has turned it off, and when the router follows this push, because the
-                        // geometry then goes in with the scheduler held back and the router's own
-                        // push only marks what its copper passed near
+                        // Dragging an outline leaves its zone unfilled. The router suppresses the
+                        // automatic refill, so do it here instead. With the refill off, nothing refills
                         BOARD_COMMIT fillCommit( editFrame );
                         ZONE_FILLER  filler( board(), &fillCommit );
 
