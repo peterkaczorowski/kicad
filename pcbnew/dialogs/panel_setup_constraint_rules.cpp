@@ -28,6 +28,7 @@
 #include <project.h>
 #include <project/net_settings.h>
 #include <project/project_file.h>
+#include <confirm.h>
 #include <widgets/paged_dialog.h>
 #include <wx/hyperlink.h>
 #include <widgets/ui_common.h>
@@ -328,6 +329,45 @@ void PANEL_SETUP_CONSTRAINT_RULES::updateDefaultLabels()
     // A note on an open rule quotes the default, so it is rebuilt when the defaults change.
     if( m_list )
         m_list->RefreshOverrideNote();
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::confirmPendingRule()
+{
+    if( !m_list || !m_list->HasPendingRule() )
+        return true;
+
+    KICAD_MESSAGE_DIALOG_BASE dlg( this,
+                                   _( "This rule is still in the form. Only the rules in the "
+                                      "list apply." ),
+                                   _( "Rule Not Added" ),
+                                   wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxICON_WARNING | wxCENTRE );
+
+    dlg.SetYesNoCancelLabels( _( "Add Rule" ), _( "Discard" ), _( "Cancel" ) );
+
+    int choice = dlg.ShowModal();
+
+    if( choice == wxID_YES )
+        return m_list->ApplyPendingRule();
+
+    if( choice == wxID_CANCEL )
+        return false;
+
+    m_list->DiscardPendingRule();
+
+    return true;
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::Validate()
+{
+    return confirmPendingRule();
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataFromWindow()
+{
+    return confirmPendingRule();
 }
 
 
