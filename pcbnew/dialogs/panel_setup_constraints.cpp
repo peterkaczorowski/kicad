@@ -51,6 +51,15 @@ namespace
 /// The height a popup grows to before its list starts scrolling, before DPI scaling
 constexpr int MAX_POPUP_HEIGHT = 360;
 
+/// The width a popup grows to before its lines are shortened to fit, before DPI scaling
+constexpr int MAX_POPUP_WIDTH = 720;
+
+/// The longest rule name shown in full. A hyperlink cannot shorten itself.
+constexpr size_t MAX_NAME_LENGTH = 60;
+
+/// The gap between a rule's name and the constraint it sets, before DPI scaling
+constexpr int NAME_GAP = 8;
+
 
 /**
  * The rules overriding one board constraint, each one a link that opens it in its editor.
@@ -81,18 +90,24 @@ public:
         wxStaticText* heading = new wxStaticText( m_scrolled, wxID_ANY, aText );
 
         heading->SetFont( heading->GetFont().Bold() );
+        m_naturalWidth = std::max( m_naturalWidth, heading->GetTextExtent( aText ).x );
         m_rows->Add( heading, 0, wxTOP, m_rows->GetItemCount() ? FromDIP( 10 ) : 0 );
     }
 
-    void AddLine( const wxString& aText )
-    {
-        m_rows->Add( new wxStaticText( m_scrolled, wxID_ANY, aText ), 0, wxTOP, FromDIP( 3 ) );
-    }
+    void AddLine( const wxString& aText ) { m_rows->Add( shortenable( aText ), 0, wxEXPAND | wxTOP, FromDIP( 3 ) ); }
 
     void AddRule( const wxString& aName, const wxString& aDetail, std::function<void()> aOpen )
     {
-        wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
-        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( m_scrolled, wxID_ANY, aName, wxEmptyString );
+        wxBoxSizer* row = new wxBoxSizer( wxHORIZONTAL );
+        wxString    name = aName;
+
+        if( name.length() > MAX_NAME_LENGTH )
+            name = name.Left( MAX_NAME_LENGTH ) + wxS( "..." );
+
+        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( m_scrolled, wxID_ANY, name, wxEmptyString );
+
+        if( name != aName )
+            link->SetToolTip( aName );
 
         link->Bind( wxEVT_HYPERLINK,
                     [this, aOpen]( wxHyperlinkEvent& )
@@ -102,10 +117,10 @@ public:
                     } );
 
         row->Add( link, 0, wxALIGN_CENTER_VERTICAL );
-        row->Add( new wxStaticText( m_scrolled, wxID_ANY, aDetail ), 0, wxALIGN_CENTER_VERTICAL | wxLEFT,
-                  FromDIP( 8 ) );
+        row->Add( shortenable( aDetail, link->GetBestSize().x + FromDIP( NAME_GAP ) ), 1,
+                  wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP( NAME_GAP ) );
 
-        m_rows->Add( row, 0, wxTOP, FromDIP( 3 ) );
+        m_rows->Add( row, 0, wxEXPAND | wxTOP, FromDIP( 3 ) );
     }
 
     /// Destroyed on dismissal so repeated clicks do not leave hidden popups behind
@@ -113,9 +128,9 @@ public:
 
     void PopupUnder( wxWindow* aAnchor )
     {
-        wxSize content = m_rows->GetMinSize();
-        int    width = content.x;
-        int    height = content.y;
+        int contentHeight = m_rows->GetMinSize().y;
+        int width = std::min( m_naturalWidth, FromDIP( MAX_POPUP_WIDTH ) );
+        int height = contentHeight;
 
         if( height > FromDIP( MAX_POPUP_HEIGHT ) )
         {
@@ -123,21 +138,42 @@ public:
             width += wxSystemSettings::GetMetric( wxSYS_VSCROLL_X, m_scrolled );
         }
 
-        m_scrolled->SetVirtualSize( content );
         m_scrolled->SetMinSize( wxSize( width, height ) );
 
         m_outer->Fit( m_panel );
         SetClientSize( m_panel->GetSize() );
+
+        // Only the list scrolls, and only downwards, so the rows are laid out at the width they
+        // were given and shorten themselves to it.
+        m_scrolled->SetVirtualSize( wxSize( m_scrolled->GetClientSize().x, contentHeight ) );
+        m_scrolled->Layout();
 
         Position( aAnchor->GetScreenPosition(), wxSize( 0, aAnchor->GetSize().y ) );
         Popup();
     }
 
 private:
+    /// A line that shortens itself rather than widening the popup, keeping its text on hover
+    wxStaticText* shortenable( const wxString& aText, int aLeading = 0 )
+    {
+        wxStaticText* line =
+                new wxStaticText( m_scrolled, wxID_ANY, aText, wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END );
+
+        // A line that may shorten reports almost no width of its own, so the width it would like
+        // is remembered here and the popup is sized from that instead.
+        m_naturalWidth = std::max( m_naturalWidth, aLeading + line->GetTextExtent( aText ).x );
+
+        line->SetMinSize( wxSize( 1, -1 ) );
+        line->SetToolTip( aText );
+
+        return line;
+    }
+
     wxPanel*          m_panel;
     wxScrolledWindow* m_scrolled;
     wxBoxSizer*       m_rows;
     wxBoxSizer*       m_outer;
+    int               m_naturalWidth = 0;
 };
 
 
@@ -382,6 +418,8 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
     if( !m_document )
         return;
 
+    const NET_SETTINGS& netSettings = *m_Frame->Prj().GetProjectFile().NetSettings();
+
     for( CONSTRAINT_FIELD& field : m_fields )
     {
         if( !field.m_Override )
@@ -401,9 +439,7 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
                                                 "%zu rules override this. Click to see them.", indices.size() ),
                                       indices.size() ) );
         }
-        else if( !PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( field.m_Setting,
-                                                                   *m_Frame->Prj().GetProjectFile().NetSettings() )
-                          .empty() )
+        else if( !PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( field.m_Setting, netSettings ).empty() )
         {
             field.m_Override->SetWarning( _( "Net classes set their own value for this. Click to see them." ) );
         }
@@ -424,8 +460,9 @@ void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxW
         return;
 
     const std::vector<int>                     indices = m_document->IndicesFor( type );
+    const NET_SETTINGS&                        netSettings = *m_Frame->Prj().GetProjectFile().NetSettings();
     const std::map<int, std::vector<wxString>> netclasses =
-            PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( aSetting, *m_Frame->Prj().GetProjectFile().NetSettings() );
+            PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( aSetting, netSettings );
 
     if( indices.empty() && netclasses.empty() )
         return;
@@ -469,7 +506,12 @@ void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxW
             wxString classes;
 
             for( const wxString& name : names )
-                classes << ( classes.IsEmpty() ? wxS( "" ) : wxS( ", " ) ) << name;
+            {
+                if( !classes.IsEmpty() )
+                    classes << wxS( ", " );
+
+                classes << name;
+            }
 
             popup->AddLine( wxString::Format( wxS( "%s: %s" ), m_Frame->StringFromValue( value, true ), classes ) );
         }
