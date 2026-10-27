@@ -26,6 +26,7 @@
 #include <constraints/pcb_constraint.h>
 #include <geometry/shape_line_chain.h>
 #include <tool/edit_points.h>
+#include <tool/point_editor_behavior.h>
 #include <tools/block_drag_capability.h>
 #include <tools/block_drag_pick.h>
 
@@ -178,6 +179,41 @@ BOOST_AUTO_TEST_CASE( HandleThatDrivesTheWholeShapeIsNotPickable )
     // The handles beside it are untouched
     BOOST_CHECK( BlockDragHandlePickable( *points, points->Point( 0 ) ) );
     BOOST_CHECK( BlockDragHandlePickable( *points, points->Point( 2 ) ) );
+}
+
+
+// The ellipse behaviour marks its centre, so a block drag refuses it while the radius handles
+// stay pickable. This is the real handle set, not a flag set by hand.
+BOOST_AUTO_TEST_CASE( EllipseCentreIsMarkedAndRefused )
+{
+    BOARD board;
+
+    PCB_SHAPE* ellipse = new PCB_SHAPE( &board, SHAPE_T::ELLIPSE );
+    ellipse->SetEllipseCenter( VECTOR2I( 0, 0 ) );
+    ellipse->SetEllipseMajorRadius( 20000000 );
+    ellipse->SetEllipseMinorRadius( 12000000 );
+    board.Add( ellipse );
+
+    EDIT_POINTS                     points( ellipse );
+    EDA_ELLIPSE_POINT_EDIT_BEHAVIOR behavior( *ellipse );
+
+    behavior.MakePoints( points );
+
+    BOOST_REQUIRE_GE( points.PointsSize(), 3u );
+    BOOST_REQUIRE( BlockDragCapability( *ellipse ) == BLOCK_DRAG_CAPABILITY::DEFORMABLE );
+
+    // MakePoints() adds the centre, then the major end, then the minor end
+    const EDIT_POINT& centre = points.Point( 0 );
+    const EDIT_POINT& majorEnd = points.Point( 1 );
+    const EDIT_POINT& minorEnd = points.Point( 2 );
+
+    BOOST_CHECK( centre.DrivesWholeShape() );
+    BOOST_CHECK( !majorEnd.DrivesWholeShape() );
+    BOOST_CHECK( !minorEnd.DrivesWholeShape() );
+
+    BOOST_CHECK( !BlockDragHandlePickable( points, centre ) );
+    BOOST_CHECK( BlockDragHandlePickable( points, majorEnd ) );
+    BOOST_CHECK( BlockDragHandlePickable( points, minorEnd ) );
 }
 
 
