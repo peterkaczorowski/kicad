@@ -4242,8 +4242,9 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         {
             // An edit already running owns D. Passing it on would start the edit tool's own
             // drag of the same selection on top of this one, and that tool refilters the
-            // selection, which ends this gesture through its selection event
-            if( inDrag || inBlockDrag )
+            // selection, which ends this gesture through its selection event. With the
+            // feature off the key is not ours to swallow
+            if( blockAnchorEditingEnabled() && ( inDrag || inBlockDrag ) )
                 continue;
 
             blockRefused = false;
