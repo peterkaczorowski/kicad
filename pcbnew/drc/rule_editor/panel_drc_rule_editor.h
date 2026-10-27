@@ -55,6 +55,12 @@ public:
 
     bool IsModified() const { return m_modified; }
 
+    /// Called once the form's contents have reached the document
+    void ClearModified() { m_modified = false; }
+
+    /// Runs the rule's validators and keeps the outcome, without applying anything
+    bool ValidateRule();
+
     void SetSaveCallback( std::function<void( int aNodeId )> aCallBackSave )
     {
         m_callBackSave = aCallBackSave;

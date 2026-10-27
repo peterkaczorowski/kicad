@@ -390,6 +390,43 @@ void CONSTRAINT_RULES_LIST::onNewRule( wxCommandEvent& aEvent )
 }
 
 
+bool CONSTRAINT_RULES_LIST::HasPendingRule() const
+{
+    return m_editor && m_editor->IsModified();
+}
+
+
+bool CONSTRAINT_RULES_LIST::ApplyPendingRule()
+{
+    if( !HasPendingRule() )
+        return true;
+
+    if( !m_editor->ValidateRule() )
+    {
+        reportError( m_editor->GetValidationMessage() );
+        return false;
+    }
+
+    if( editingIndex() >= 0 )
+        applyRule();
+    else
+        addRule();
+
+    return true;
+}
+
+
+void CONSTRAINT_RULES_LIST::DiscardPendingRule()
+{
+    // Taking the values back from the document is what drops anything typed since, and it leaves
+    // the page showing what the rule actually holds.
+    if( int index = editingIndex(); index >= 0 )
+        showRule( index );
+    else
+        showNewRule();
+}
+
+
 void CONSTRAINT_RULES_LIST::moveSelected( int aDelta )
 {
     int index = selectedIndex();
@@ -643,6 +680,7 @@ void CONSTRAINT_RULES_LIST::addRule()
     entry.wasEdited = true;
     m_document->Add( entry );
     notifyChanged();
+    m_editor->ClearModified();
 }
 
 
@@ -676,6 +714,7 @@ void CONSTRAINT_RULES_LIST::applyRule()
     {
         m_document->UpdateEntry( index, edited );
         notifyChanged();
+        m_editor->ClearModified();
     }
 }
 

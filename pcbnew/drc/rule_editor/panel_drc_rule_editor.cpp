@@ -476,7 +476,7 @@ wxString PANEL_DRC_RULE_EDITOR::GenerateRule( const RULE_GENERATION_CONTEXT& aCo
 }
 
 
-void PANEL_DRC_RULE_EDITOR::onSaveButtonClicked( wxCommandEvent& aEvent )
+bool PANEL_DRC_RULE_EDITOR::ValidateRule()
 {
     m_validationSucceeded = true;
     int errorCount = 0;
@@ -488,6 +488,14 @@ void PANEL_DRC_RULE_EDITOR::onSaveButtonClicked( wxCommandEvent& aEvent )
     {
         m_validationSucceeded = false;
     }
+
+    return m_validationSucceeded;
+}
+
+
+void PANEL_DRC_RULE_EDITOR::onSaveButtonClicked( wxCommandEvent& aEvent )
+{
+    ValidateRule();
 
     if( m_callBackSave )
     {

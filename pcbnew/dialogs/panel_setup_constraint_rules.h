@@ -114,11 +114,18 @@ public:
     bool TransferDataToWindow() override;
 
     /**
+     * Called when the dialog is accepted. A rule left in the form has not reached the document,
+     * so this is the last chance to add it.
+     */
+    bool TransferDataFromWindow() override;
+
+    /**
      * The rule form is always on screen, so its fields are empty until a rule is being written.
      * Their validators must not decide whether the page can be left, which is what the base
-     * class would use them for. The form reports its own errors when it is applied.
+     * class would use them for. The form reports its own errors when it is applied. What this
+     * does check is whether a rule is waiting to be added, since leaving the page would drop it.
      */
-    bool Validate() override { return true; }
+    bool Validate() override;
 
 private:
     /// The section whose board defaults include a setting, where one holds it
@@ -132,6 +139,12 @@ private:
 
     /// The settings page that owns this page's board defaults
     wxString settingsPage() const;
+
+    /**
+     * Offers what to do with a rule the form holds. False while the offer stands, which is what
+     * holds the page until it is answered.
+     */
+    bool confirmPendingRule();
 
     PCB_EDIT_FRAME*        m_frame;
     BOARD_DESIGN_SETTINGS* m_settings;

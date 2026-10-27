@@ -64,6 +64,22 @@ public:
     /// Rebuilds the line saying what the rule being edited displaces
     void RefreshOverrideNote() { showOverrideNote(); }
 
+    /**
+     * True while the form holds typing that has not been added to the list.
+     */
+    bool HasPendingRule() const;
+
+    /**
+     * Adds or updates the rule the form holds. False if it does not validate, with the reason
+     * already reported.
+     */
+    bool ApplyPendingRule();
+
+    /**
+     * Reloads the form from the document, dropping whatever was typed.
+     */
+    void DiscardPendingRule();
+
     /// Selects a rule and opens it in the editor
     void EditRule( int aIndex );
 
