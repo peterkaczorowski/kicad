@@ -276,8 +276,11 @@ public:
 
     /**
      * Return the union of the layer conditions of every rule, implicit ones included, that can
-     * produce a constraint of the given type.  EvalRules() called with a layer outside this set
-     * returns no constraint of that type.
+     * produce a constraint of the given type.  An item whose layers do not intersect this set
+     * gets no constraint of that type from EvalRules() called with one of its layers.
+     * DISALLOW_CONSTRAINT also holds with UNDEFINED_LAYER, because EvalRules() then tests the
+     * item's own layers.  Other UNDEFINED_LAYER callers (e.g. edge clearance) ignore rule
+     * layers and must not filter items with this set.
      */
     LSET GetLayersForConstraintType( DRC_CONSTRAINT_T aConstraintId ) const;
 
