@@ -43,6 +43,7 @@ class POINT_EDIT_BEHAVIOR;
 class RECT_RADIUS_TEXT_ITEM;
 class SHAPE_POLY_SET;
 class BOARD_CONSTRAINT_DRAG_SESSION;
+class BLOCK_DRAG_SESSION;
 
 /**
  * Tool that displays edit points allowing to modify items by dragging the points.
@@ -238,6 +239,10 @@ private:
     std::function<void()> m_blockDragAbort;
 
     static const unsigned int COORDS_PADDING; // Padding from coordinates limits for this tool
+
+    // Runs the block drag gesture. It works on the handle collections, the picked set and
+    // the expanded selection this tool builds, and runs its area picks through its Wait()
+    friend class BLOCK_DRAG_SESSION;
 };
 
 #endif
