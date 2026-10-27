@@ -2452,11 +2452,7 @@ int PCB_POINT_EDITOR::bboxHandleInflation() const
 
 bool PCB_POINT_EDITOR::blockAnchorEditingEnabled() const
 {
-    // Both editors read one setting, the way the footprint editor already reads the
-    // flip direction out of the board editor's settings
-    PCBNEW_SETTINGS* cfg = frame()->GetPcbNewSettings();
-
-    return cfg && cfg->m_AreaAnchorPointSelection;
+    return BlockDragAnchorEditingEnabled( frame() );
 }
 
 

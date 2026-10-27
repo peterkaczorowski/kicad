@@ -23,6 +23,15 @@
 #include <vector>
 
 class BOARD_ITEM;
+class PCB_BASE_FRAME;
+
+/**
+ * Whether the user has turned on editing anchor points on a multi-selection.
+ *
+ * Both editors read the board editor's copy of the setting, the way the footprint editor
+ * already reads the flip direction from there. One reader so the two tools cannot drift.
+ */
+bool BlockDragAnchorEditingEnabled( const PCB_BASE_FRAME* aFrame );
 
 /**
  * How one selected item takes part in a block drag.

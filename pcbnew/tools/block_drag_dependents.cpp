@@ -22,6 +22,7 @@
 #include <base_units.h>
 #include <footprint.h>
 #include <pcb_shape.h>
+#include <constraints/board_constraint_adapter.h>
 
 #include <optional>
 #include <set>
@@ -164,11 +165,8 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
     {
         for( const BLOCK_DRAG_ENDPOINT& dep : aDependents )
         {
-            FOOTPRINT* parent = dep.shape->GetParentFootprint();
-
-            // Same lock test the selected items get. IsLocked on its own misses a
-            // locked parent footprint.
-            if( dep.shape->IsLocked() || ( parent && parent->IsLocked() ) )
+            // The same lock test the selected items get, which also covers a locked parent
+            if( ConstraintItemIsLocked( dep.shape ) )
             {
                 aDependents.clear();
                 return BLOCK_DRAG_DEPENDENT_RESULT::LOCKED;

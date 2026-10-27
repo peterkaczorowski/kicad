@@ -57,6 +57,7 @@ using namespace std::placeholders;
 #include <tools/pcb_point_editor.h>
 #include <tools/constraint_edit_tool.h>
 #include <tools/pcb_selection_tool.h>
+#include <tools/block_drag_capability.h>
 #include <tools/pcb_actions.h>
 #include <tools/board_inspection_tool.h>
 #include <ratsnest/ratsnest_data.h>
@@ -4596,9 +4597,7 @@ void PCB_SELECTION_TOOL::unhighlightInternal( EDA_ITEM* aItem, int aMode, bool a
 
 bool PCB_SELECTION_TOOL::anchorPointEditingEnabled() const
 {
-    PCBNEW_SETTINGS* cfg = m_frame ? m_frame->GetPcbNewSettings() : nullptr;
-
-    return cfg && cfg->m_AreaAnchorPointSelection;
+    return BlockDragAnchorEditingEnabled( m_frame );
 }
 
 

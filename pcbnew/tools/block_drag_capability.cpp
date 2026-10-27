@@ -25,10 +25,23 @@
 
 #include <board.h>
 #include <footprint.h>
+#include <pcb_base_frame.h>
+#include <pcbnew_settings.h>
 #include <pcb_generator.h>
+#include <generators/pcb_tuning_pattern.h>
+#include <generators/pcb_via_stack.h>
+#include <generators/pcb_via_stitch.h>
 #include <pcb_group.h>
 #include <pcb_shape.h>
 #include <constraints/pcb_constraint.h>
+
+
+bool BlockDragAnchorEditingEnabled( const PCB_BASE_FRAME* aFrame )
+{
+    PCBNEW_SETTINGS* cfg = aFrame ? aFrame->GetPcbNewSettings() : nullptr;
+
+    return cfg && cfg->m_AreaAnchorPointSelection;
+}
 
 
 static bool constraintsContain( const CONSTRAINTS& aConstraints, const KIID& aId )
@@ -117,10 +130,10 @@ BLOCK_DRAG_CAPABILITY BlockDragCapability( const BOARD_ITEM& aItem )
         // the drag, so it can be reshaped.
         wxString genType = static_cast<const PCB_GENERATOR&>( aItem ).GetGeneratorType();
 
-        if( genType == wxS( "via_stitch" ) )
+        if( genType == PCB_VIA_STITCH::GENERATOR_TYPE )
             return BLOCK_DRAG_CAPABILITY::DEFORMABLE;
 
-        if( genType == wxS( "tuning_pattern" ) || genType == wxS( "via_stack" ) )
+        if( genType == PCB_TUNING_PATTERN::GENERATOR_TYPE || genType == PCB_VIA_STACK::GENERATOR_TYPE )
             return BLOCK_DRAG_CAPABILITY::RIGID;
 
         return BLOCK_DRAG_CAPABILITY::UNSUPPORTED;
