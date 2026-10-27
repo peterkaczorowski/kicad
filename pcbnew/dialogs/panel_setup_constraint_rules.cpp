@@ -130,6 +130,9 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
             wxStaticText* label = new wxStaticText( parent, wxID_ANY, field.label );
             wxStaticText* value = new wxStaticText( parent, wxID_ANY, wxEmptyString );
 
+            label->SetFont( KIUI::GetInfoFont( this ) );
+            value->SetFont( KIUI::GetInfoFont( this ) );
+
             grid->Add( label, 0, wxALIGN_CENTER_VERTICAL );
             grid->Add( value, 0, wxALIGN_CENTER_VERTICAL );
 
@@ -150,9 +153,12 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
                         showPage( owner );
                     } );
 
+        // The net class row below ellipsizes to keep the dialog narrow, which anchors its link to
+        // the right edge. This link sits there too so the two read as a pair.
         row->Add( grid, 0, wxALIGN_CENTER_VERTICAL );
-        row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 16 );
-        settings->Add( row, 0, wxALL, 5 );
+        row->AddStretchSpacer();
+        row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
+        settings->Add( row, 0, wxEXPAND | wxALL, 5 );
     }
 
     if( m_section.netclassValue )
