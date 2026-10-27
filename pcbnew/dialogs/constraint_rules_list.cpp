@@ -53,7 +53,7 @@
 
 CONSTRAINT_RULES_LIST::CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument,
                                               DRC_RULE_EDITOR_CONSTRAINT_NAME aType, const wxString& aTitle ) :
-        wxPanel( aParent, wxID_ANY ),
+        CONSTRAINT_RULES_LIST_BASE( aParent ),
         m_frame( aFrame ),
         m_document( aDocument ),
         m_type( aType ),
@@ -61,63 +61,21 @@ CONSTRAINT_RULES_LIST::CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME*
         m_titleWindow( nullptr ),
         m_editor( nullptr )
 {
-    wxBoxSizer* mainSizer = new wxBoxSizer( wxVERTICAL );
-
-    m_list = new wxListCtrl( this, wxID_ANY, wxDefaultPosition, wxSize( -1, 140 ), wxLC_REPORT | wxLC_SINGLE_SEL );
     m_list->AppendColumn( wxS( "#" ), wxLIST_FORMAT_RIGHT, 36 );
     m_list->AppendColumn( _( "Name" ), wxLIST_FORMAT_LEFT, 160 );
     m_list->AppendColumn( _( "Condition" ), wxLIST_FORMAT_LEFT, 280 );
     m_list->AppendColumn( _( "Layers" ), wxLIST_FORMAT_LEFT, 120 );
     m_list->AppendColumn( _( "Constraint" ), wxLIST_FORMAT_LEFT, 240 );
-    mainSizer->Add( m_list, 1, wxEXPAND | wxBOTTOM, 4 );
 
-    m_emptyLabel = new wxStaticText( this, wxID_ANY, _( "No rules yet." ) );
     m_emptyLabel->SetFont( KIUI::GetInfoFont( this ).Italic() );
-    mainSizer->Add( m_emptyLabel, 0, wxLEFT | wxBOTTOM, 4 );
-
-    wxBoxSizer* tableButtons = new wxBoxSizer( wxHORIZONTAL );
-    m_upBtn = new wxButton( this, wxID_ANY, _( "Move Up" ) );
-    m_downBtn = new wxButton( this, wxID_ANY, _( "Move Down" ) );
-    m_duplicateBtn = new wxButton( this, wxID_ANY, _( "Duplicate" ) );
-    m_removeBtn = new wxButton( this, wxID_ANY, _( "Remove" ) );
 
     m_upBtn->SetBitmap( KiBitmapBundle( BITMAPS::small_up ) );
     m_downBtn->SetBitmap( KiBitmapBundle( BITMAPS::small_down ) );
     m_duplicateBtn->SetBitmap( KiBitmapBundle( BITMAPS::duplicate ) );
     m_removeBtn->SetBitmap( KiBitmapBundle( BITMAPS::small_trash ) );
-
-    m_upBtn->SetToolTip( _( "Move the selected rule one place earlier. Rules are read from top to bottom "
-                            "and the last one that matches decides the value, so a rule lower down wins." ) );
-    m_downBtn->SetToolTip( _( "Move the selected rule one place later. Rules are read from top to bottom "
-                              "and the last one that matches decides the value, so a rule lower down wins." ) );
-    m_duplicateBtn->SetToolTip( _( "Copy the selected rule and place the copy after it." ) );
-    m_removeBtn->SetToolTip( _( "Delete the selected rule." ) );
-    m_list->SetToolTip( _( "The rules for this constraint, in the order they are read. Select one to load "
-                           "it into the form below." ) );
-    tableButtons->Add( m_upBtn, 0, wxRIGHT, 4 );
-    tableButtons->Add( m_downBtn, 0, wxRIGHT, 4 );
-    tableButtons->Add( m_duplicateBtn, 0, wxRIGHT, 4 );
-    tableButtons->Add( m_removeBtn, 0, wxRIGHT, 4 );
-    mainSizer->Add( tableButtons, 0, wxBOTTOM, 4 );
-
-    m_editorHost = new wxPanel( this, wxID_ANY );
-    m_editorSizer = new wxBoxSizer( wxVERTICAL );
-    m_editorHost->SetSizer( m_editorSizer );
-    mainSizer->Add( m_editorHost, 0, wxEXPAND | wxTOP, 8 );
-
-    wxBoxSizer* formButtons = new wxBoxSizer( wxHORIZONTAL );
-    m_primaryBtn = new wxButton( this, wxID_ANY, _( "Add Rule" ) );
-    m_newBtn = new wxButton( this, wxID_ANY, _( "New Rule" ) );
-
     m_primaryBtn->SetBitmap( KiBitmapBundle( BITMAPS::small_plus ) );
-    m_primaryBtn->SetMinSize( wxSize( m_primaryBtn->GetBestSize().x + FromDIP( 16 ), -1 ) );
-    m_newBtn->SetToolTip( _( "Empty the form so another rule can be written. Anything typed and not "
-                             "added is discarded." ) );
-    formButtons->Add( m_primaryBtn, 0, wxRIGHT, 4 );
-    formButtons->Add( m_newBtn, 0, wxRIGHT, 4 );
-    mainSizer->Add( formButtons, 0, wxTOP | wxBOTTOM, 6 );
 
-    SetSizer( mainSizer );
+    m_primaryBtn->SetMinSize( wxSize( m_primaryBtn->GetBestSize().x + FromDIP( 16 ), -1 ) );
 
     m_primaryBtn->Bind( wxEVT_BUTTON, &CONSTRAINT_RULES_LIST::onPrimary, this );
     m_newBtn->Bind( wxEVT_BUTTON, &CONSTRAINT_RULES_LIST::onNewRule, this );
