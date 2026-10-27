@@ -2861,6 +2861,15 @@ static void blockDragAppendConstraintCoMembers( BOARD* aBoard, std::vector<BOARD
 }
 
 
+/// The release refuses a DRC violation unless the user forces it, and says so the same way
+/// wherever it is refused
+static wxString blockDragDrcRefusal()
+{
+    return wxString::Format( _( "The move violates DRC. (%s to commit anyway.)" ),
+                             KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) );
+}
+
+
 /**
  * The block drag gesture, with the state it holds while it runs.
  *
@@ -2955,8 +2964,16 @@ private:
     /// End the gesture and rebuild the handles.
     void endDrag( bool aKeepPicks );
 
+    /// Say why the release was refused and put the board back, keeping the picks so the user can
+    /// try again from the same handles. True when the editor has to leave its loop.
+    bool refuseRelease( const wxString& aMessage );
+
     /// Band colour for the area picks, kept clear of the canvas colour.
     KIGFX::COLOR4D bandColor() const;
+
+    /// Put the pick band on the view and take the cursor for it, and take it off again.
+    void showBand( HANDLE_PICK_AREA& aArea );
+    void hideBand( HANDLE_PICK_AREA& aArea );
 
     /// Pick handles with a lasso, the way the object lasso works. True when the band ended on an
     /// event the editor's loop has to handle itself.
@@ -3989,20 +4006,35 @@ KIGFX::COLOR4D BLOCK_DRAG_SESSION::bandColor() const
 }
 
 
-bool BLOCK_DRAG_SESSION::runLasso( const TOOL_EVENT& aEvent )
+void BLOCK_DRAG_SESSION::showBand( HANDLE_PICK_AREA& aArea )
 {
     // The selection tool never sees this drag, so stop its long press timer here
     m_editor.m_selectionTool->StopDisambiguation();
 
-    KIGFX::VIEW*   view = m_editor.getView();
     KIGFX::COLOR4D color = bandColor();
 
-    HANDLE_PICK_AREA area;
-    area.SetStrokeColor( color.WithAlpha( 0.9 ) );
-    area.SetFillColor( color.WithAlpha( 0.15 ) );
-    view->Add( &area );
-    view->SetVisible( &area, true );
+    aArea.SetStrokeColor( color.WithAlpha( 0.9 ) );
+    aArea.SetFillColor( color.WithAlpha( 0.15 ) );
+    m_editor.getView()->Add( &aArea );
+    m_editor.getView()->SetVisible( &aArea, true );
     m_editor.getViewControls()->SetAutoPan( true );
+}
+
+
+void BLOCK_DRAG_SESSION::hideBand( HANDLE_PICK_AREA& aArea )
+{
+    m_editor.getViewControls()->SetAutoPan( false );
+    m_editor.getView()->SetVisible( &aArea, false );
+    m_editor.getView()->Remove( &aArea );
+}
+
+
+bool BLOCK_DRAG_SESSION::runLasso( const TOOL_EVENT& aEvent )
+{
+    KIGFX::VIEW*     view = m_editor.getView();
+    HANDLE_PICK_AREA area;
+
+    showBand( area );
 
     // aEvent points at the tool's one event slot, which every Wait() below overwrites
     bool accumulate = aEvent.Modifier( MD_SHIFT ) != 0;
@@ -4063,9 +4095,7 @@ bool BLOCK_DRAG_SESSION::runLasso( const TOOL_EVENT& aEvent )
         view->Update( &area );
     }
 
-    m_editor.getViewControls()->SetAutoPan( false );
-    view->SetVisible( &area, false );
-    view->Remove( &area );
+    hideBand( area );
 
     if( finished )
     {
@@ -4081,10 +4111,7 @@ bool BLOCK_DRAG_SESSION::runLasso( const TOOL_EVENT& aEvent )
 
 bool BLOCK_DRAG_SESSION::runBox( const TOOL_EVENT& aEvent )
 {
-    m_editor.m_selectionTool->StopDisambiguation();
-
-    KIGFX::VIEW*   view = m_editor.getView();
-    KIGFX::COLOR4D color = bandColor();
+    KIGFX::VIEW* view = m_editor.getView();
 
     // aEvent points at the tool's one event slot, which every Wait() below
     // overwrites, so copy out everything needed from it now
@@ -4095,12 +4122,9 @@ bool BLOCK_DRAG_SESSION::runBox( const TOOL_EVENT& aEvent )
     bool     exitLoop = false;
 
     HANDLE_PICK_AREA area;
-    area.SetStrokeColor( color.WithAlpha( 0.9 ) );
-    area.SetFillColor( color.WithAlpha( 0.15 ) );
     area.SetPoly( BlockDragPickRect( origin, end ) );
-    view->Add( &area );
-    view->SetVisible( &area, true );
-    m_editor.getViewControls()->SetAutoPan( true );
+
+    showBand( area );
 
     while( TOOL_EVENT* boxEvt = m_editor.Wait() )
     {
@@ -4137,9 +4161,7 @@ bool BLOCK_DRAG_SESSION::runBox( const TOOL_EVENT& aEvent )
         }
     }
 
-    m_editor.getViewControls()->SetAutoPan( false );
-    view->SetVisible( &area, false );
-    view->Remove( &area );
+    hideBand( area );
 
     if( released )
     {
@@ -4276,6 +4298,18 @@ bool BLOCK_DRAG_SESSION::ApplyCursor( const TOOL_EVENT& aEvent )
 }
 
 
+bool BLOCK_DRAG_SESSION::refuseRelease( const wxString& aMessage )
+{
+    m_editor.frame()->ShowInfoBarError( aMessage );
+
+    if( revert( false ) )
+        return true;
+
+    endDrag( true );
+    return false;
+}
+
+
 bool BLOCK_DRAG_SESSION::Release( const TOOL_EVENT& aEvent )
 {
     // This click stops here, so the selection tool only ever sees the press that
@@ -4342,26 +4376,18 @@ bool BLOCK_DRAG_SESSION::Release( const TOOL_EVENT& aEvent )
 
         if( validationResult != BLOCK_DRAG_VALIDATION_RESULT::OK )
         {
-            if( validationResult == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE )
-                m_editor.frame()->ShowInfoBarError( _( "The move would break a zone outline." ) );
-            else
-                m_editor.frame()->ShowInfoBarError( _( "The move would break the board outline." ) );
-
-            if( revert( false ) )
+            if( refuseRelease( validationResult == BLOCK_DRAG_VALIDATION_RESULT::INVALID_ZONE
+                                       ? _( "The move would break a zone outline." )
+                                       : _( "The move would break the board outline." ) ) )
+            {
                 return true;
-
-            endDrag( true );
+            }
         }
         else if( !routerSessionOk || ( !routerStatusOk && !forceCommit ) )
         {
             // Forced placement skips the collision refusal and nothing else
-            m_editor.frame()->ShowInfoBarError( wxString::Format( _( "The move violates DRC. (%s to commit anyway.)" ),
-                                                                  KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) ) );
-
-            if( revert( false ) )
+            if( refuseRelease( blockDragDrcRefusal() ) )
                 return true;
-
-            endDrag( true );
         }
         else
         {
@@ -4395,9 +4421,7 @@ bool BLOCK_DRAG_SESSION::Release( const TOOL_EVENT& aEvent )
 
             if( !routerCommitted )
             {
-                m_editor.frame()->ShowInfoBarError(
-                        wxString::Format( _( "The move violates DRC. (%s to commit anyway.)" ),
-                                          KeyNameFromKeyCode( MD_CTRL + PSEUDO_WXK_CLICK ) ) );
+                m_editor.frame()->ShowInfoBarError( blockDragDrcRefusal() );
 
                 if( revert( true ) )
                     return true;
