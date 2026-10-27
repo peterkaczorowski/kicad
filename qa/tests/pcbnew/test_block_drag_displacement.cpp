@@ -153,8 +153,9 @@ BOOST_AUTO_TEST_CASE( PickedEdgeWithItsPolicyMovesPerpendicular )
 
 
 // Only where the drag ends should matter. A picked edge's drag rule is rebuilt from the
-// current geometry every frame, so a cursor that wanders off and comes back is the case
-// that would show it drifting.
+// current geometry every frame, so a cursor that wanders off and comes back is the case that
+// would show it drifting. The outline is compared, not the handle positions, because the
+// handles are written straight from origin plus delta and so cannot drift by construction.
 BOOST_AUTO_TEST_CASE( PickedEdgeIsIndependentOfThePathTaken )
 {
     GRID_HELPER testGrid;
@@ -181,13 +182,19 @@ BOOST_AUTO_TEST_CASE( PickedEdgeIsIndependentOfThePathTaken )
         std::vector<EDIT_POINTS*>          collections{ points.get() };
         std::map<PCB_HANDLE_KEY, VECTOR2I> origins = BlockDragMoveOrigins( collections, picked );
 
+        // One frame is a displacement followed by the outline write, and the write is what
+        // reseeds each unpicked edge's drag rule from the geometry as it now stands. Leaving
+        // the write out would test a rule that is never rebuilt, which cannot drift.
         for( const VECTOR2I& step : aPath )
+        {
             BlockDragApplyDisplacement( collections, origins, step, testGrid );
+            POLYGON_POINT_EDIT_BEHAVIOR::UpdateOutlineFromPoints( outline, points->Line( 0 ), *points );
+        }
 
         std::vector<VECTOR2I> result;
 
-        for( unsigned ii = 0; ii < points->PointsSize(); ++ii )
-            result.push_back( points->Point( ii ).GetPosition() );
+        for( int ii = 0; ii < outline.TotalVertices(); ++ii )
+            result.push_back( outline.CVertex( ii ) );
 
         return result;
     };
