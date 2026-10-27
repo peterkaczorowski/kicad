@@ -3742,18 +3742,30 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
                 blockRouterActive = true;
 
-                // The dragger leaves an arc with both ends pinned where it is, so name it
-                // for the user, the way the router tool's own drag does
+                // The dragger leaves an arc with both ends pinned where it is. Name those for
+                // the user, the way the router tool's own drag does, and keep them for the
+                // hiding below
+                std::set<KIID> blockAnchoredCopper;
+
                 if( auto* blockDragger = dynamic_cast<PNS::BLOCK_DRAGGER*>( router->GetDragger() ) )
                 {
-                    size_t held = blockDragger->AnchoredLines().size();
+                    const std::vector<PNS::LINE>& held = blockDragger->AnchoredLines();
 
-                    if( held > 0 )
+                    if( !held.empty() )
                     {
                         frame()->ShowInfoBarWarning( wxString::Format(
                                 wxPLURAL( "%zu selected arc cannot move because both ends are fixed.",
-                                          "%zu selected arcs cannot move because both ends are fixed.", held ),
-                                held ) );
+                                          "%zu selected arcs cannot move because both ends are fixed.", held.size() ),
+                                held.size() ) );
+                    }
+
+                    for( const PNS::LINE& line : held )
+                    {
+                        for( const PNS::LINKED_ITEM* link : line.Links() )
+                        {
+                            if( const BOARD_ITEM* parent = link->Parent() )
+                                blockAnchoredCopper.insert( parent->m_Uuid );
+                        }
                     }
                 }
 
@@ -3765,6 +3777,11 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 for( BOARD_ITEM* routerItem : routerItems )
                 {
                     if( routerItem->Type() == PCB_FOOTPRINT_T )
+                        continue;
+
+                    // An arc the dragger anchored gets no preview, so hiding it would leave
+                    // it drawn by nobody until the gesture ends
+                    if( blockAnchoredCopper.count( routerItem->m_Uuid ) )
                         continue;
 
                     getView()->Hide( routerItem, true, true );
