@@ -383,10 +383,6 @@ public:
      */
     bool SelectionContains( const VECTOR2I& aPoint ) const;
 
-    /// Whether anchor point editing is on. When it is, switching modes keeps the
-    /// selection instead of cancelling the point editor.
-    bool anchorPointEditingEnabled() const;
-
     SELECTION_MODE GetSelectionMode() const { return m_selectionMode; }
 
 protected:
@@ -429,6 +425,9 @@ private:
      * Select the drill chart row under a point, when the chart itself is what is selected.
      */
     bool selectChartRow( const VECTOR2I& aPosition );
+
+    /// True when a selection mode switch must keep the point editor's block handles alive.
+    bool keepsBlockHandles() const;
 
     /**
      * Select an item pointed by the parameter \a aWhere.

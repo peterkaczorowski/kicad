@@ -57,7 +57,6 @@ using namespace std::placeholders;
 #include <tools/pcb_point_editor.h>
 #include <tools/constraint_edit_tool.h>
 #include <tools/pcb_selection_tool.h>
-#include <tools/block_drag_capability.h>
 #include <tools/pcb_actions.h>
 #include <tools/board_inspection_tool.h>
 #include <ratsnest/ratsnest_data.h>
@@ -1570,7 +1569,7 @@ int PCB_SELECTION_TOOL::SetSelectPoly( const TOOL_EVENT& aEvent )
     // This activation just cancels the tool on the stack. With an empty stack it would
     // cancel the point editor and clear the selection instead, and the anchor point
     // gesture needs both kept
-    if( !m_frame->ToolStackIsEmpty() || !anchorPointEditingEnabled() )
+    if( !keepsBlockHandles() )
         m_toolMgr->PostAction( ACTIONS::selectionTool );
 
     return 0; // No need to wait for an event, just set the mode
@@ -1582,7 +1581,7 @@ int PCB_SELECTION_TOOL::SetSelectRect( const TOOL_EVENT& aEvent )
     m_selectionMode = SELECTION_MODE::INSIDE_RECTANGLE;
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
 
-    if( !m_frame->ToolStackIsEmpty() || !anchorPointEditingEnabled() )
+    if( !keepsBlockHandles() )
         m_toolMgr->PostAction( ACTIONS::selectionTool );
 
     return 0; // No need to wait for an event, just set the mode
@@ -4595,9 +4594,11 @@ void PCB_SELECTION_TOOL::unhighlightInternal( EDA_ITEM* aItem, int aMode, bool a
 }
 
 
-bool PCB_SELECTION_TOOL::anchorPointEditingEnabled() const
+bool PCB_SELECTION_TOOL::keepsBlockHandles() const
 {
-    return BlockDragAnchorEditingEnabled( m_frame );
+    PCB_POINT_EDITOR* pointEditor = m_toolMgr->GetTool<PCB_POINT_EDITOR>();
+
+    return m_frame->ToolStackIsEmpty() && pointEditor && pointEditor->HasBlockHandles();
 }
 
 

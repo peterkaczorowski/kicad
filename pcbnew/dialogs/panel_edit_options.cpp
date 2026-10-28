@@ -220,6 +220,12 @@ void PANEL_EDIT_OPTIONS::ResetPanel()
         cfg.Load();                     // Loading without a file will init to defaults
 
         loadFPSettings( &cfg );
+
+        // loadFPSettings() reads the shared option from the live board editor settings
+        PCBNEW_SETTINGS pcbCfg;
+        pcbCfg.Load();
+
+        m_cbAreaAnchorPick->SetValue( pcbCfg.m_AreaAnchorPointSelection );
     }
     else
     {

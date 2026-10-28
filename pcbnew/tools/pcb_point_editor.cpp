@@ -2606,6 +2606,10 @@ void PCB_POINT_EDITOR::setPickedHandles( std::set<PCB_HANDLE_KEY> aPicked )
 
 void PCB_POINT_EDITOR::applyPickedFlags()
 {
+    // Nothing can be picked with the feature off, so leave the plain point editor alone
+    if( m_pickedHandles.empty() && !blockAnchorEditingEnabled() )
+        return;
+
     std::vector<EDIT_POINTS*> collections = pickableCollections();
 
     for( EDIT_POINTS* points : collections )
@@ -2686,7 +2690,10 @@ void PCB_POINT_EDITOR::updateBlockHandleHover( const VECTOR2I& aPosition )
 
     for( BLOCK_HANDLE_ENTRY& entry : m_blockHandles )
     {
-        if( EDIT_POINT* point = entry.points->FindPoint( aPosition, getView() ) )
+        EDIT_POINT* point = entry.points->FindPoint( aPosition, getView() );
+
+        // Light only what a click would pick, the same test pickHandleAt() makes
+        if( point && BlockDragHandlePickable( *entry.points, *point ) )
         {
             hovered = point;
             owner = entry.points.get();

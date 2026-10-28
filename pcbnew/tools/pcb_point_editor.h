@@ -81,6 +81,9 @@ public:
      */
     bool HasBlockHandle() const;
 
+    /// True while handles are shown for the members of a multi-selection or group.
+    bool HasBlockHandles() const { return !m_blockHandles.empty(); }
+
     /**
      * Check if a corner can be added to the given item (zones, polys, segments, arcs).
      */
