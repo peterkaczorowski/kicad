@@ -92,7 +92,10 @@ CONSTRAINT_RULES_LIST::CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME*
     m_list->Bind( wxEVT_SIZE,
                   [this]( wxSizeEvent& aEvent )
                   {
-                      fitColumns();
+                      // Fitting toggles the horizontal scrollbar, which resizes the list again
+                      if( m_list->GetClientSize().x != m_fittedWidth )
+                          fitColumns();
+
                       aEvent.Skip();
                   } );
     m_list->Bind( wxEVT_LIST_ITEM_SELECTED,
@@ -222,6 +225,8 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
 
 void CONSTRAINT_RULES_LIST::fitColumns()
 {
+    m_fittedWidth = m_list->GetClientSize().x;
+
     wxClientDC dc( m_list );
     dc.SetFont( m_list->GetFont() );
 

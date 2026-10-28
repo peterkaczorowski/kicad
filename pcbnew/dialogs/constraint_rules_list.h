@@ -150,6 +150,7 @@ private:
     DRC_RULE_EDITOR_CONSTRAINT_NAME              m_editingType;
     std::function<void()>                        m_onChanged;
     bool                                         m_refreshing = false;
+    int                                          m_fittedWidth = -1;
 
     std::vector<int> m_rowToIndex;
 };
