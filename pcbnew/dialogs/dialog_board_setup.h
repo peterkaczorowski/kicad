@@ -22,6 +22,7 @@
 
 #include <memory>
 #include <widgets/paged_dialog.h>
+#include <dialogs/panel_setup_constraint_rules.h>
 #include "panel_setup_formatting.h"
 
 class PCB_EDIT_FRAME;
@@ -79,6 +80,7 @@ private:
     size_t m_boardFinishPage;
     size_t m_defaultsPage;
     size_t m_formattingPage;
+    size_t m_textVarsPage;
     size_t m_maskAndPastePage;
     size_t m_drillChartPage;
     size_t m_constraintsPage;
@@ -96,4 +98,5 @@ private:
     bool   m_initComplete;
 
     std::unique_ptr<DRC_RULE_DOCUMENT> m_ruleDocument;
+    std::map<size_t, CONSTRAINT_SECTION> m_ruleSearchSections;
 };

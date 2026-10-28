@@ -50,6 +50,11 @@ public:
 
     void RefreshRules();
 
+    wxString GetSearchActionLabel() const
+    {
+        return m_primaryBtn->IsShown() ? m_primaryBtn->GetLabelText() : wxString();
+    }
+
     /**
      * A window whose label is the section title. The list appends the rule count to it.
      */

@@ -85,6 +85,17 @@ public:
      */
     void InvalidateSearchIndex( wxWindow* aWindow );
 
+    /**
+     * Let the listed pages keep their labels for the next dialog of the same aKey, so that
+     * reopening does not build them again.
+     *
+     * aScope names the dialog and aIdentity the project its labels were read from. Opening
+     * a different aIdentity replaces what was kept, so the labels of a closed project are not
+     * held for the rest of the session. Call it once the tree is complete: the pages are
+     * resolved to tree paths here and the indices are not kept.
+     */
+    void ReuseSearchLabels( const wxString& aScope, const wxString& aIdentity, const std::set<size_t>& aPages );
+
 protected:
     void finishInitialization();
 
@@ -119,15 +130,25 @@ protected:
     WX_INFOBAR*  m_infoBar;
 
 private:
+    enum class SEARCH_ACTION
+    {
+        REFRESH,
+        SELECT_PAGE,
+        FOCUS_TREE
+    };
+
     /// Tree path used to identify collapsed sections.
     wxString pagePath( size_t aPage ) const;
 
     void saveTreeExpansion() const;
     void loadTreeExpansion();
 
-    void buildSearchIndex();
+    /// Tree path of a page, lowercased, prefixed by its parent so "schematic colors" finds Colors
+    wxString              pageSearchTitle( size_t aPage ) const;
+    void                  onSearchIdle( wxIdleEvent& aEvent );
     std::vector<wxString> buildPageSearchIndex( size_t aPage );
     void                  refreshSearch();
+    void                  updateSearch( SEARCH_ACTION aAction );
 
     /**
      * Bold the pages matching the search box and grey out the rest.
@@ -142,6 +163,11 @@ private:
     std::vector<std::vector<wxString>> m_searchIndex; ///< Lowercased page title and labels, per page
     std::set<wxWindow*>                m_searchExcludedControls;
     std::set<wxBookCtrlBase*>          m_searchExcludedBookTitles;
+    wxString                           m_searchReuseScope;
+    std::set<wxString>                 m_reusableSearchPaths;
+    std::vector<bool>                  m_searchLabelsPending; ///< Pages still waiting for their labels
+    bool                               m_indexingSearch = false;
+    SEARCH_ACTION                      m_pendingSearchAction = SEARCH_ACTION::REFRESH;
 
     wxBoxSizer* m_buttonsSizer;
 

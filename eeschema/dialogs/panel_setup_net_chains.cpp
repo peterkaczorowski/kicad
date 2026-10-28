@@ -54,7 +54,10 @@ PANEL_SETUP_NET_CHAINS::PANEL_SETUP_NET_CHAINS( wxWindow* aParent, SCH_EDIT_FRAM
         m_frame( aFrame )
 {
     if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+    {
         dialog->ExcludeFromSearchIndex( m_membersLabel );
+        dialog->ExcludeFromSearchIndex( m_chainsHeader );
+    }
 
     wxGridCellAttr* attr = new wxGridCellAttr;
     attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( PAGED_DIALOG::GetDialog( this ) ) );

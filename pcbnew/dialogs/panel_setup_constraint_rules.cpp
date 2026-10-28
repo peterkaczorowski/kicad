@@ -139,6 +139,9 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
             grid->Add( value, 0, wxALIGN_CENTER_VERTICAL );
 
             m_defaultLabels.push_back( value );
+
+            if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+                dialog->ExcludeFromSearchIndex( value );
         }
 
         // The Constraints page owns these defaults. They are shown here because a rule is read
@@ -198,6 +201,9 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
                 new CONSTRAINT_RULES_LIST( parent, m_frame, m_document, *m_section.ruleType, m_section.title );
         list->SetTitleWindow( heading );
 
+        if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+            dialog->ExcludeFromSearchIndex( heading );
+
         if( !m_section.defaults.empty() )
         {
             std::vector<std::pair<wxString, wxStaticText*>> defaults;
@@ -234,14 +240,15 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
 }
 
 
-void PANEL_SETUP_CONSTRAINT_RULES::getNetclassText( wxString& aLabel, wxString& aTooltip ) const
+static void formatNetclassText( const CONSTRAINT_SECTION& aSection, PCB_EDIT_FRAME* aFrame, wxString& aLabel,
+                                wxString& aTooltip )
 {
     aLabel.clear();
     aTooltip.clear();
 
-    const NET_SETTINGS& netSettings = *m_frame->Prj().GetProjectFile().NetSettings();
+    const NET_SETTINGS& netSettings = *aFrame->Prj().GetProjectFile().NetSettings();
 
-    for( const auto& [value, names] : groupByValue( m_section.netclassValue, netSettings ) )
+    for( const auto& [value, names] : groupByValue( aSection.netclassValue, netSettings ) )
     {
         if( !aLabel.IsEmpty() )
         {
@@ -249,7 +256,7 @@ void PANEL_SETUP_CONSTRAINT_RULES::getNetclassText( wxString& aLabel, wxString& 
             aTooltip << wxS( "\n" );
         }
 
-        const wxString valueText = m_frame->StringFromValue( value, true ) + wxS( ": " );
+        const wxString valueText = aFrame->StringFromValue( value, true ) + wxS( ": " );
         aLabel << valueText;
         aTooltip << valueText;
 
@@ -271,6 +278,12 @@ void PANEL_SETUP_CONSTRAINT_RULES::getNetclassText( wxString& aLabel, wxString& 
         aLabel = _( "Net classes: no class sets this value" );
     else
         aLabel = _( "Net classes:  " ) + aLabel;
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::getNetclassText( wxString& aLabel, wxString& aTooltip ) const
+{
+    formatNetclassText( m_section, m_frame, aLabel, aTooltip );
 }
 
 
@@ -397,19 +410,33 @@ void PANEL_SETUP_CONSTRAINT_RULES::RefreshFromDocument()
 void PANEL_SETUP_CONSTRAINT_RULES::AppendSearchTerms( const DRC_RULE_DOCUMENT& aDocument,
                                                       std::vector<wxString>&   aTerms ) const
 {
-    if( m_netclassLabel )
+    AppendSearchTerms( m_section, m_frame, aDocument, aTerms );
+
+    for( wxStaticText* label : m_defaultLabels )
+        aTerms.push_back( label->GetLabelText() );
+
+    if( m_list )
+        aTerms.push_back( m_list->GetSearchActionLabel() );
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::AppendSearchTerms( const CONSTRAINT_SECTION& aSection, PCB_EDIT_FRAME* aFrame,
+                                                      const DRC_RULE_DOCUMENT& aDocument,
+                                                      std::vector<wxString>&   aTerms )
+{
+    if( aSection.netclassValue )
     {
         wxString label;
         wxString tooltip;
-        getNetclassText( label, tooltip );
+        formatNetclassText( aSection, aFrame, label, tooltip );
         aTerms.push_back( label );
         aTerms.push_back( tooltip );
     }
 
-    if( !m_section.ruleType || aDocument.HasUnparsedText() )
+    if( !aSection.ruleType || aDocument.HasUnparsedText() )
         return;
 
-    for( int index : aDocument.IndicesFor( *m_section.ruleType ) )
+    for( int index : aDocument.IndicesFor( *aSection.ruleType ) )
     {
         const DRC_RE_LOADED_PANEL_ENTRY& entry = aDocument.Entries()[index];
         const wxString comment = entry.constraintData ? entry.constraintData->GetComment() : wxString();
