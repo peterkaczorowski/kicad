@@ -3939,17 +3939,6 @@ bool BLOCK_DRAG_SESSION::Begin( const VECTOR2I& aOrigin, bool aPressInFlight )
                 {
                     m_constraintAnchors.emplace_back( shape, *member );
                 }
-                else if( shape->GetShape() == SHAPE_T::RECTANGLE && targetPoints->PointsSize() > RECT_CENTER
-                         && picked == &targetPoints->Point( RECT_CENTER ) )
-                {
-                    // The centre handle moves the whole rectangle, and its four corners
-                    // already pin that between them. A corner radius handle pins nothing
-                    for( const CONSTRAINT_ANCHOR_POINT& corner : ConstraintShapeAnchors( shape ) )
-                    {
-                        m_constraintAnchors.emplace_back(
-                                shape, CONSTRAINT_MEMBER( shape->m_Uuid, corner.anchor, corner.index ) );
-                    }
-                }
             }
 
             seedConstrained( shape );
@@ -4404,7 +4393,24 @@ bool BLOCK_DRAG_SESSION::Release( const TOOL_EVENT& aEvent )
     }
     else
     {
-        collectTargets();
+        auto originResolves = [&]( const std::pair<const PCB_HANDLE_KEY, VECTOR2I>& aOrigin )
+        {
+            return std::ranges::any_of( m_targets,
+                                        [&]( const auto& aTarget )
+                                        {
+                                            return aOrigin.first.Resolve( *aTarget.first ) != nullptr;
+                                        } );
+        };
+
+        // A picked handle gone by now would leave part of the block unfinalized
+        if( !collectTargets() || !std::ranges::all_of( m_origins, originResolves ) )
+        {
+            if( revert( false ) )
+                return true;
+
+            endDrag( false );
+            return false;
+        }
 
         // Finalize first, so the geometry that was checked is the geometry that goes in
         for( auto& [targetPoints, behavior] : m_targets )
