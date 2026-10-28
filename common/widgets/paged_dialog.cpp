@@ -279,6 +279,11 @@ wxWindow* PAGED_DIALOG::ShowPage( const wxString& aTitle )
         if( m_treebook->GetPageText( i ) == aTitle )
         {
             m_treebook->SetSelection( i );
+
+            // The change can be vetoed by the page being left, or redirected away from a branch
+            if( m_treebook->GetSelection() != static_cast<int>( i ) )
+                return nullptr;
+
             return m_treebook->GetResolvedPage( i );
         }
     }

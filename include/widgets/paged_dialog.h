@@ -44,7 +44,7 @@ public:
      * Select the page with the given title.
      *
      * @return the page, resolved if it was created lazily, or nullptr where no page carries
-     *         that title.
+     *         that title or the page is not the one now showing.
      */
     wxWindow* ShowPage( const wxString& aTitle );
 
