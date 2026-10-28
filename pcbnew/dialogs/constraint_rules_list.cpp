@@ -21,6 +21,7 @@
 
 #include <board.h>
 #include <confirm.h>
+#include <dialog_shim.h>
 #include <pcb_edit_frame.h>
 #include <drc/drc_engine.h>
 #include <drc/drc_rule.h>
@@ -83,6 +84,10 @@ CONSTRAINT_RULES_LIST::CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME*
     m_downBtn->Bind( wxEVT_BUTTON, &CONSTRAINT_RULES_LIST::onMoveDown, this );
     m_duplicateBtn->Bind( wxEVT_BUTTON, &CONSTRAINT_RULES_LIST::onDuplicate, this );
     m_removeBtn->Bind( wxEVT_BUTTON, &CONSTRAINT_RULES_LIST::onRemove, this );
+
+    // The editor is rebuilt per rule, so undo would keep pointers to destroyed controls
+    if( DIALOG_SHIM* dlg = dynamic_cast<DIALOG_SHIM*>( wxGetTopLevelParent( this ) ) )
+        dlg->ExcludeFromControlUndoRedo( m_editorHost );
 
     m_list->Bind( wxEVT_SIZE,
                   [this]( wxSizeEvent& aEvent )
