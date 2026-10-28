@@ -98,8 +98,19 @@ CONSTRAINT_RULES_LIST::CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME*
     m_list->Bind( wxEVT_LIST_ITEM_SELECTED,
                   [this]( wxListEvent& )
                   {
-                      if( !m_refreshing && selectedIndex() >= 0 && selectedIndex() != editingIndex() )
-                          showRule( selectedIndex() );
+                      if( !m_refreshing && selectedIndex() >= 0 && selectedIndex() != editingIndex()
+                          && !EditRule( selectedIndex() ) )
+                      {
+                          if( editingIndex() >= 0 )
+                          {
+                              selectIndex( editingIndex() );
+                          }
+                          else
+                          {
+                              for( long i = 0; i < m_list->GetItemCount(); ++i )
+                                  m_list->SetItemState( i, 0, wxLIST_STATE_SELECTED );
+                          }
+                      }
 
                       updateButtons();
                   } );
@@ -403,6 +414,9 @@ void CONSTRAINT_RULES_LIST::onPrimary( wxCommandEvent& aEvent )
 
 void CONSTRAINT_RULES_LIST::onNewRule( wxCommandEvent& aEvent )
 {
+    if( !ConfirmPendingRule() )
+        return;
+
     showNewRule();
     RefreshRules();
 }
@@ -429,6 +443,33 @@ bool CONSTRAINT_RULES_LIST::ApplyPendingRule()
         applyRule();
     else
         addRule();
+
+    return true;
+}
+
+
+bool CONSTRAINT_RULES_LIST::ConfirmPendingRule()
+{
+    if( !HasPendingRule() )
+        return true;
+
+    KICAD_MESSAGE_DIALOG_BASE dlg( this,
+                                   _( "This rule is still in the form. Only the rules in the "
+                                      "list apply." ),
+                                   _( "Rule Not Added" ),
+                                   wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxICON_WARNING | wxCENTRE );
+
+    dlg.SetYesNoCancelLabels( _( "Add Rule" ), _( "Discard" ), _( "Cancel" ) );
+
+    int choice = dlg.ShowModal();
+
+    if( choice == wxID_YES )
+        return ApplyPendingRule();
+
+    if( choice == wxID_CANCEL )
+        return false;
+
+    DiscardPendingRule();
 
     return true;
 }
@@ -483,7 +524,13 @@ void CONSTRAINT_RULES_LIST::onDuplicate( wxCommandEvent& aEvent )
     if( index < 0 )
         return;
 
-    int copy = m_document->Duplicate( index );
+    // Applying the form can renumber the entries, so the rule is found again by its data
+    std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> source = m_document->Entries()[index].constraintData;
+
+    if( !ConfirmPendingRule() )
+        return;
+
+    int copy = m_document->Duplicate( indexOf( source ) );
 
     if( copy < 0 )
         return;
@@ -672,10 +719,20 @@ void CONSTRAINT_RULES_LIST::showNewRule()
 }
 
 
-void CONSTRAINT_RULES_LIST::EditRule( int aIndex )
+bool CONSTRAINT_RULES_LIST::EditRule( int aIndex )
 {
-    selectIndex( aIndex );
-    showRule( aIndex );
+    if( aIndex < 0 || aIndex >= (int) m_document->Entries().size() )
+        return false;
+
+    std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> target = m_document->Entries()[aIndex].constraintData;
+
+    if( target != m_editingData && !ConfirmPendingRule() )
+        return false;
+
+    // Opened before it is selected, so the selection event finds it already in the editor
+    showRule( indexOf( target ) );
+    selectIndex( indexOf( target ) );
+    return true;
 }
 
 

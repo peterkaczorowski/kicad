@@ -80,8 +80,14 @@ public:
      */
     void DiscardPendingRule();
 
-    /// Selects a rule and opens it in the editor
-    void EditRule( int aIndex );
+    /**
+     * Asks what to do with a rule left in the form. False if the user cancels or the rule does
+     * not validate, and the form is left as it was.
+     */
+    bool ConfirmPendingRule();
+
+    /// Selects a rule and opens it in the editor. False if a rule left in the form kept it closed
+    bool EditRule( int aIndex );
 
     /**
      * Called after this list changed the document. The page uses it to refresh every list,
