@@ -171,22 +171,6 @@ void DRC_RULE_DOCUMENT::SetText( const wxString& aText )
 }
 
 
-bool DRC_RULE_DOCUMENT::ownedBySibling( const DRC_RE_LOADED_PANEL_ENTRY& aEntry,
-                                        DRC_RULE_EDITOR_CONSTRAINT_NAME  aType ) const
-{
-    if( aEntry.ruleGroupId <= 0 )
-        return false;
-
-    for( const DRC_RE_LOADED_PANEL_ENTRY& sibling : m_entries )
-    {
-        if( sibling.ruleGroupId == aEntry.ruleGroupId && sibling.panelType == aType )
-            return true;
-    }
-
-    return false;
-}
-
-
 std::vector<int> DRC_RULE_DOCUMENT::IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType ) const
 {
     // A rule no graphical panel could take apart is kept as text. It still belongs on the
@@ -211,12 +195,6 @@ std::vector<int> DRC_RULE_DOCUMENT::IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME 
         }
         else if( entry.panelType == CUSTOM_RULE && aType != CUSTOM_RULE && listsTextRules )
         {
-            // What is kept as text is the whole rule, clauses that went to other panels and all,
-            // so a rule split across panels would be listed twice on a sibling's page: once as
-            // the entry that page can edit, and again as text. The sibling owns it.
-            if( ownedBySibling( entry, aType ) )
-                continue;
-
             auto custom = std::dynamic_pointer_cast<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( entry.constraintData );
 
             if( ( custom && FindConstraintClause( custom->GetRuleText(), code ) != wxString::npos )

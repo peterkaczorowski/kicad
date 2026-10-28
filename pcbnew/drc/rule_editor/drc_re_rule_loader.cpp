@@ -26,6 +26,7 @@
 #include <drc/drc_rule_condition.h>
 #include <wx/ffile.h>
 
+#include <algorithm>
 #include <tuple>
 #include <utility>
 
@@ -855,6 +856,17 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadRule( const DRC_RULE
             entry.originalRuleText = aOriginalText;
 
         entries.push_back( std::move( entry ) );
+    }
+
+    // Text holds the whole rule body, so beside a panel entry it would drop or revive clauses on save
+    if( entries.size() > 1
+        && std::any_of( entries.begin(), entries.end(),
+                        []( const DRC_RE_LOADED_PANEL_ENTRY& aEntry )
+                        {
+                            return aEntry.panelType == CUSTOM_RULE;
+                        } ) )
+    {
+        entries.clear();
     }
 
     // If no matches, create a custom rule entry

@@ -111,9 +111,6 @@ public:
     static size_t FindConstraintClause( const wxString& aText, const wxString& aCode );
 
 private:
-    /// True when another entry of the same rule is the one that owns this constraint's page
-    bool ownedBySibling( const DRC_RE_LOADED_PANEL_ENTRY& aEntry, DRC_RULE_EDITOR_CONSTRAINT_NAME aType ) const;
-
     void load( const wxString& aPath );
 
     bool parseInto( const wxString& aText );

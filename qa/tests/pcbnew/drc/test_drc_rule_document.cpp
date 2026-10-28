@@ -597,19 +597,18 @@ BOOST_AUTO_TEST_CASE( SplitRuleIsListedOnceOnItsSiblingsPage )
     BOARD             board;
     DRC_RULE_DOCUMENT document( &board );
 
-    // The zone connection has no graphical panel, so the rule splits into a clearance entry and
-    // a text entry holding the leftovers. The text still carries the clearance clause.
+    // The zone connection has no graphical panel, so the whole rule is kept as text
     document.SetText( wxS( "(version 2)\n"
                            "(rule \"split\"\n"
                            "\t(constraint clearance (min 0.2mm))\n"
                            "\t(constraint zone_connection solid))\n" ) );
 
-    BOOST_REQUIRE_EQUAL( document.Entries().size(), 2 );
+    BOOST_REQUIRE_EQUAL( document.Entries().size(), 1 );
 
     std::vector<int> clearances = document.IndicesFor( MINIMUM_CLEARANCE );
 
     BOOST_REQUIRE_EQUAL( clearances.size(), 1 );
-    BOOST_CHECK_EQUAL( document.Entries()[clearances[0]].panelType, MINIMUM_CLEARANCE );
+    BOOST_CHECK_EQUAL( document.Entries()[clearances[0]].panelType, CUSTOM_RULE );
 }
 
 
