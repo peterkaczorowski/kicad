@@ -113,8 +113,10 @@ public:
         link->Bind( wxEVT_HYPERLINK,
                     [this, aOpen]( wxHyperlinkEvent& )
                     {
-                        Dismiss();
-                        aOpen();
+                        // Dismiss alone skips OnDismiss and would leave the popup alive
+                        std::function<void()> open = aOpen;
+                        DismissAndNotify();
+                        open();
                     } );
 
         row->Add( link, 0, wxALIGN_CENTER_VERTICAL );
