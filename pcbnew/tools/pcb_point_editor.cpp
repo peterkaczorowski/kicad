@@ -642,7 +642,12 @@ public:
         m_zone.HatchBorder();
     }
 
-    void FinalizeItem( EDIT_POINTS& aPoints, COMMIT& aCommit ) override { m_zone.Outline()->RemoveNullSegments(); }
+    bool UpdateItemAppliesAllPoints() const override { return true; }
+
+    void FinalizeItem( EDIT_POINTS& aPoints, COMMIT& aCommit ) override
+    {
+        POLYGON_POINT_EDIT_BEHAVIOR::RemoveNullSegmentsIfPolygonSurvives( *m_zone.Outline() );
+    }
 
 private:
     ZONE& m_zone;
