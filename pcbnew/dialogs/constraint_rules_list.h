@@ -103,6 +103,9 @@ private:
 
     void moveSelected( int aDelta );
 
+    /// Copies everything the form edits, the rule name included
+    static void copyRuleData( DRC_RE_BASE_CONSTRAINT_DATA& aTarget, const DRC_RE_BASE_CONSTRAINT_DATA& aSource );
+
     void buildEditor( const std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA>& aData,
                       DRC_RULE_EDITOR_CONSTRAINT_NAME                     aPanelType );
     void showNewRule();

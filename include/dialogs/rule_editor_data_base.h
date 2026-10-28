@@ -71,7 +71,7 @@ public:
      *
      * @return The name of the rule.
      */
-    wxString GetRuleName() { return m_ruleName; }
+    wxString GetRuleName() const { return m_ruleName; }
 
     /**
      * Set the name of the rule.

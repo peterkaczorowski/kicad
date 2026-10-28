@@ -184,7 +184,10 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
     {
         // A sibling page may have changed the rule's name, condition or layers since the form was filled
         if( m_editor && !m_editor->IsModified() )
+        {
+            copyRuleData( *m_editor->GetConstraintData(), *m_editingData );
             m_editor->TransferDataToWindow();
+        }
 
         selectIndex( editingIndex() );
     }
@@ -587,6 +590,15 @@ void CONSTRAINT_RULES_LIST::showOverrideNote()
 }
 
 
+void CONSTRAINT_RULES_LIST::copyRuleData( DRC_RE_BASE_CONSTRAINT_DATA& aTarget,
+                                          const DRC_RE_BASE_CONSTRAINT_DATA& aSource )
+{
+    // CopyFrom leaves the name alone so a duplicate can keep its own
+    aTarget.CopyFrom( aSource );
+    aTarget.SetRuleName( aSource.GetRuleName() );
+}
+
+
 void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA>& aData,
                                          DRC_RULE_EDITOR_CONSTRAINT_NAME                     aPanelType )
 {
@@ -599,7 +611,12 @@ void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONST
     m_editingData = aData;
     m_editingType = aPanelType;
 
-    m_editor = new PANEL_DRC_RULE_EDITOR( m_editorHost, m_frame->GetBoard(), aPanelType, aData );
+    // The form edits a copy, so a rejected or discarded value never reaches the document
+    std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> draft =
+            DRC_RULE_EDITOR_UTILS::CreateConstraintData( aPanelType, *aData );
+    copyRuleData( *draft, *aData );
+
+    m_editor = new PANEL_DRC_RULE_EDITOR( m_editorHost, m_frame->GetBoard(), aPanelType, draft );
     m_editorSizer->Insert( 0, m_editor, 0, wxEXPAND | wxRIGHT, 8 );
     m_editor->TransferDataToWindow();
 
@@ -686,6 +703,7 @@ void CONSTRAINT_RULES_LIST::addRule()
 
     std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> data = m_editingData;
 
+    copyRuleData( *data, *m_editor->GetConstraintData() );
     data->SetIsNew( false );
 
     DRC_RE_LOADED_PANEL_ENTRY entry( m_type, data, data->GetRuleName(), data->GetRuleCondition(), data->GetSeverity(),
@@ -716,7 +734,14 @@ void CONSTRAINT_RULES_LIST::applyRule()
 
     DRC_RE_LOADED_PANEL_ENTRY&                   entry = m_document->Entries()[index];
     std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> data = entry.constraintData;
-    DRC_RE_LOADED_PANEL_ENTRY                    edited = entry;
+
+    // A rule applied with nothing changed stays as it was read.
+    if( !m_editor->IsModified() )
+        return;
+
+    copyRuleData( *data, *m_editor->GetConstraintData() );
+
+    DRC_RE_LOADED_PANEL_ENTRY edited = entry;
 
     edited.ruleName = data->GetRuleName();
     edited.condition = data->GetRuleCondition();
@@ -724,13 +749,9 @@ void CONSTRAINT_RULES_LIST::applyRule()
     edited.layerSource = data->GetLayerSource();
     edited.severity = data->GetSeverity();
 
-    // A rule applied with nothing changed stays as it was read.
-    if( m_editor->IsModified() )
-    {
-        m_document->UpdateEntry( index, edited );
-        notifyChanged();
-        m_editor->ClearModified();
-    }
+    m_document->UpdateEntry( index, edited );
+    notifyChanged();
+    m_editor->ClearModified();
 }
 
 
@@ -739,16 +760,10 @@ int CONSTRAINT_RULES_LIST::showMatches()
     if( !m_editor )
         return -1;
 
-    std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> data = m_editor->GetConstraintData();
-    std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> saved =
-            DRC_RULE_EDITOR_UTILS::CreateConstraintData( m_editingType, *data );
-
-    saved->CopyFrom( *data );
+    // The form edits a copy of the rule, so taking the typed values does not touch the document
     m_editor->TransferDataFromWindow();
 
-    wxString ruleText = data->GetGeneratedRule();
-
-    data->CopyFrom( *saved );
+    wxString ruleText = m_editor->GetConstraintData()->GetGeneratedRule();
 
     if( ruleText.IsEmpty() )
     {
