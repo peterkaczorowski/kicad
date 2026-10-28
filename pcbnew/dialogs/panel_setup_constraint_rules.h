@@ -27,13 +27,13 @@
 #include <vector>
 #include <wx/panel.h>
 
+#include <board_design_settings.h>
 #include <drc/drc_constraint_types.h>
 #include <drc/rule_editor/drc_rule_editor_enums.h>
 
 class wxScrolledWindow;
 class wxStaticText;
 class BOARD;
-class BOARD_DESIGN_SETTINGS;
 class CONSTRAINT_RULES_LIST;
 class DRC_RULE_DOCUMENT;
 class NETCLASS;
@@ -41,6 +41,8 @@ class NET_SETTINGS;
 class PCB_EDIT_FRAME;
 
 
+// MSVC sizes a member pointer by what it knows of the class, so BOARD_DESIGN_SETTINGS must be
+// complete here or this struct has a different layout in different files
 struct CONSTRAINT_DEFAULT_FIELD
 {
     wxString label;
