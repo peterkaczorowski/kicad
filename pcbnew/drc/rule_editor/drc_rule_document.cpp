@@ -23,6 +23,7 @@
 #include <kiplatform/io.h>
 #include <string_utils.h>
 #include <algorithm>
+#include <wx/convauto.h>
 #include <wx/ffile.h>
 #include <wx/filename.h>
 
@@ -55,27 +56,35 @@ void DRC_RULE_DOCUMENT::LoadFrom( const wxString& aPath )
     if( !wxFileName::FileExists( aPath ) )
         return;
 
-    load( aPath );
-    m_modified = true;
+    if( load( aPath ) )
+        m_modified = true;
 }
 
 
-void DRC_RULE_DOCUMENT::load( const wxString& aPath )
+bool DRC_RULE_DOCUMENT::load( const wxString& aPath )
 {
+    bool     exists = wxFileName::FileExists( aPath );
+    wxString text;
+
+    if( exists )
+    {
+        wxFFile file( aPath, wxS( "rb" ) );
+
+        // wxConvAuto falls back to Latin-1, so a file that is not UTF-8 still reads
+        if( !file.IsOpened() || !file.ReadAll( &text, wxConvAuto() ) || ( file.Length() > 0 && text.IsEmpty() ) )
+            return false;
+
+        text.Replace( wxS( "\r\n" ), wxS( "\n" ) );
+    }
+
     m_entries.clear();
     m_trivia = DRC_RE_FILE_TRIVIA();
     m_rawText.clear();
     m_hasRawText = false;
     m_textCurrent = false;
 
-    if( !wxFileName::FileExists( aPath ) )
-        return;
-
-    wxFFile  file( aPath, wxS( "rb" ) );
-    wxString text;
-
-    if( !file.IsOpened() || !file.ReadAll( &text, wxConvUTF8 ) )
-        return;
+    if( !exists )
+        return true;
 
     // A rules file written outside KiCad can carry typographic quotes that the parser rejects.
     ConvertSmartQuotesAndDashes( &text );
@@ -83,6 +92,7 @@ void DRC_RULE_DOCUMENT::load( const wxString& aPath )
     m_rawText = text;
     m_textCurrent = true;
     m_hasRawText = !parseInto( text );
+    return true;
 }
 
 

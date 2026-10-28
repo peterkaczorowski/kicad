@@ -111,7 +111,8 @@ public:
     static size_t FindConstraintClause( const wxString& aText, const wxString& aCode );
 
 private:
-    void load( const wxString& aPath );
+    /// Returns false when the file could not be read, leaving the document as it was
+    bool load( const wxString& aPath );
 
     bool parseInto( const wxString& aText );
 
