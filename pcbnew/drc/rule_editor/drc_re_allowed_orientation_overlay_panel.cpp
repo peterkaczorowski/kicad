@@ -77,8 +77,8 @@ DRC_RE_ALLOWED_ORIENTATION_OVERLAY_PANEL::DRC_RE_ALLOWED_ORIENTATION_OVERLAY_PAN
     m_twoSeventyDegreesCheckbox->Bind( wxEVT_CHECKBOX, onIndividualCheckbox );
     m_allDegreesCheckbox->Bind( wxEVT_CHECKBOX, onAllDegreesCheckbox );
 
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

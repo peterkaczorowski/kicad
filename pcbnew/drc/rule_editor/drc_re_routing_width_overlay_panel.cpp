@@ -72,8 +72,8 @@ DRC_RE_ROUTING_WIDTH_OVERLAY_PANEL::DRC_RE_ROUTING_WIDTH_OVERLAY_PANEL(
 
 
     // Position all fields and update the panel layout
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

@@ -78,8 +78,8 @@ DRC_RE_MATCHED_LENGTH_DIFF_PAIR_OVERLAY_PANEL::DRC_RE_MATCHED_LENGTH_DIFF_PAIR_O
     m_withinDiffPairsCheckbox = static_cast<wxCheckBox*>( withinDiffPairs->GetControl() );
 
     // Position all fields and update the panel layout
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

@@ -41,8 +41,8 @@ DRC_RE_PERMITTED_LAYERS_OVERLAY_PANEL::DRC_RE_PERMITTED_LAYERS_OVERLAY_PANEL(
     DRC_RE_OVERLAY_FIELD* bottomField = AddCheckbox( wxS( "bottom_layer" ), positions[1] );
     m_bottomLayerCheckbox = static_cast<wxCheckBox*>( bottomField->GetControl() );
 
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

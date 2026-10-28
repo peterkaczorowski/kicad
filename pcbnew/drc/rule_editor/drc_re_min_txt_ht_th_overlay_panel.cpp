@@ -65,8 +65,8 @@ DRC_RE_MIN_TXT_HT_TH_OVERLAY_PANEL::DRC_RE_MIN_TXT_HT_TH_OVERLAY_PANEL(
     minTextThicknessField->SetUnitBinder( m_minTextThicknessBinder.get() );
     minTextThicknessField->GetControl()->SetValidator( VALIDATOR_NUMERIC_CTRL( false, false ) );
 
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

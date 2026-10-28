@@ -51,8 +51,8 @@ DRC_RE_VIAS_UNDER_SMD_OVERLAY_PANEL::DRC_RE_VIAS_UNDER_SMD_OVERLAY_PANEL(
     field = AddCheckbox( wxS( "buried_vias" ), positions[3] );
     m_buriedViasCheckbox = static_cast<wxCheckBox*>( field->GetControl() );
 
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

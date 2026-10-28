@@ -58,8 +58,8 @@ DRC_RE_NUMERIC_INPUT_OVERLAY_PANEL::DRC_RE_NUMERIC_INPUT_OVERLAY_PANEL(
 
     valueField->GetControl()->SetValidator( VALIDATOR_NUMERIC_CTRL( false, m_data->IsIntegerOnly() ) );
 
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

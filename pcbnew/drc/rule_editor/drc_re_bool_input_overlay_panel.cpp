@@ -37,8 +37,8 @@ DRC_RE_BOOL_INPUT_OVERLAY_PANEL::DRC_RE_BOOL_INPUT_OVERLAY_PANEL(
     DRC_RE_OVERLAY_FIELD* field = AddCheckbox( wxS( "bool_input" ), positions[0] );
     m_boolInputCheckbox = static_cast<wxCheckBox*>( field->GetControl() );
 
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 

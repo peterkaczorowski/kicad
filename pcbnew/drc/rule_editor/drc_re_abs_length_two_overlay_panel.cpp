@@ -88,8 +88,8 @@ DRC_RE_ABS_LENGTH_TWO_OVERLAY_PANEL::DRC_RE_ABS_LENGTH_TWO_OVERLAY_PANEL(
 
     // Position all fields and update the panel layout
     updateDomainUnits();
-    PositionFields();
     TransferDataToWindow();
+    PositionFields();
 }
 
 
