@@ -2815,14 +2815,8 @@ static void blockDragAppendConstraintCoMembers( BOARD* aBoard, std::vector<BOARD
     for( BOARD_ITEM* item : aItems )
         known.insert( item->m_Uuid );
 
-    std::vector<const PCB_CONSTRAINT*> constraints( aBoard->Constraints().begin(), aBoard->Constraints().end() );
-
-    for( const FOOTPRINT* footprint : aBoard->Footprints() )
-    {
-        constraints.insert( constraints.end(), footprint->Constraints().begin(), footprint->Constraints().end() );
-    }
-
-    bool grew = true;
+    const std::vector<PCB_CONSTRAINT*> constraints = CollectResolvedConstraints( aBoard );
+    bool                               grew = true;
 
     while( grew )
     {

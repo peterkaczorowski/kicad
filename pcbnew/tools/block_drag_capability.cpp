@@ -33,6 +33,7 @@
 #include <generators/pcb_via_stitch.h>
 #include <pcb_group.h>
 #include <pcb_shape.h>
+#include <constraints/constraint_builder.h>
 #include <constraints/pcb_constraint.h>
 
 
@@ -44,21 +45,6 @@ bool BlockDragAnchorEditingEnabled( const PCB_BASE_FRAME* aFrame )
 }
 
 
-static bool constraintsContain( const CONSTRAINTS& aConstraints, const KIID& aId )
-{
-    for( const PCB_CONSTRAINT* constraint : aConstraints )
-    {
-        for( const CONSTRAINT_MEMBER& member : constraint->GetMembers() )
-        {
-            if( member.m_item == aId )
-                return true;
-        }
-    }
-
-    return false;
-}
-
-
 bool BlockDragIsConstraintMember( const BOARD_ITEM& aItem )
 {
     const BOARD* board = aItem.GetBoard();
@@ -66,13 +52,13 @@ bool BlockDragIsConstraintMember( const BOARD_ITEM& aItem )
     if( !board )
         return false;
 
-    if( constraintsContain( board->Constraints(), aItem.m_Uuid ) )
-        return true;
-
-    for( const FOOTPRINT* footprint : board->Footprints() )
+    for( const PCB_CONSTRAINT* constraint : CollectResolvedConstraints( board ) )
     {
-        if( constraintsContain( footprint->Constraints(), aItem.m_Uuid ) )
-            return true;
+        for( const CONSTRAINT_MEMBER& member : constraint->GetMembers() )
+        {
+            if( member.m_item == aItem.m_Uuid )
+                return true;
+        }
     }
 
     return false;
