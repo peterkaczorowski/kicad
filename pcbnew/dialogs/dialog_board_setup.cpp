@@ -353,6 +353,20 @@ DIALOG_BOARD_SETUP::~DIALOG_BOARD_SETUP()
 {
     Unbind( wxEVT_BUTTON, &DIALOG_BOARD_SETUP::onCancelButton, this, wxID_CANCEL );
     Unbind( wxEVT_CLOSE_WINDOW, &DIALOG_BOARD_SETUP::onCloseWindow, this );
+
+    // Pages reading m_ruleDocument would outlive it in ~wxWindow, so empty their lazy holders now
+    // and leave the tree intact for ~PAGED_DIALOG
+    for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
+    {
+        wxWindow* page = m_treebook->GetResolvedPage( i );
+
+        if( page && page != m_treebook->GetPage( i )
+            && ( dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( page ) || dynamic_cast<PANEL_SETUP_CONSTRAINTS*>( page )
+                 || dynamic_cast<PANEL_SETUP_RULES*>( page ) ) )
+        {
+            m_treebook->GetPage( i )->DestroyChildren();
+        }
+    }
 }
 
 
