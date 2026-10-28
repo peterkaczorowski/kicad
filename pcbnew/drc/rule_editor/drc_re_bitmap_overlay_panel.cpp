@@ -198,6 +198,7 @@ void DRC_RE_BITMAP_OVERLAY_PANEL::PositionFields()
             text->GetTextExtent( text->GetValue(), &textWidth, &textHeight );
             widthLogical = std::max( widthLogical, textWidth + FromDIP( 24 ) );
         }
+
         // Where there is a neighbour the field stops short of it, and it never goes below the
         // slot the drawing was made for, however little room the neighbour leaves.
         if( std::optional<int> roomLogical = roomBeforeNextField( field.get() ) )

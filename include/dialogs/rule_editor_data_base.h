@@ -22,7 +22,6 @@
 
 #include <lset.h>
 #include <lseq.h>
-#include <optional>
 
 /**
  * Abstract interface class to enable polymorphic copying between objects.
@@ -121,7 +120,7 @@ public:
     }
 
 private:
-    int                m_id; // Unique ID of the rule.
+    int                m_id = 0; // Unique ID of the rule.
     wxString           m_ruleName;
     wxString           m_comment;
     bool               m_isNew = false; /**< Flag indicating if the user is creating a new rule (true)

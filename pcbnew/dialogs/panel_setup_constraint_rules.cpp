@@ -411,7 +411,7 @@ void PANEL_SETUP_CONSTRAINT_RULES::ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aTy
 std::optional<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::sectionForSetting( const wxString& aSetting )
 {
     for( FAMILY family : { FAMILY::CLEARANCE, FAMILY::TRACKS_AND_VIAS, FAMILY::HOLES, FAMILY::SILKSCREEN,
-                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINTS } )
+                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINT_RULES } )
     {
         for( CONSTRAINT_SECTION& section : SectionsFor( family ) )
         {
@@ -474,7 +474,7 @@ bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, D
 wxString PANEL_SETUP_CONSTRAINT_RULES::PageTitleFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType )
 {
     for( FAMILY family : { FAMILY::CLEARANCE, FAMILY::TRACKS_AND_VIAS, FAMILY::HOLES, FAMILY::SILKSCREEN,
-                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINTS } )
+                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINT_RULES } )
     {
         for( const CONSTRAINT_SECTION& section : SectionsFor( family ) )
         {
@@ -594,7 +594,7 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                    {},
                    _( "Solder Mask/Paste" ) } };
 
-    case FAMILY::FOOTPRINTS:
+    case FAMILY::FOOTPRINT_RULES:
         return { { _( "Permitted layers" ), {}, PERMITTED_LAYERS, {} },
                  { _( "Allowed orientation" ), {}, ALLOWED_ORIENTATION, {} },
                  { _( "Vias under SMD pads" ), {}, VIAS_UNDER_SMD, {} },

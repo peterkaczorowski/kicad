@@ -76,7 +76,7 @@ public:
         SILKSCREEN,
         SOLDER_MASK,
         HIGH_SPEED,
-        FOOTPRINTS
+        FOOTPRINT_RULES
     };
 
     PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument,

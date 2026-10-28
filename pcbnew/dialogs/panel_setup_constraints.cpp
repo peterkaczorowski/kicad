@@ -68,7 +68,7 @@ constexpr int NAME_GAP = 8;
 class OVERRIDING_RULES_POPUP : public wxPopupTransientWindow
 {
 public:
-    OVERRIDING_RULES_POPUP( wxWindow* aParent ) :
+    explicit OVERRIDING_RULES_POPUP( wxWindow* aParent ) :
             wxPopupTransientWindow( aParent, wxBORDER_SIMPLE )
     {
         m_panel = new wxPanel( this, wxID_ANY );

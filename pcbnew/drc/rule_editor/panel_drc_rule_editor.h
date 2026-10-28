@@ -61,10 +61,7 @@ public:
     /// Runs the rule's validators and keeps the outcome, without applying anything
     bool ValidateRule();
 
-    void SetSaveCallback( std::function<void( int aNodeId )> aCallBackSave )
-    {
-        m_callBackSave = aCallBackSave;
-    }
+    void SetSaveCallback( std::function<void( int aNodeId )> aCallBackSave ) { m_callBackSave = aCallBackSave; }
 
     void SetRuleNameValidationCallback(
             std::function<bool( int aNodeId, const wxString& aRuleName )> aCallbackRuleNameValidation )

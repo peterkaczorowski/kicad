@@ -96,14 +96,6 @@ public:
     static wxString ConstraintToKicadDrc( DRC_RULE_EDITOR_CONSTRAINT_NAME aType );
 
     /**
-     * Populate a constraint data object using a keyword from a .kicad_drc file.
-     *
-     * @param aCode The keyword read from the rules file.
-     * @param aData The constraint data instance to update.
-     * @return True if a matching constraint type was found.
-     */
-
-    /**
      * Validates a numeric input control, checking if the value is valid, non-empty, and greater than zero.
      *
      * @param aTextCtrl The text control to validate.

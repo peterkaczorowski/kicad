@@ -432,9 +432,8 @@ void PAGED_DIALOG::onTreeLeftDown( wxMouseEvent& aEvent )
 
     m_clickExpandedItem = wxTreeItemId();
 
-    // Clicking the label asks to see what is in the branch, so open it and let onPageChanged()
-    // go on to the first sub-page. A click on the expander is left alone, or the branch could
-    // never be closed.
+    // A label click opens the branch so onPageChanged() moves on to its first sub-page
+    // The expander is left alone so the branch can still be closed
     if( item.IsOk() && ( flags & wxTREE_HITTEST_ONITEMLABEL ) && !tree->IsExpanded( item )
         && tree->ItemHasChildren( item ) )
     {

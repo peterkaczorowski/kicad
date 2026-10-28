@@ -193,7 +193,7 @@ protected:
     int                                             m_minHeightDIP = 0;  ///< Height a subclass asks for, in DIP
 
     /// Set where the port cannot show a transparent background, so the paint handler erases it
-    bool                                            m_erasesBackground = false;
+    bool m_erasesBackground = false;
 
     std::vector<std::unique_ptr<DRC_RE_OVERLAY_FIELD>> m_fields;    ///< All overlay fields
     std::map<wxString, DRC_RE_OVERLAY_FIELD*>       m_fieldIdMap;   ///< Field ID to field lookup

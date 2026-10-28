@@ -180,7 +180,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame, wxWindow* aParen
         { PANEL_SETUP_CONSTRAINT_RULES::FAMILY::SILKSCREEN, _( "Silkscreen" ) },
         { PANEL_SETUP_CONSTRAINT_RULES::FAMILY::SOLDER_MASK, _( "Mask and Paste" ) },
         { PANEL_SETUP_CONSTRAINT_RULES::FAMILY::HIGH_SPEED, _( "High Speed" ) },
-        { PANEL_SETUP_CONSTRAINT_RULES::FAMILY::FOOTPRINTS, _( "Footprints" ) }
+        { PANEL_SETUP_CONSTRAINT_RULES::FAMILY::FOOTPRINT_RULES, _( "Footprints" ) }
     };
 
     for( const auto& [family, familyTitle] : ruleFamilies )

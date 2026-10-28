@@ -62,10 +62,7 @@ DRC_RE_CONDITION_ROW_PANEL::DRC_RE_CONDITION_ROW_PANEL( wxWindow* aParent, BOARD
     m_objectChoice->SetSelection( 0 );
     m_objectChoice->SetToolTip( _( "Which of the two compared objects this condition applies to" ) );
 
-    // The size the control asks for leaves these labels ellipsised to "Object...", so the widest
-    // one is measured and the control held to it. GetTextSize() covers the label alone, so the
-    // native drop-down arrow is given room of its own, and the control never ends up narrower
-    // than it asked for.
+    // The best size ellipsises these labels, so fit the widest plus room for the drop-down arrow
     int widest = 0;
 
     for( const wxString& choice : objectChoices )

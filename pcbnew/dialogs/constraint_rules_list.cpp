@@ -396,6 +396,7 @@ void CONSTRAINT_RULES_LIST::updateButtons()
         m_primaryBtn->SetLabel( label );
         m_primaryBtn->SetBitmap( KiBitmapBundle( editingExisting ? BITMAPS::small_edit : BITMAPS::small_plus ) );
     }
+
     m_newBtn->Enable( editingExisting );
 
     m_upBtn->Enable( hasSelection );
