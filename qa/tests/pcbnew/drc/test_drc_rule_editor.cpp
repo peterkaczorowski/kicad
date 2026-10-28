@@ -151,6 +151,7 @@ BOOST_AUTO_TEST_CASE( SaveRules )
     BOOST_REQUIRE( file.IsOpened() );
     wxString content;
     file.ReadAll( &content );
+    file.Close();
 
     // Verify content
     BOOST_CHECK( content.Contains( "(version 2)" ) );
