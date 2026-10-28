@@ -136,6 +136,7 @@ PAGED_DIALOG::PAGED_DIALOG( wxWindow* aParent, const wxString& aTitle, bool aSho
     m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::onPageChanged, this );
     m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::onPageChanging, this );
     m_treebook->GetTreeCtrl()->Bind( wxEVT_LEFT_DOWN, &PAGED_DIALOG::onTreeLeftDown, this );
+    m_treebook->GetTreeCtrl()->Bind( wxEVT_TREE_ITEM_ACTIVATED, &PAGED_DIALOG::onTreeItemActivated, this );
 }
 
 
@@ -212,6 +213,8 @@ PAGED_DIALOG::~PAGED_DIALOG()
     m_treebook->Unbind( wxEVT_CHAR_HOOK, &PAGED_DIALOG::onCharHook, this );
     m_treebook->Unbind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::onPageChanged, this );
     m_treebook->Unbind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::onPageChanging, this );
+    m_treebook->GetTreeCtrl()->Unbind( wxEVT_LEFT_DOWN, &PAGED_DIALOG::onTreeLeftDown, this );
+    m_treebook->GetTreeCtrl()->Unbind( wxEVT_TREE_ITEM_ACTIVATED, &PAGED_DIALOG::onTreeItemActivated, this );
 }
 
 
@@ -422,6 +425,8 @@ void PAGED_DIALOG::onTreeLeftDown( wxMouseEvent& aEvent )
     int          flags = 0;
     wxTreeItemId item = tree->HitTest( aEvent.GetPosition(), flags );
 
+    m_clickExpandedItem = wxTreeItemId();
+
     // Clicking the label asks to see what is in the branch, so open it and let onPageChanged()
     // go on to the first sub-page. A click on the expander is left alone, or the branch could
     // never be closed.
@@ -429,7 +434,40 @@ void PAGED_DIALOG::onTreeLeftDown( wxMouseEvent& aEvent )
         && tree->ItemHasChildren( item ) )
     {
         tree->Expand( item );
+        m_clickExpandedItem = item;
+
+        // The selection does not change, so onPageChanged() will not move on to the first sub-page.
+        // Deferred so the tree finishes handling the click first.
+        if( tree->GetSelection() == item )
+        {
+            int page = m_treebook->GetSelection();
+
+            CallAfter(
+                    [this, page]()
+                    {
+                        wxWindow* current = m_treebook->GetCurrentPage();
+
+                        if( m_treebook->GetSelection() == page && current && current->GetChildren().IsEmpty()
+                            && page + 1 < (int) m_treebook->GetPageCount() && m_treebook->IsNodeExpanded( page ) )
+                        {
+                            m_treebook->SetSelection( page + 1 );
+                        }
+                    } );
+        }
     }
+}
+
+
+void PAGED_DIALOG::onTreeItemActivated( wxTreeEvent& aEvent )
+{
+    // A double-click would otherwise toggle shut the branch its first click just opened
+    if( aEvent.GetItem() == m_clickExpandedItem )
+    {
+        m_clickExpandedItem = wxTreeItemId();
+        return;
+    }
+
+    aEvent.Skip();
 }
 
 

@@ -75,6 +75,7 @@ protected:
     virtual void onPageChanging( wxBookCtrlEvent& aEvent );
     virtual void onCharHook( wxKeyEvent& aEvent );
     void         onTreeLeftDown( wxMouseEvent& aEvent );
+    void         onTreeItemActivated( wxTreeEvent& aEvent );
 
     WX_TREEBOOK* m_treebook;
     wxButton*    m_auxiliaryButton;
@@ -88,6 +89,8 @@ private:
     wxBoxSizer* m_buttonsSizer;
 
     std::vector<bool> m_macHack;
+
+    wxTreeItemId      m_clickExpandedItem;
 };
 
 
