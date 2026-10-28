@@ -2786,6 +2786,35 @@ static void blockDragPassNavigation( TOOL_EVENT* aEvent )
 }
 
 
+// Commands that leave the board alone and so may run while a gesture holds its staged commit
+static const TOOL_ACTION* const blockDragSafeActions[] = {
+    &ACTIONS::updateMenu,        &ACTIONS::refreshPreview,      &ACTIONS::zoomRedraw,
+    &ACTIONS::cursorClick,       &ACTIONS::gridFast1,           &ACTIONS::gridFast2,
+    &ACTIONS::gridFastCycle,     &ACTIONS::gridNext,            &ACTIONS::gridPrev,
+    &ACTIONS::gridPreset,        &ACTIONS::toggleGrid,          &ACTIONS::toggleGridOverrides,
+    &ACTIONS::toggleCursor,      &ACTIONS::togglePolarCoords,   &PCB_ACTIONS::drag45Degree,
+    &PCB_ACTIONS::dragFreeAngle, nullptr
+};
+
+
+static bool blockDragAllowsCommand( const TOOL_EVENT& aEvent )
+{
+    if( aEvent.IsCancelInteractive() || aEvent.IsActivate() )
+        return true;
+
+    for( const TOOL_ACTION* const* list : { blockDragNavigationActions, blockDragSafeActions } )
+    {
+        for( int ii = 0; list[ii]; ++ii )
+        {
+            if( aEvent.IsAction( list[ii] ) )
+                return true;
+        }
+    }
+
+    return false;
+}
+
+
 namespace
 {
 
@@ -4784,17 +4813,10 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         }
 
         // A running gesture holds a staged commit, and with copper in it a live router
-        // session. Refuse any command that would edit the board underneath it, because a
+        // session. Refuse any command that could edit the board underneath it, because a
         // commit pushed now would record the gesture's half-dragged geometry as the state
         // its own undo returns to. Undo is already held off while the gesture runs
-        if( block.IsActive() && evt->Category() == TC_COMMAND
-            && ( evt->IsAction( &ACTIONS::cut ) || evt->IsAction( &ACTIONS::copy ) || evt->IsAction( &ACTIONS::paste )
-                 || evt->IsAction( &ACTIONS::pasteSpecial ) || evt->IsAction( &ACTIONS::doDelete )
-                 || evt->IsAction( &ACTIONS::deleteTool ) || ZONE_FILLER_TOOL::IsZoneFillAction( evt )
-                 || evt->IsAction( &PCB_ACTIONS::rotateCw ) || evt->IsAction( &PCB_ACTIONS::rotateCcw )
-                 || evt->IsAction( &PCB_ACTIONS::flip ) || evt->IsAction( &PCB_ACTIONS::mirrorH )
-                 || evt->IsAction( &PCB_ACTIONS::mirrorV ) || evt->IsAction( &PCB_ACTIONS::swap )
-                 || evt->IsAction( &PCB_ACTIONS::properties ) || evt->IsAction( &ACTIONS::save ) ) )
+        if( block.IsActive() && evt->Category() == TC_COMMAND && !blockDragAllowsCommand( *evt ) )
         {
             wxBell();
             continue;
