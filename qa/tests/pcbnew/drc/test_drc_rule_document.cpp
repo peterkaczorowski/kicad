@@ -86,13 +86,15 @@ BOOST_AUTO_TEST_CASE( UneditedRulesRoundTripVerbatim )
     BOOST_REQUIRE_EQUAL( document.IndicesFor( MINIMUM_CLEARANCE ).size(), 2 );
     BOOST_REQUIRE_EQUAL( document.IndicesFor( HOLE_SIZE ).size(), 1 );
 
-    wxString text = document.GetText();
+    // Adding and removing a rule sends the document through the saver with every rule unedited
+    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "added" ) );
+    auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( MINIMUM_CLEARANCE, base );
 
-    BOOST_CHECK_MESSAGE( text.Contains( wxS( "# keep this comment" ) ), "comment inside a rule was lost:\n" << text );
-    BOOST_CHECK_MESSAGE( text.Contains( wxS( "# header comment" ) ), "comment outside the rules was lost:\n" << text );
-    BOOST_CHECK( text.Contains( wxS( "(constraint clearance (min 0.3mm))" ) ) );
-    BOOST_CHECK( text.Contains( wxS( "(condition \"A.NetClass == 'HV'\")" ) ) );
-    BOOST_CHECK( text.StartsWith( wxS( "(version 2)" ) ) );
+    int added = document.Add( DRC_RE_LOADED_PANEL_ENTRY( MINIMUM_CLEARANCE, data, wxS( "added" ), wxEmptyString,
+                                                         RPT_SEVERITY_UNDEFINED, LSET() ) );
+    document.Remove( added );
+
+    BOOST_CHECK_EQUAL( document.GetText(), TWO_CLEARANCES_AND_A_HOLE );
 }
 
 
@@ -116,7 +118,7 @@ BOOST_AUTO_TEST_CASE( AddingARuleLeavesTheOthersUntouched )
 
     wxString text = document.GetText();
 
-    BOOST_CHECK( text.Contains( wxS( "# keep this comment" ) ) );
+    BOOST_CHECK( text.StartsWith( TWO_CLEARANCES_AND_A_HOLE ) );
     BOOST_CHECK( text.Contains( wxS( "(rule added\n" ) ) );
     BOOST_CHECK( text.Contains( wxS( "(constraint clearance (min 0.7mm))" ) ) );
     BOOST_CHECK_EQUAL( countOf( text, wxS( "(rule " ) ), 4 );
@@ -128,8 +130,8 @@ BOOST_AUTO_TEST_CASE( AMergedRuleIsWrittenBackAsOneRule )
     BOARD             board;
     DRC_RULE_DOCUMENT document( &board );
 
-    // The two constraints of "merged" are edited on separate pages, so writing the document out
-    // again has to put them back under one rule rather than one rule each.
+    // The two constraints of "merged" are listed on separate pages, so editing one has to write
+    // them back under one rule rather than one rule each
     document.SetText( wxS( "(version 2)\n"
                            "(rule \"merged\"\n"
                            "\t(constraint clearance (min 0.3mm))\n"
@@ -140,25 +142,20 @@ BOOST_AUTO_TEST_CASE( AMergedRuleIsWrittenBackAsOneRule )
     BOOST_REQUIRE_EQUAL( document.IndicesFor( MINIMUM_CLEARANCE ).size(), 2 );
     BOOST_REQUIRE_EQUAL( document.IndicesFor( HOLE_SIZE ).size(), 1 );
 
-    // Adding elsewhere is what sends the document back through the saver, since untouched text
-    // is otherwise returned as it was read.
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "added" ) );
-    auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( MINIMUM_CLEARANCE, base );
-    data->SetConstraintCode( wxS( "clearance" ) );
-    std::dynamic_pointer_cast<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA>( data )->SetNumericInputValue( 0.7 );
+    int                       holeIndex = document.IndicesFor( HOLE_SIZE ).front();
+    DRC_RE_LOADED_PANEL_ENTRY hole = document.Entries()[holeIndex];
 
-    document.Add( DRC_RE_LOADED_PANEL_ENTRY( MINIMUM_CLEARANCE, data, wxS( "added" ), wxEmptyString,
-                                             RPT_SEVERITY_UNDEFINED, LSET() ) );
+    std::dynamic_pointer_cast<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA>( hole.constraintData )
+            ->SetNumericInputValue( 0.25 );
+    document.UpdateEntry( holeIndex, hole );
 
     wxString text = document.GetText();
 
-    BOOST_CHECK_MESSAGE( text.Contains( wxS( "(rule \"merged\"\n"
-                                             "\t(constraint clearance (min 0.3mm))\n"
-                                             "\t(constraint hole_size (min 0.2mm)))" ) ),
-                         "the merged rule was not written back as it was read:\n"
-                                 << text );
-
-    BOOST_CHECK_EQUAL( countOf( text, wxS( "(rule " ) ), 3 );
+    BOOST_CHECK_EQUAL( countOf( text, wxS( "(rule " ) ), 2 );
+    BOOST_CHECK_EQUAL( countOf( text, wxS( "merged" ) ), 1 );
+    BOOST_CHECK_MESSAGE( text.Contains( wxS( "(constraint clearance (min 0.3mm))" ) )
+                                 && text.Contains( wxS( "(constraint hole_size (min 0.25mm))" ) ),
+                         "the merged rule lost a constraint:\n" << text );
 }
 
 
@@ -226,7 +223,8 @@ BOOST_AUTO_TEST_CASE( ImportingFromABoardWithoutARulesFileChangesNothing )
     document.SetText( TWO_CLEARANCES_AND_A_HOLE );
     wxString before = document.GetText();
 
-    wxFileName missing( wxFileName::GetTempDir(), wxS( "no_such_board.kicad_dru" ) );
+    wxFileName missing( wxFileName::CreateTempFileName( wxS( "qa_missing" ) ) );
+    wxRemoveFile( missing.GetFullPath() );
     BOOST_REQUIRE( !missing.FileExists() );
 
     document.LoadFrom( missing.GetFullPath() );
@@ -243,7 +241,7 @@ BOOST_AUTO_TEST_CASE( ImportingFromABoardWithRulesReplacesThem )
 
     document.SetText( TWO_CLEARANCES_AND_A_HOLE );
 
-    wxFileName other( wxFileName::GetTempDir(), wxS( "qa_import_source.kicad_dru" ) );
+    wxFileName other( wxFileName::CreateTempFileName( wxS( "qa_import_source" ) ) );
     wxFFile    file( other.GetFullPath(), wxS( "wb" ) );
 
     BOOST_REQUIRE( file.IsOpened() );
@@ -273,7 +271,7 @@ BOOST_AUTO_TEST_CASE( TypographicQuotesInAFileOnDiskStillParse )
                                  L"\t(constraint clearance (min 0.3mm))\n"
                                  L"\t(condition \u201CA.NetClass == \u2018HV\u2019\u201D))\n";
 
-    wxFileName quoted( wxFileName::GetTempDir(), wxS( "qa_smart_quotes.kicad_dru" ) );
+    wxFileName quoted( wxFileName::CreateTempFileName( wxS( "qa_smart_quotes" ) ) );
     wxFFile    file( quoted.GetFullPath(), wxS( "wb" ) );
 
     BOOST_REQUIRE( file.IsOpened() );
