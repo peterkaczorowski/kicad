@@ -88,10 +88,10 @@ public:
         if( hasDiameter )
         {
             if( m_minViaDiameter < 0 )
-                result.AddError( _( "Minimum Via Diameter must be greater than 0" ) );
+                result.AddError( _( "Minimum Via Diameter cannot be negative" ) );
 
             if( m_maxViaDiameter < 0 )
-                result.AddError( _( "Maximum Via Diameter must be greater than 0" ) );
+                result.AddError( _( "Maximum Via Diameter cannot be negative" ) );
 
             if( m_minViaDiameter > 0 && m_maxViaDiameter > 0 && m_minViaDiameter > m_maxViaDiameter )
                 result.AddError( _( "Minimum Via Diameter cannot be greater than Maximum Via Diameter" ) );
@@ -100,10 +100,10 @@ public:
         if( hasHoleSize )
         {
             if( m_minViaHoleSize < 0 )
-                result.AddError( _( "Minimum Via Hole Size must be greater than 0" ) );
+                result.AddError( _( "Minimum Via Hole Size cannot be negative" ) );
 
             if( m_maxViaHoleSize < 0 )
-                result.AddError( _( "Maximum Via Hole Size must be greater than 0" ) );
+                result.AddError( _( "Maximum Via Hole Size cannot be negative" ) );
 
             if( m_minViaHoleSize > 0 && m_maxViaHoleSize > 0 && m_minViaHoleSize > m_maxViaHoleSize )
                 result.AddError( _( "Minimum Via Hole Size cannot be greater than Maximum Via Hole Size" ) );

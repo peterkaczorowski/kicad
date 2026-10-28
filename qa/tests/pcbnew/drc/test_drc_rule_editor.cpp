@@ -355,7 +355,7 @@ BOOST_AUTO_TEST_CASE( ValidateViaStyleInvalidNegativeValues )
     bool foundNegativeError = false;
     for( const auto& error : result.errors )
     {
-        if( error.find( "must be greater than 0" ) != std::string::npos )
+        if( error.find( "cannot be negative" ) != std::string::npos )
             foundNegativeError = true;
     }
     BOOST_CHECK( foundNegativeError );
