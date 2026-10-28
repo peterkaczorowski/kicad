@@ -459,13 +459,17 @@ bool CONSTRAINT_RULES_LIST::ConfirmPendingRule()
     if( !HasPendingRule() )
         return true;
 
+    bool existing = editingIndex() >= 0;
+
     KICAD_MESSAGE_DIALOG_BASE dlg( this,
-                                   _( "This rule is still in the form. Only the rules in the "
-                                      "list apply." ),
-                                   _( "Rule Not Added" ),
+                                   existing ? _( "Changes to this rule are still in the form. Only the rules in "
+                                                 "the list apply." )
+                                            : _( "This rule is still in the form. Only the rules in the "
+                                                 "list apply." ),
+                                   existing ? _( "Rule Not Applied" ) : _( "Rule Not Added" ),
                                    wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxICON_WARNING | wxCENTRE );
 
-    dlg.SetYesNoCancelLabels( _( "Add Rule" ), _( "Discard" ), _( "Cancel" ) );
+    dlg.SetYesNoCancelLabels( existing ? _( "Apply" ) : _( "Add Rule" ), _( "Discard" ), _( "Cancel" ) );
 
     int choice = dlg.ShowModal();
 
