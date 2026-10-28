@@ -194,6 +194,9 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
     fitColumns();
     updateButtons();
     relayout();
+
+    if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+        dialog->InvalidateSearchIndex( this );
 }
 
 
@@ -620,6 +623,9 @@ void CONSTRAINT_RULES_LIST::buildEditor( const std::shared_ptr<DRC_RE_BASE_CONST
             } );
 
     relayout();
+
+    if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+        dialog->InvalidateSearchIndex( this );
 }
 
 

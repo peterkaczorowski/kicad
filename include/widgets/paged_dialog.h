@@ -24,6 +24,8 @@
 #include <dialog_shim.h>
 #include <widgets/wx_treebook.h>
 
+#include <set>
+
 
 class WX_INFOBAR;
 class WX_TREEBOOK;
@@ -63,6 +65,26 @@ public:
 
     static PAGED_DIALOG* GetDialog( wxWindow* aWindow );
 
+    /**
+     * Keep aWindow and its children out of the search index, for text that repeats what the
+     * tree already shows or that names something the page does not own.
+     */
+    void ExcludeFromSearchIndex( wxWindow* aWindow );
+
+    /**
+     * Keep the tab titles of aBook out of the search index, where those titles are data the
+     * user named rather than fixed wording. The controls on each tab are still indexed.
+     */
+    void ExcludeBookTitlesFromSearchIndex( wxBookCtrlBase* aBook );
+
+    /**
+     * Refresh cached labels for the page containing aWindow after its controls change.
+     *
+     * Call this whenever a label is renamed, a control is added or removed, or a control is
+     * shown for the first time. Without it the page keeps matching its old wording.
+     */
+    void InvalidateSearchIndex( wxWindow* aWindow );
+
 protected:
     void finishInitialization();
 
@@ -100,6 +122,8 @@ private:
     void loadTreeExpansion();
 
     void buildSearchIndex();
+    std::vector<wxString> buildPageSearchIndex( size_t aPage );
+    void                  refreshSearch();
 
     /**
      * Bold the pages matching the search box and grey out the rest.
@@ -112,6 +136,8 @@ private:
 
     wxSearchCtrl*                      m_searchCtrl;
     std::vector<std::vector<wxString>> m_searchIndex; ///< Lowercased page title and labels, per page
+    std::set<wxWindow*>                m_searchExcludedControls;
+    std::set<wxBookCtrlBase*>          m_searchExcludedBookTitles;
 
     wxBoxSizer* m_buttonsSizer;
 

@@ -52,6 +52,8 @@
 #include <wx/utils.h>
 #include <wx/wupdlock.h>
 
+#include <utility>
+
 #include <paths.h>
 
 #include <launch_ext.h>
@@ -565,12 +567,70 @@ void PAGED_DIALOG::onTreeLeftDown( wxMouseEvent& aEvent )
 }
 
 
-static void collectSearchText( wxWindow* aWindow, std::vector<wxString>& aTexts )
+void PAGED_DIALOG::ExcludeFromSearchIndex( wxWindow* aWindow )
 {
+    m_searchExcludedControls.insert( aWindow );
+    m_searchIndex.clear();
+}
+
+
+void PAGED_DIALOG::ExcludeBookTitlesFromSearchIndex( wxBookCtrlBase* aBook )
+{
+    m_searchExcludedBookTitles.insert( aBook );
+    m_searchIndex.clear();
+}
+
+
+void PAGED_DIALOG::InvalidateSearchIndex( wxWindow* aWindow )
+{
+    if( m_searchIndex.size() != m_treebook->GetPageCount() )
+        return;
+
+    for( size_t ii = 0; ii < m_searchIndex.size(); ++ii )
+    {
+        wxWindow* page = m_treebook->GetPage( ii );
+
+        if( page != aWindow && !page->IsDescendant( aWindow ) )
+            continue;
+
+        if( !m_searchIndex[ii].empty() )
+        {
+            m_searchIndex[ii].clear();
+            CallAfter( &PAGED_DIALOG::refreshSearch );
+        }
+
+        return;
+    }
+}
+
+
+static void collectSearchText( wxWindow* aWindow, std::vector<wxString>& aTexts,
+                               const std::set<wxWindow*>&       aExcludedControls,
+                               const std::set<wxBookCtrlBase*>& aExcludedBookTitles )
+{
+    if( aExcludedControls.contains( aWindow ) )
+        return;
+
+    // Include inactive book pages, but not windows removed from the book.
+    if( wxBookCtrlBase* book = dynamic_cast<wxBookCtrlBase*>( aWindow ) )
+    {
+        for( size_t ii = 0; ii < book->GetPageCount(); ++ii )
+        {
+            if( !aExcludedBookTitles.contains( book ) )
+                aTexts.push_back( book->GetPageText( ii ).Lower() );
+
+            collectSearchText( book->GetPage( ii ), aTexts, aExcludedControls, aExcludedBookTitles );
+        }
+
+        return;
+    }
+
     for( wxWindow* child : aWindow->GetChildren() )
     {
-        // Inactive notebook pages are hidden but still part of the panel
-        if( !child->IsShown() && !dynamic_cast<wxBookCtrlBase*>( aWindow ) )
+        if( aExcludedControls.contains( child ) )
+            continue;
+
+        if( !child->IsShown() )
             continue;
 
         // wxRadioBox derives from wxStaticBox on MSW, so test it first
@@ -587,19 +647,31 @@ static void collectSearchText( wxWindow* aWindow, std::vector<wxString>& aTexts 
         {
             aTexts.push_back( static_cast<wxControl*>( child )->GetLabelText().Lower() );
         }
-        else if( wxBookCtrlBase* book = dynamic_cast<wxBookCtrlBase*>( child ) )
-        {
-            for( size_t ii = 0; ii < book->GetPageCount(); ++ii )
-                aTexts.push_back( book->GetPageText( ii ).Lower() );
-        }
         else if( wxGrid* grid = dynamic_cast<wxGrid*>( child ) )
         {
             for( int col = 0; col < grid->GetNumberCols(); ++col )
                 aTexts.push_back( grid->GetColLabelValue( col ).Lower() );
         }
 
-        collectSearchText( child, aTexts );
+        collectSearchText( child, aTexts, aExcludedControls, aExcludedBookTitles );
     }
+}
+
+
+std::vector<wxString> PAGED_DIALOG::buildPageSearchIndex( size_t aPage )
+{
+    std::vector<wxString> texts;
+    wxString              title = m_treebook->GetPageText( aPage );
+    int                   parent = m_treebook->GetPageParent( aPage );
+
+    // Lets "schematic colors" find the Colors page under Schematic Editor
+    if( parent != wxNOT_FOUND )
+        title = m_treebook->GetPageText( parent ) + wxS( " " ) + title;
+
+    texts.push_back( title.Lower() );
+    collectSearchText( m_treebook->ResolvePageForSearch( aPage ), texts, m_searchExcludedControls,
+                       m_searchExcludedBookTitles );
+    return texts;
 }
 
 
@@ -609,20 +681,12 @@ void PAGED_DIALOG::buildSearchIndex()
     wxBusyCursor         busy;
     wxWindowUpdateLocker updateLock( m_treebook );
 
-    m_searchIndex.assign( m_treebook->GetPageCount(), {} );
+    std::vector<std::vector<wxString>> index( m_treebook->GetPageCount() );
 
-    for( size_t ii = 0; ii < m_searchIndex.size(); ++ii )
-    {
-        wxString title = m_treebook->GetPageText( ii );
-        int      parent = m_treebook->GetPageParent( ii );
+    for( size_t ii = 0; ii < index.size(); ++ii )
+        index[ii] = buildPageSearchIndex( ii );
 
-        // Lets "schematic colors" find the Colors page under Schematic Editor
-        if( parent != wxNOT_FOUND )
-            title = m_treebook->GetPageText( parent ) + wxS( " " ) + title;
-
-        m_searchIndex[ii].push_back( title.Lower() );
-        collectSearchText( m_treebook->ResolvePageForSearch( ii ), m_searchIndex[ii] );
-    }
+    m_searchIndex = std::move( index );
 
     timer.Stop();
     wxLogTrace( traceUiProfile, wxS( "Indexing %zu pages of '%s' for search took %s." ), m_searchIndex.size(), m_title,
@@ -677,6 +741,9 @@ int PAGED_DIALOG::applySearch()
 
     for( size_t ii = 0; ii < count; ++ii )
     {
+        if( m_searchIndex[ii].empty() )
+            m_searchIndex[ii] = buildPageSearchIndex( ii );
+
         // A page matches when every word is found somewhere on it. Testing each label for the
         // whole query would miss words that are both on the page but in different labels.
         std::fill( found.begin(), found.end(), false );
@@ -729,6 +796,13 @@ int PAGED_DIALOG::applySearch()
     }
 
     return target;
+}
+
+
+void PAGED_DIALOG::refreshSearch()
+{
+    if( !m_searchCtrl->IsEmpty() )
+        applySearch();
 }
 
 
@@ -870,6 +944,9 @@ void PAGED_DIALOG::onPageChanged( wxBookCtrlEvent& event )
     wxSizeEvent evt( wxDefaultSize );
     wxQueueEvent( m_treebook, evt.Clone() );
 #endif
+
+    // Refresh after derived page handlers have updated their project data.
+    CallAfter( &PAGED_DIALOG::refreshSearch );
 }
 
 

@@ -134,6 +134,7 @@ private:
     static std::optional<CONSTRAINT_SECTION> sectionForSetting( const wxString& aSetting );
 
     void buildSection();
+    void getNetclassText( wxString& aLabel, wxString& aTooltip ) const;
     void updateNetclassLabels();
     void wrapLabels();
     void showPage( const wxString& aTitle );

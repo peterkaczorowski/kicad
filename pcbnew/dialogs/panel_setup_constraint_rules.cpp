@@ -184,6 +184,9 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
         settings->Add( row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
 
         m_netclassLabel = label;
+
+        if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+            dialog->ExcludeFromSearchIndex( m_netclassLabel );
     }
 
     if( m_section.ruleType )
@@ -231,52 +234,53 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
 }
 
 
+void PANEL_SETUP_CONSTRAINT_RULES::getNetclassText( wxString& aLabel, wxString& aTooltip ) const
+{
+    aLabel.clear();
+    aTooltip.clear();
+
+    const NET_SETTINGS& netSettings = *m_frame->Prj().GetProjectFile().NetSettings();
+
+    for( const auto& [value, names] : groupByValue( m_section.netclassValue, netSettings ) )
+    {
+        if( !aLabel.IsEmpty() )
+        {
+            aLabel << wxS( "    " );
+            aTooltip << wxS( "\n" );
+        }
+
+        const wxString valueText = m_frame->StringFromValue( value, true ) + wxS( ": " );
+        aLabel << valueText;
+        aTooltip << valueText;
+
+        const size_t shown = 5;
+
+        for( size_t n = 0; n < names.size(); ++n )
+        {
+            aTooltip << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
+
+            if( n < shown )
+                aLabel << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
+        }
+
+        if( names.size() > shown )
+            aLabel << wxString::Format( _( " and %zu more" ), names.size() - shown );
+    }
+
+    if( aLabel.IsEmpty() )
+        aLabel = _( "Net classes: no class sets this value" );
+    else
+        aLabel = _( "Net classes:  " ) + aLabel;
+}
+
+
 void PANEL_SETUP_CONSTRAINT_RULES::updateNetclassLabels()
 {
     if( m_netclassLabel )
     {
-        std::shared_ptr<NET_SETTINGS>& netSettings = m_frame->Prj().GetProjectFile().NetSettings();
-
-        std::map<int, std::vector<wxString>> byValue = groupByValue( m_section.netclassValue, *netSettings );
-
-        wxString text;
-        wxString fullText;
-
-        for( const auto& [value, names] : byValue )
-        {
-            if( !text.IsEmpty() )
-            {
-                text << wxS( "    " );
-                fullText << wxS( "\n" );
-            }
-
-            text << m_frame->StringFromValue( value, true ) << wxS( ": " );
-            fullText << m_frame->StringFromValue( value, true ) << wxS( ": " );
-
-            const size_t shown = 5;
-
-            for( size_t n = 0; n < names.size(); ++n )
-            {
-                fullText << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
-
-                if( n < shown )
-                    text << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
-            }
-
-            if( names.size() > shown )
-                text << wxString::Format( _( " and %zu more" ), names.size() - shown );
-        }
-
-        if( text.IsEmpty() )
-        {
-            m_netclassText = _( "Net classes: no class sets this value" );
-            m_netclassLabel->SetToolTip( wxEmptyString );
-        }
-        else
-        {
-            m_netclassText = _( "Net classes:  " ) + text;
-            m_netclassLabel->SetToolTip( fullText );
-        }
+        wxString tooltip;
+        getNetclassText( m_netclassText, tooltip );
+        m_netclassLabel->SetToolTip( tooltip );
     }
 
     wrapLabels();
@@ -393,6 +397,15 @@ void PANEL_SETUP_CONSTRAINT_RULES::RefreshFromDocument()
 void PANEL_SETUP_CONSTRAINT_RULES::AppendSearchTerms( const DRC_RULE_DOCUMENT& aDocument,
                                                       std::vector<wxString>&   aTerms ) const
 {
+    if( m_netclassLabel )
+    {
+        wxString label;
+        wxString tooltip;
+        getNetclassText( label, tooltip );
+        aTerms.push_back( label );
+        aTerms.push_back( tooltip );
+    }
+
     if( !m_section.ruleType || aDocument.HasUnparsedText() )
         return;
 
