@@ -27,6 +27,7 @@
 #include <vector>
 #include <wx/panel.h>
 
+#include <drc/drc_constraint_types.h>
 #include <drc/rule_editor/drc_rule_editor_enums.h>
 
 class wxScrolledWindow;
@@ -86,7 +87,11 @@ public:
      */
     static std::vector<CONSTRAINT_SECTION> SectionsFor( FAMILY aFamily );
 
-    static bool RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType, wxString* aPage );
+    /// Whether rules can set a value other than this board default, and the DRC constraint that does it
+    static bool RulesCanOverride( const wxString& aSetting, DRC_CONSTRAINT_T* aConstraint );
+
+    /// The title of the page that edits rules of this type, or empty when no page does
+    static wxString PageTitleFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType );
 
     /**
      * The classes setting their own value for a board constraint, grouped by the value they set.

@@ -30,6 +30,7 @@
 #include <widgets/field_warning_icon.h>
 #include <dialogs/constraint_rules_list.h>
 #include <dialogs/panel_setup_constraint_rules.h>
+#include <drc/rule_editor/drc_re_panel_matcher.h>
 #include <drc/rule_editor/drc_rule_document.h>
 #include <widgets/paged_dialog.h>
 #include <wx/treebook.h>
@@ -268,7 +269,7 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
     {
         field.m_Warning = new FIELD_WARNING_ICON( field.m_Ctrl );
 
-        if( m_document && PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, nullptr, nullptr ) )
+        if( m_document && PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, nullptr ) )
         {
             field.m_Override = new FIELD_WARNING_ICON( field.m_Ctrl, BITMAPS::small_new_window, 1 );
             field.m_Override->SetCursor( wxCURSOR_HAND );
@@ -425,14 +426,22 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
         if( !field.m_Override )
             continue;
 
-        DRC_RULE_EDITOR_CONSTRAINT_NAME type;
+        DRC_CONSTRAINT_T constraint;
 
-        if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, &type, nullptr ) )
+        if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, &constraint ) )
             continue;
 
-        const std::vector<int> indices = m_document->IndicesFor( type );
+        const std::vector<int> indices = m_document->IndicesSetting( constraint );
 
-        if( !indices.empty() )
+        // DRC raises a rule clearance below the board minimum back up to it, so rules cannot lower this
+        if( !indices.empty() && constraint == CLEARANCE_CONSTRAINT )
+        {
+            field.m_Override->SetWarning(
+                    wxString::Format( wxPLURAL( "%zu rule sets clearance. Click to see it.",
+                                                "%zu rules set clearance. Click to see them.", indices.size() ),
+                                      indices.size() ) );
+        }
+        else if( !indices.empty() )
         {
             field.m_Override->SetWarning(
                     wxString::Format( wxPLURAL( "%zu rule overrides this. Click to see it.",
@@ -453,13 +462,12 @@ void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
 
 void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxWindow* aAnchor )
 {
-    DRC_RULE_EDITOR_CONSTRAINT_NAME type;
-    wxString                        page;
+    DRC_CONSTRAINT_T constraint;
 
-    if( !m_document || !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &type, &page ) )
+    if( !m_document || !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &constraint ) )
         return;
 
-    const std::vector<int>                     indices = m_document->IndicesFor( type );
+    const std::vector<int>                     indices = m_document->IndicesSetting( constraint );
     const NET_SETTINGS&                        netSettings = *m_Frame->Prj().GetProjectFile().NetSettings();
     const std::map<int, std::vector<wxString>> netclasses =
             PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( aSetting, netSettings );
@@ -469,13 +477,22 @@ void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxW
 
     OVERRIDING_RULES_POPUP* popup = new OVERRIDING_RULES_POPUP( this );
 
-    if( !indices.empty() )
+    if( !indices.empty() && constraint == CLEARANCE_CONSTRAINT )
+        popup->AddHeading( _( "User clearance rules" ) );
+    else if( !indices.empty() )
         popup->AddHeading( _( "Overridden by user rules" ) );
+
+    static DRC_PANEL_MATCHER matcher;
 
     for( int index : indices )
     {
         const DRC_RE_LOADED_PANEL_ENTRY& entry = m_document->Entries()[index];
-        wxString                         value = CONSTRAINT_RULES_LIST::ConstraintText( entry, type, m_Frame );
+
+        // A rule kept as text is listed on the page of the constraint it sets
+        DRC_RULE_EDITOR_CONSTRAINT_NAME type =
+                entry.panelType == CUSTOM_RULE ? matcher.GetHomePanel( constraint ) : entry.panelType;
+        wxString page = PANEL_SETUP_CONSTRAINT_RULES::PageTitleFor( type );
+        wxString value = CONSTRAINT_RULES_LIST::ConstraintText( entry, type, m_Frame );
         wxString                         detail;
 
         if( entry.condition.IsEmpty() && entry.layerSource.IsEmpty() )

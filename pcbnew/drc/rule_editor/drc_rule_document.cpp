@@ -253,6 +253,20 @@ std::vector<int> DRC_RULE_DOCUMENT::IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME 
 }
 
 
+std::vector<int> DRC_RULE_DOCUMENT::IndicesSetting( DRC_CONSTRAINT_T aConstraint ) const
+{
+    std::vector<int> result;
+
+    for( size_t i = 0; i < m_entries.size(); ++i )
+    {
+        if( ConstraintsOf( m_entries[i] ).count( aConstraint ) )
+            result.push_back( (int) i );
+    }
+
+    return result;
+}
+
+
 int DRC_RULE_DOCUMENT::Add( const DRC_RE_LOADED_PANEL_ENTRY& aEntry )
 {
     m_entries.push_back( aEntry );

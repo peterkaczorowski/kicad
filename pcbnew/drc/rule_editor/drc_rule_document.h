@@ -75,6 +75,9 @@ public:
 
     std::vector<int> IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType ) const;
 
+    /// Every rule that sets aConstraint, whichever page edits it
+    std::vector<int> IndicesSetting( DRC_CONSTRAINT_T aConstraint ) const;
+
     int Add( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
 
     /**

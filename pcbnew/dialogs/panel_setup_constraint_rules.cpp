@@ -21,6 +21,8 @@
 
 #include <map>
 
+#include <drc/drc_constraint_types.h>
+
 #include <board.h>
 #include <board_design_settings.h>
 #include <netclass.h>
@@ -449,21 +451,51 @@ std::map<int, std::vector<wxString>> PANEL_SETUP_CONSTRAINT_RULES::NetclassValue
 }
 
 
-bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType,
-                                                     wxString* aPage )
+bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, DRC_CONSTRAINT_T* aConstraint )
 {
-    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
+    static const std::map<wxString, DRC_CONSTRAINT_T> constraints = {
+        { wxS( "min_clearance" ), CLEARANCE_CONSTRAINT },
+        { wxS( "min_hole_clearance" ), HOLE_CLEARANCE_CONSTRAINT },
+        { wxS( "min_copper_edge_clearance" ), EDGE_CLEARANCE_CONSTRAINT },
+        { wxS( "min_track_width" ), TRACK_WIDTH_CONSTRAINT },
+        { wxS( "min_connection" ), CONNECTION_WIDTH_CONSTRAINT },
+        { wxS( "min_via_annular_width" ), ANNULAR_WIDTH_CONSTRAINT },
+        { wxS( "min_via_diameter" ), VIA_DIAMETER_CONSTRAINT },
+        { wxS( "min_through_hole_diameter" ), HOLE_SIZE_CONSTRAINT },
+        { wxS( "min_hole_to_hole" ), HOLE_TO_HOLE_CONSTRAINT },
+        { wxS( "min_silk_clearance" ), SILK_CLEARANCE_CONSTRAINT },
+        { wxS( "min_text_height" ), TEXT_HEIGHT_CONSTRAINT },
+        { wxS( "min_text_thickness" ), TEXT_THICKNESS_CONSTRAINT },
+        { wxS( "solder_mask_expansion" ), SOLDER_MASK_EXPANSION_CONSTRAINT },
+        { wxS( "solder_mask_min_width" ), SOLDER_MASK_SLIVER_CONSTRAINT },
+        { wxS( "solder_paste_margin" ), SOLDER_PASTE_ABS_MARGIN_CONSTRAINT }
+    };
 
-    if( !section || !section->ruleType )
+    auto it = constraints.find( aSetting );
+
+    if( it == constraints.end() )
         return false;
 
-    if( aType )
-        *aType = *section->ruleType;
-
-    if( aPage )
-        *aPage = section->title;
+    if( aConstraint )
+        *aConstraint = it->second;
 
     return true;
+}
+
+
+wxString PANEL_SETUP_CONSTRAINT_RULES::PageTitleFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType )
+{
+    for( FAMILY family : { FAMILY::CLEARANCE, FAMILY::TRACKS_AND_VIAS, FAMILY::HOLES, FAMILY::SILKSCREEN,
+                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINTS } )
+    {
+        for( const CONSTRAINT_SECTION& section : SectionsFor( family ) )
+        {
+            if( section.ruleType == aType )
+                return section.title;
+        }
+    }
+
+    return wxEmptyString;
 }
 
 

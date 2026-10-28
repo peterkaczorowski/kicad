@@ -23,6 +23,7 @@
 #include <drc/rule_editor/drc_re_custom_rule_constraint_data.h>
 #include <drc/rule_editor/drc_re_loaded_rule.h>
 #include <drc/rule_editor/drc_re_numeric_input_constraint_data.h>
+#include <drc/rule_editor/drc_re_panel_matcher.h>
 #include <drc/rule_editor/drc_rule_document.h>
 #include <drc/rule_editor/drc_rule_editor_enums.h>
 #include <drc/rule_editor/drc_rule_editor_utils.h>
@@ -622,20 +623,22 @@ BOOST_AUTO_TEST_CASE( EveryBoardConstraintWithRulesResolvesToAPage )
                                              wxS( "min_silk_clearance" ), wxS( "min_text_height" ),
                                              wxS( "min_text_thickness" ), wxS( "min_copper_edge_clearance" ) };
 
+    DRC_PANEL_MATCHER matcher;
+
     for( const wxString& setting : governed )
     {
-        DRC_RULE_EDITOR_CONSTRAINT_NAME type = CUSTOM_RULE;
-        wxString                        page;
+        DRC_CONSTRAINT_T constraint = NULL_CONSTRAINT;
 
-        BOOST_CHECK_MESSAGE( PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( setting, &type, &page ),
-                             "no rule page governs " << setting.ToStdString() );
-        BOOST_CHECK_MESSAGE( !page.IsEmpty(), "no page title for " << setting.ToStdString() );
+        BOOST_CHECK_MESSAGE( PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( setting, &constraint ),
+                             "no rule constraint governs " << setting.ToStdString() );
+        BOOST_CHECK_MESSAGE( !PANEL_SETUP_CONSTRAINT_RULES::PageTitleFor( matcher.GetHomePanel( constraint ) ).IsEmpty(),
+                             "no page title for " << setting.ToStdString() );
     }
 
     // Max error is a geometry tolerance. The groove width decides which board edge gaps a
     // creepage path has to follow, so neither is a value a rule can override.
-    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( wxS( "max_error" ), nullptr, nullptr ) );
-    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( wxS( "min_groove_width" ), nullptr, nullptr ) );
+    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( wxS( "max_error" ), nullptr ) );
+    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( wxS( "min_groove_width" ), nullptr ) );
 }
 
 
