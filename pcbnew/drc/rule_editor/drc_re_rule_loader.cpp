@@ -531,8 +531,11 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
         if( length )
         {
             double minMM = toMM( length->GetValue().Min() );
-            double optMM = toMM( length->GetValue().PinnedOpt() );
             double maxMM = toMM( length->GetValue().Max() );
+
+            // A rule without an optimum gets the window center, so saving keeps its min and max
+            double optMM = length->GetValue().HasOpt() ? toMM( length->GetValue().PinnedOpt() )
+                                                       : ( minMM + maxMM ) / 2.0;
 
             data->SetOptimumLength( optMM );
             data->SetTolerance( ( maxMM - minMM ) / 2.0 );
