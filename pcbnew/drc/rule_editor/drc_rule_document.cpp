@@ -322,6 +322,10 @@ void DRC_RULE_DOCUMENT::UpdateEntry( int aIndex, const DRC_RE_LOADED_PANEL_ENTRY
             sibling.constraintData->SetLayers( edited.layerCondition.Seq() );
             sibling.constraintData->SetLayerSource( edited.layerSource );
             sibling.constraintData->SetSeverity( edited.severity );
+
+            if( edited.constraintData )
+                sibling.constraintData->SetComment( edited.constraintData->GetComment() );
+
             sibling.constraintData->SetGeneratedRule( wxEmptyString );
         }
     }

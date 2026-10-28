@@ -346,6 +346,9 @@ wxString DRC_RULE_SAVER::generateMergedRuleText(
     ctx.ruleName = firstEntry->ruleName;
     ctx.conditionExpression = firstEntry->condition;
 
+    if( firstEntry->constraintData )
+        ctx.comment = firstEntry->constraintData->GetComment();
+
     // Generate layer clause from first entry with layer info (all entries in a
     // merged group share the same layerSource because it's part of the grouping key)
     for( const auto* entry : aEntries )
@@ -387,6 +390,12 @@ wxString DRC_RULE_SAVER::generateMergedRuleText(
     wxString rule;
     rule << wxS( "(rule " ) << DRC_RE_BASE_CONSTRAINT_DATA::formatRuleName( ctx.ruleName )
          << wxS( "\n" );
+
+    for( const wxString& line : wxSplit( ctx.comment, '\n', '\0' ) )
+    {
+        if( !line.IsEmpty() )
+            rule << wxS( "\t# " ) << line << wxS( "\n" );
+    }
 
     if( !ctx.layerClause.IsEmpty() )
         rule << wxS( "\t" ) << ctx.layerClause << wxS( "\n" );
