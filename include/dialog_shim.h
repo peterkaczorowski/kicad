@@ -277,6 +277,8 @@ protected:
      */
     virtual void TearDownQuasiModal() {}
 
+    std::string GetPersistenceKey() const;
+
 private:
     /**
      * Properly handle the wxCloseEvent when in the quasimodal mode when not calling

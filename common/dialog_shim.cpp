@@ -99,6 +99,12 @@ static std::string getDialogKeyFromTitle( const wxString& aTitle )
 }
 
 
+std::string DIALOG_SHIM::GetPersistenceKey() const
+{
+    return m_hash_key.empty() ? getDialogKeyFromTitle( GetTitle() ) : m_hash_key;
+}
+
+
 /**
  * Return true when the given window is a compound date/time picker whose internal
  * children should be opaque to the dialog-wide state save/load and undo/redo helpers.
@@ -505,7 +511,7 @@ bool DIALOG_SHIM::Show( bool show )
         ret = wxDialog::Show( show );
 
         wxRect      savedDialogRect;
-        std::string key = m_hash_key.empty() ? getDialogKeyFromTitle( GetTitle() ) : m_hash_key;
+        std::string key = GetPersistenceKey();
 
         if( COMMON_SETTINGS* settings = Pgm().GetCommonSettings() )
         {
@@ -611,7 +617,7 @@ void DIALOG_SHIM::resetSize()
 {
     if( COMMON_SETTINGS* settings = Pgm().GetCommonSettings() )
     {
-        std::string key = m_hash_key.empty() ? getDialogKeyFromTitle( GetTitle() ) : m_hash_key;
+        std::string key = GetPersistenceKey();
 
         auto dlgIt = settings->CsInternals().m_dialogControlValues.find( key );
 
@@ -718,7 +724,8 @@ void DIALOG_SHIM::SaveControlState()
     if( !settings )
         return;
 
-    std::string dialogKey = m_hash_key.empty() ? getDialogKeyFromTitle( GetTitle() ) : m_hash_key;
+    std::string dialogKey = GetPersistenceKey();
+
     std::map<std::string, nlohmann::json>& dlgMap = settings->CsInternals().m_dialogControlValues[ dialogKey ];
 
     wxPoint pos = GetPosition();
@@ -855,7 +862,7 @@ void DIALOG_SHIM::LoadControlState()
     if( !settings )
         return;
 
-    std::string dialogKey = m_hash_key.empty() ? getDialogKeyFromTitle( GetTitle() ) : m_hash_key;
+    std::string dialogKey = GetPersistenceKey();
     auto        dlgIt = settings->CsInternals().m_dialogControlValues.find( dialogKey );
 
     if( dlgIt == settings->CsInternals().m_dialogControlValues.end() )
@@ -1112,7 +1119,7 @@ void DIALOG_SHIM::OptOut( wxWindow* aWindow )
 
         if( settings )
         {
-            std::string dialogKey = m_hash_key.empty() ? getDialogKeyFromTitle( GetTitle() ) : m_hash_key;
+            std::string dialogKey = GetPersistenceKey();
             auto        dlgIt = settings->CsInternals().m_dialogControlValues.find( dialogKey );
 
             if( dlgIt != settings->CsInternals().m_dialogControlValues.end() )
