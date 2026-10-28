@@ -30,24 +30,6 @@ namespace
 {
 
 /**
- * Whether one contour crosses itself.
- *
- * IsSelfIntersecting() takes a polygon and its holes as one list of segments but
- * computes segment adjacency from the length of that whole list, so as soon as a hole
- * is present it reports even a contour's own closing segment as a crossing. Asking one
- * contour at a time keeps that arithmetic right.
- */
-bool contourIsSimple( const SHAPE_LINE_CHAIN& aContour )
-{
-    SHAPE_POLY_SET alone;
-
-    alone.AddOutline( aContour );
-
-    return !alone.IsSelfIntersecting();
-}
-
-
-/**
  * Whether a zone outline is sound enough to keep.
  *
  * Every contour has to be a simple polygon of at least three corners, and every hole
@@ -64,24 +46,20 @@ bool zoneOutlineIsSound( const SHAPE_POLY_SET& aOutline )
     {
         const SHAPE_LINE_CHAIN& outline = aOutline.COutline( ii );
 
-        if( outline.PointCount() < 3 || !contourIsSimple( outline ) )
+        if( outline.PointCount() < 3 )
             return false;
 
         for( int jj = 0; jj < aOutline.HoleCount( ii ); ++jj )
         {
             const SHAPE_LINE_CHAIN& hole = aOutline.CHole( ii, jj );
 
-            if( hole.PointCount() < 3 || !contourIsSimple( hole ) )
+            // A hole dragged right out of its outline is no longer a hole
+            if( hole.PointCount() < 3 || !outline.PointInside( hole.CPoint( 0 ) ) )
                 return false;
-
-            std::vector<SHAPE_LINE_CHAIN::INTERSECTION> crossings;
-
-            // A hole dragged across its outline, or right out of it, is no longer a hole
-            if( outline.Intersect( hole, crossings ) > 0 || !outline.PointInside( hole.CPoint( 0 ) ) )
-            {
-                return false;
-            }
         }
+
+        if( aOutline.IsPolygonSelfIntersecting( ii ) )
+            return false;
     }
 
     return true;
