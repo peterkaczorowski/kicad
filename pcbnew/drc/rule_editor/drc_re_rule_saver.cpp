@@ -181,21 +181,25 @@ wxString DRC_RULE_SAVER::GenerateRulesText( const std::vector<DRC_RE_LOADED_PANE
             present[source] = true;
     }
 
+    std::vector<bool> attachedWritten( triviaCount, false );
+
     for( const auto& [source, ruleText] : rules )
     {
-        // Comments of deleted rules are kept, and a file rule split by an edit emits its own only once
-        if( source >= 0 && static_cast<size_t>( source ) < triviaCount && static_cast<size_t>( source ) >= nextTrivia )
-        {
-            emitUpTo( source );
+        bool known = source >= 0 && static_cast<size_t>( source ) < triviaCount;
 
+        if( known && static_cast<size_t>( source ) >= nextTrivia )
+            emitUpTo( source );
+        else
+            result += wxS( "\n" );
+
+        // Comments of deleted rules are kept, and a file rule split by an edit emits its own only once
+        if( known && !attachedWritten[source] )
+        {
             if( !attached[source].StartsWith( wxS( "\n" ) ) && !result.EndsWith( wxS( "\n" ) ) )
                 result += wxS( "\n" );
 
             result += attached[source];
-        }
-        else
-        {
-            result += wxS( "\n" );
+            attachedWritten[source] = true;
         }
 
         result += ruleText;
