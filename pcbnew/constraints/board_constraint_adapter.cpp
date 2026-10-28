@@ -2192,14 +2192,16 @@ BOARD_CONSTRAINT_ADAPTER::SolveBlockEdit( const std::vector<std::pair<CONSTRAINT
             // A FIXED_POSITION constraint grounds this point. The caller has already written
             // the cursor into the item, so commanding it here would hold the violation and
             // then report it solved, because the check below reads back what was just written
-            if( m_groundedPositionParams.contains( anchor.x ) || m_groundedPositionParams.contains( anchor.y ) )
-            {
+            // A rectangle corner shares each axis with a different neighbour, so check them apart
+            if( m_groundedPositionParams.contains( anchor.x ) )
                 groundedAnchorPicked = true;
-                continue;
-            }
+            else
+                targetsX[anchor.x] = target.x;
 
-            targetsX[anchor.x] = target.x;
-            targetsY[anchor.y] = target.y;
+            if( m_groundedPositionParams.contains( anchor.y ) )
+                groundedAnchorPicked = true;
+            else
+                targetsY[anchor.y] = target.y;
         }
     }
 

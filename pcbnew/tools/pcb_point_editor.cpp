@@ -3935,6 +3935,13 @@ bool BLOCK_DRAG_SESSION::Begin( const VECTOR2I& aOrigin, bool aPressInFlight )
 
         for( const BLOCK_DRAG_ENDPOINT& dep : m_dependents )
         {
+            // The gesture moves a whole arc by the block offset, so the solver must carry all of it
+            if( dep.follow == BLOCK_DRAG_FOLLOW::WHOLE )
+            {
+                carryWhole( dep.shape );
+                continue;
+            }
+
             // The gesture already placed it, so it pins its joint and does not move again
             CONSTRAINT_ANCHOR anchor = dep.isStart ? CONSTRAINT_ANCHOR::START : CONSTRAINT_ANCHOR::END;
 
