@@ -116,7 +116,6 @@
 #include <tools/diff_phase_skew_tool.h>
 #include <generators/via_stitch_tool.h>
 #include <tools/drc_tool.h>
-#include <tools/drc_rule_editor_tool.h>
 #include <tools/global_edit_tool.h>
 #include <tools/convert_tool.h>
 #include <tools/constraint_edit_tool.h>
@@ -1145,7 +1144,6 @@ void PCB_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new MATCH_PROPERTIES_TOOL );
     m_toolManager->RegisterTool( new GRAPHIC_EDIT_TOOL );
     m_toolManager->RegisterTool( new EMBED_TOOL );
-    m_toolManager->RegisterTool( new DRC_RULE_EDITOR_TOOL );
     m_toolManager->RegisterTool( new DIFF_PHASE_SKEW_TOOL );
     m_toolManager->InitTools();
 
