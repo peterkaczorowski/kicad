@@ -334,7 +334,41 @@ bool DRC_RULE_DOCUMENT::Move( int aIndex, int aDelta, DRC_RULE_EDITOR_CONSTRAINT
     if( position < 0 || position >= (int) order.size() )
         return false;
 
-    std::swap( m_entries[aIndex], m_entries[order[position]] );
+    int movedGroup = m_entries[aIndex].ruleGroupId;
+    int otherGroup = m_entries[order[position]].ruleGroupId;
+
+    if( movedGroup <= 0 || otherGroup <= 0 || movedGroup == otherGroup )
+    {
+        std::swap( m_entries[aIndex], m_entries[order[position]] );
+        touch();
+        return true;
+    }
+
+    // The saver writes a rule where its first entry sits, so whole rules swap to keep the file in step
+    std::vector<int> groups;
+
+    for( const DRC_RE_LOADED_PANEL_ENTRY& entry : m_entries )
+    {
+        if( std::find( groups.begin(), groups.end(), entry.ruleGroupId ) == groups.end() )
+            groups.push_back( entry.ruleGroupId );
+    }
+
+    std::iter_swap( std::find( groups.begin(), groups.end(), movedGroup ),
+                    std::find( groups.begin(), groups.end(), otherGroup ) );
+
+    std::vector<DRC_RE_LOADED_PANEL_ENTRY> reordered;
+    reordered.reserve( m_entries.size() );
+
+    for( int group : groups )
+    {
+        for( DRC_RE_LOADED_PANEL_ENTRY& entry : m_entries )
+        {
+            if( entry.ruleGroupId == group )
+                reordered.push_back( std::move( entry ) );
+        }
+    }
+
+    m_entries = std::move( reordered );
     touch();
     return true;
 }
