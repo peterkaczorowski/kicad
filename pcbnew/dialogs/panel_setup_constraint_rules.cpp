@@ -224,7 +224,6 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
                 {
                     RefreshFromDocument();
                 } );
-        list->RefreshRules();
         box->Add( list, 1, wxEXPAND | wxALL, 8 );
         m_list = list;
     }
@@ -353,7 +352,6 @@ bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataFromWindow()
 
 bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataToWindow()
 {
-    updateDefaultLabels();
     RefreshFromDocument();
     return true;
 }
