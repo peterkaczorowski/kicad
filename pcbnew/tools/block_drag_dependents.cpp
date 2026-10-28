@@ -20,6 +20,7 @@
 #include "block_drag_dependents.h"
 
 #include <base_units.h>
+#include <board.h>
 #include <footprint.h>
 #include <pcb_shape.h>
 #include <constraints/board_constraint_adapter.h>
@@ -53,8 +54,8 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
 {
     aDependents.clear();
 
-    const int     tol = pcbIUScale.mmToIU( 0.001 );
-    const int64_t tolSq = (int64_t) tol * tol;
+    const int baseTol = pcbIUScale.mmToIU( 0.001 );
+    int64_t   tolSq = (int64_t) baseTol * baseTol;
 
     auto withinTol = [&]( const VECTOR2I& aFirst, const VECTOR2I& aSecond )
     {
@@ -94,6 +95,13 @@ BlockDragFindDependents( const std::vector<PCB_SHAPE*>&          aCandidates,
     {
         const BLOCK_DRAG_ENDPOINT        moved = seeds[si]; // by value, the vector may reallocate
         std::vector<BLOCK_DRAG_ENDPOINT> cluster;
+        int                              tol = baseTol;
+
+        // The board outline joins Edge.Cuts ends within its chaining epsilon, so match that
+        if( BOARD* board = moved.shape->GetBoard(); board && moved.shape->GetLayer() == Edge_Cuts )
+            tol = std::max( tol, board->GetOutlinesChainingEpsilon() );
+
+        tolSq = (int64_t) tol * tol;
 
         for( PCB_SHAPE* candidate : aCandidates )
         {

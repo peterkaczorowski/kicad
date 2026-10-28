@@ -76,6 +76,7 @@ BOOST_AUTO_TEST_SUITE( BlockDragDependentsTests )
 BOOST_AUTO_TEST_CASE( ExactAndToleranceMatches )
 {
     BOARD board;
+    board.SetOutlinesChainingEpsilon( TOL );
 
     PCB_SHAPE* moved = makeSegment( board, VECTOR2I( 0, 0 ), VECTOR2I( 100000, 0 ) );
     PCB_SHAPE* exact = makeSegment( board, VECTOR2I( 0, 0 ), VECTOR2I( 0, 100000 ) );
@@ -112,6 +113,7 @@ BOOST_AUTO_TEST_CASE( ExactAndToleranceMatches )
 BOOST_AUTO_TEST_CASE( ToleranceIsEuclidean )
 {
     BOARD board;
+    board.SetOutlinesChainingEpsilon( TOL );
 
     PCB_SHAPE* moved = makeSegment( board, VECTOR2I( 0, 0 ), VECTOR2I( 100000, 0 ) );
     PCB_SHAPE* diagonal = makeSegment( board, VECTOR2I( TOL, TOL ), VECTOR2I( 90000, 90000 ) );
@@ -287,6 +289,7 @@ BOOST_AUTO_TEST_CASE( DifferentLayerDoesNotMatch )
 BOOST_AUTO_TEST_CASE( AmbiguousCandidatesAreNotGuessed )
 {
     BOARD board;
+    board.SetOutlinesChainingEpsilon( TOL );
 
     PCB_SHAPE* moved = makeSegment( board, VECTOR2I( 0, 0 ), VECTOR2I( 100000, 0 ) );
 

@@ -65,10 +65,11 @@ enum class BLOCK_DRAG_DEPENDENT_RESULT
  * Find the joined endpoints that have to follow the ones the drag moves.
  *
  * An endpoint follows when it shares a layer with a moved endpoint and sits within
- * 1 micrometre of it. Only ends count, never a point along a shape. When the endpoints
- * gathered around one moved endpoint are not all within tolerance of each other the
- * match is ambiguous, so that endpoint is left alone and the tolerance stays too small
- * to close a gap the user left on purpose.
+ * 1 micrometre of it, or on Edge.Cuts within the board's outline chaining epsilon.
+ * Only ends count, never a point along a shape. When the endpoints gathered around
+ * one moved endpoint are not all within tolerance of each other the match is
+ * ambiguous, so that endpoint is left alone and the tolerance stays too small to
+ * close a gap the user left on purpose.
  *
  * A shape that moving one end alone would distort follows WHOLE, and its far end starts
  * the search again, so a chain of joined shapes follows as one group. The walk stops at
