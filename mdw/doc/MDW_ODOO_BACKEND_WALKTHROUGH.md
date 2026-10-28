@@ -62,8 +62,8 @@ plain `std::string` and `nlohmann::json`. Its design points:
   `<url>/jsonrpc` with `Content-Type: application/json`, capturing the body into
   a `std::string` via a write callback. `id` is a monotonically incrementing
   counter.
-- **Timeouts and TLS.** `CURLOPT_TIMEOUT` defaults to 30 s (settable via
-  `SetTimeout`), `CURLOPT_CONNECTTIMEOUT` is 10 s, and `CURLOPT_NOSIGNAL` is set
+- **Timeouts and TLS.** `CURLOPT_TIMEOUT` is 30 s, `CURLOPT_CONNECTTIMEOUT` is
+  10 s, and `CURLOPT_NOSIGNAL` is set
   so timeouts are safe in a threaded process. libcurl performs normal TLS
   verification for `https://` URLs; a verification failure surfaces as a curl
   error the mapper classifies as `WE_NETWORK`.

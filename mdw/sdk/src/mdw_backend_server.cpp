@@ -217,6 +217,10 @@ void MDW_BACKEND_SERVER::workerLoop()
         {
             if( nng_msg* unsent = nng_aio_get_msg( aio ) )
                 nng_msg_free( unsent );
+
+            // The aio outlives the attempt, so the freed message must not stay
+            // referenced by it even though the next send overwrites the slot.
+            nng_aio_set_msg( aio, nullptr );
         }
     }
 

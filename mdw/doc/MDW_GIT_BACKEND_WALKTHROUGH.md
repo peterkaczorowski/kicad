@@ -66,7 +66,7 @@ Three deliberate choices make the git output stable to parse:
 
 - **`-z` / NUL framing.** `ls-files -z` and `log -z` separate records with NUL
   bytes instead of newlines, so a filename or commit subject containing a newline
-  cannot be mistaken for a record boundary. `Split( out, '\0' )` recovers the
+  cannot be mistaken for a record boundary. `MdwSplit( out, '\0' )` recovers the
   records. Within a `log` record, fields are joined with `%x1f` (ASCII Unit
   Separator, `FIELD_SEP = '\x1f'`), a byte that cannot appear in a path or a
   commit hash.
@@ -132,8 +132,9 @@ boundary.
 ### Navigation — from `git ls-files`
 
 All navigation derives from one command: `GitLsFiles` runs
-`git -c core.quotePath=false ls-files -z` and splits on NUL. Its `aOk` out-param
-distinguishes an empty repo from a failed git call, so handlers return
+`git -c core.quotePath=false ls-files -z` and splits on NUL. It returns
+`std::optional`, so an empty repo (an engaged optional holding no paths) is
+distinguishable from a failed git call (a disengaged one), and handlers return
 `WE_INTERNAL "git failed"` only on real failure.
 
 - `GetRootFolders` returns the single root folder (id `""`), and sets
@@ -171,8 +172,8 @@ hash and author timestamp.
 - `GetRevisionHistory` validates the path and runs
   `git -c core.quotePath=false log -z --format=%H%x1f%P%x1f%an%x1f%at%x1f%s
   -- <path>`. Records are NUL-separated; each is split into exactly five fields
-  by `splitFields` (which takes the remainder as the final field so an empty
-  commit subject is preserved). The parent list (`%P`) is space-split into
+  by `MdwSplit` with a field limit, which takes the remainder as the final field
+  so an empty commit subject is preserved. The parent list (`%P`) is space-split into
   `parent_revision_ids`, so merge history survives. Fields become the
   `Revision`'s id, parents, author, timestamp, and comment.
 - `DownloadRevision` validates both `revision_id` (`IsSafeRef`) and `item_id`
@@ -182,10 +183,12 @@ hash and author timestamp.
 
 ## Parsing helpers
 
-`git_operations.cpp` provides the small text utilities the handlers lean on:
-`Trimmed` (strip surrounding whitespace), `Split` (split on a delimiter, dropping
-a trailing empty record — used with `'\0'`, `'\x1f'`, and `' '`), and, in
-`kicad_mdw_git.cpp`, `splitFields` (fixed-count split preserving an empty
-trailing field). Together with `-z`, `%x1f`, and the C locale, these keep the
-parse robust against paths and commit messages that contain spaces, newlines, or
-non-ASCII bytes.
+`mdw_sdk/mdw_strings.h` provides the small text utilities the handlers lean on,
+in the SDK rather than in this backend because the Odoo backend and the mock had
+each grown their own copies. `MdwTrimmed` strips surrounding whitespace.
+`MdwSplit( text, delim )` splits on a delimiter and drops a trailing empty
+record, and is used with `'\0'`, `'\x1f'` and `' '`; given a non-zero
+`aMaxFields` it instead stops at that many fields and takes the remainder as the
+last, which is what preserves an empty trailing field. Together with `-z`,
+`%x1f`, and the C locale, these keep the parse robust against paths and commit
+messages that contain spaces, newlines, or non-ASCII bytes.
