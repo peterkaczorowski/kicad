@@ -60,7 +60,6 @@
 #include "dialog_board_setup.h"
 
 #include <advanced_config.h>
-#include <dialog_board_setup.h>
 #include <footprint.h>
 
 
@@ -510,6 +509,20 @@ void DIALOG_BOARD_SETUP::forEachOpenRulePage( const std::function<void( PANEL_SE
     {
         if( auto* page = dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( m_treebook->GetResolvedPage( i ) ) )
             aAction( page );
+    }
+}
+
+
+void DIALOG_BOARD_SETUP::AppendSearchTerms( size_t aPage, std::vector<wxString>& aTerms ) const
+{
+    wxWindow* page = m_treebook->ResolvePageForSearch( aPage );
+
+    if( PANEL_SETUP_CONSTRAINT_RULES* rulesPage = dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( page ) )
+    {
+        auto* textPage = static_cast<PANEL_SETUP_RULES*>( m_treebook->GetResolvedPage( m_customRulesPage ) );
+        const DRC_RULE_DOCUMENT& document = textPage ? textPage->GetSearchDocument() : *m_ruleDocument;
+
+        rulesPage->AppendSearchTerms( document, aTerms );
     }
 }
 

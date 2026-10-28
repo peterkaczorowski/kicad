@@ -111,6 +111,8 @@ public:
 
     void RefreshFromDocument();
 
+    void AppendSearchTerms( const DRC_RULE_DOCUMENT& aDocument, std::vector<wxString>& aTerms ) const;
+
     bool TransferDataToWindow() override;
 
     /**

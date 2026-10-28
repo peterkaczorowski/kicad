@@ -55,6 +55,8 @@ protected:
     void onCancelButton( wxCommandEvent& aEvent );
     void onCloseWindow( wxCloseEvent& aEvent );
 
+    void AppendSearchTerms( size_t aPage, std::vector<wxString>& aTerms ) const override;
+
     void refreshRulePage( size_t aPage );
     void forEachOpenRulePage( const std::function<void( PANEL_SETUP_CONSTRAINT_RULES* )>& aAction );
 
