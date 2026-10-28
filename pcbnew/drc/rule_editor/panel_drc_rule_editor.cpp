@@ -187,6 +187,7 @@ PANEL_DRC_RULE_EDITOR::PANEL_DRC_RULE_EDITOR( wxWindow* aParent, BOARD* aBoard,
     m_conditionGroupPanel->SetChangeCallback(
             [this]()
             {
+                m_modified = true;
                 clearMatchReport();
                 RelayoutHost();
 
@@ -215,7 +216,7 @@ PANEL_DRC_RULE_EDITOR::PANEL_DRC_RULE_EDITOR( wxWindow* aParent, BOARD* aBoard,
     m_syntaxErrorReport->Hide();
 
     m_nameCtrl->Bind( wxEVT_TEXT,
-                      [this]( wxCommandEvent& )
+                      [this]( wxCommandEvent& aEvent )
                       {
                           if( m_constraintType == CUSTOM_RULE )
                           {
@@ -224,6 +225,8 @@ PANEL_DRC_RULE_EDITOR::PANEL_DRC_RULE_EDITOR( wxWindow* aParent, BOARD* aBoard,
                               if( customPanel )
                                   customPanel->UpdateRuleName( m_nameCtrl->GetValue() );
                           }
+
+                          aEvent.Skip();
                       } );
 
     // Regex patterns are compiled as function-local statics in onScintillaCharAdded()

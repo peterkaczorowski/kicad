@@ -81,6 +81,7 @@ DRC_RE_ABS_LENGTH_TWO_OVERLAY_PANEL::DRC_RE_ABS_LENGTH_TWO_OVERLAY_PANEL(
                                     m_data->SetTimeDomain( m_timeDomainCheckbox->GetValue() );
                                     updateDomainUnits();
                                     TransferDataToWindow();
+                                    aEvent.Skip();
                                 } );
 
     SetMinimumHeightDIP( 190 );

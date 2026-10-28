@@ -58,6 +58,7 @@ DRC_RE_ALLOWED_ORIENTATION_OVERLAY_PANEL::DRC_RE_ALLOWED_ORIENTATION_OVERLAY_PAN
         bool allChecked = m_zeroDegreesCheckbox->GetValue() && m_ninetyDegreesCheckbox->GetValue()
                           && m_oneEightyDegreesCheckbox->GetValue() && m_twoSeventyDegreesCheckbox->GetValue();
         m_allDegreesCheckbox->SetValue( allChecked );
+        evt.Skip();
     };
 
     auto onAllDegreesCheckbox = [this]( wxCommandEvent& evt )
@@ -67,6 +68,7 @@ DRC_RE_ALLOWED_ORIENTATION_OVERLAY_PANEL::DRC_RE_ALLOWED_ORIENTATION_OVERLAY_PAN
         m_ninetyDegreesCheckbox->SetValue( checked );
         m_oneEightyDegreesCheckbox->SetValue( checked );
         m_twoSeventyDegreesCheckbox->SetValue( checked );
+        evt.Skip();
     };
 
     m_zeroDegreesCheckbox->Bind( wxEVT_CHECKBOX, onIndividualCheckbox );
