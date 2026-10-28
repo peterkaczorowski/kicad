@@ -1383,15 +1383,22 @@ void PANEL_DRC_RULE_EDITOR::stretchConstraintColumn()
 }
 
 
-void PANEL_DRC_RULE_EDITOR::RelayoutHost()
+void PANEL_DRC_RULE_EDITOR::LayoutAncestors( wxWindow* aWindow )
 {
-    for( wxWindow* window = GetParent(); window; window = window->GetParent() )
+    for( wxWindow* window = aWindow->GetParent(); window; window = window->GetParent() )
     {
         window->Layout();
 
         if( wxScrolledWindow* scrolled = dynamic_cast<wxScrolledWindow*>( window ) )
         {
             scrolled->FitInside();
+
+            // Only the height scrolls. Pinning the virtual width to the client width keeps
+            // the editor's buttons out from under the scrollbar.
+            wxSize virtualSize = scrolled->GetVirtualSize();
+            virtualSize.x = scrolled->GetClientSize().x;
+            scrolled->SetVirtualSize( virtualSize );
+            scrolled->Layout();
             break;
         }
 

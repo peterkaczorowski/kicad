@@ -889,27 +889,7 @@ int CONSTRAINT_RULES_LIST::showMatches()
 void CONSTRAINT_RULES_LIST::relayout()
 {
     Layout();
-
-    for( wxWindow* window = GetParent(); window; window = window->GetParent() )
-    {
-        window->Layout();
-
-        if( wxScrolledWindow* scrolled = dynamic_cast<wxScrolledWindow*>( window ) )
-        {
-            scrolled->FitInside();
-
-            // Only the height scrolls. Pinning the virtual width to the client width keeps
-            // the editor's buttons out from under the scrollbar.
-            wxSize virtualSize = scrolled->GetVirtualSize();
-            virtualSize.x = scrolled->GetClientSize().x;
-            scrolled->SetVirtualSize( virtualSize );
-            scrolled->Layout();
-            break;
-        }
-
-        if( dynamic_cast<wxTopLevelWindow*>( window ) )
-            break;
-    }
+    PANEL_DRC_RULE_EDITOR::LayoutAncestors( this );
 }
 
 

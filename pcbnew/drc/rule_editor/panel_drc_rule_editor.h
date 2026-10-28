@@ -92,7 +92,10 @@ public:
     static PANEL_DRC_RULE_EDITOR* FindEditor( wxWindow* aChild );
 
     /// Lays out the editor's parents, out to the page it scrolls in
-    void RelayoutHost();
+    void RelayoutHost() { LayoutAncestors( this ); }
+
+    /// Lays out aWindow's parents, out to the page it scrolls in
+    static void LayoutAncestors( wxWindow* aWindow );
 
     /// Shows a line above the constraint saying what this rule displaces, or clears it when empty
     void SetOverrideNote( const wxString& aText );
