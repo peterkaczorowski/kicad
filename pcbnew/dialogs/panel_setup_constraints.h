@@ -40,7 +40,7 @@ class wxCommandEvent;
 class PANEL_SETUP_CONSTRAINTS : public PANEL_SETUP_CONSTRAINTS_BASE
 {
 public:
-    PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument = nullptr );
+    PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument );
     ~PANEL_SETUP_CONSTRAINTS( ) override { };
 
     void ImportSettingsFrom( BOARD* aBoard );

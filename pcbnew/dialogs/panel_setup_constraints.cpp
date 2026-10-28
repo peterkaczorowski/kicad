@@ -271,7 +271,7 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
     {
         field.m_Warning = new FIELD_WARNING_ICON( field.m_Ctrl );
 
-        if( m_document && PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, nullptr ) )
+        if( PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, nullptr ) )
         {
             field.m_Override = new FIELD_WARNING_ICON( field.m_Ctrl, BITMAPS::small_new_window, 1 );
             field.m_Override->SetCursor( wxCURSOR_HAND );
@@ -418,9 +418,6 @@ void PANEL_SETUP_CONSTRAINTS::applyValues( BOARD_DESIGN_SETTINGS& aSettings ) co
 
 void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
 {
-    if( !m_document )
-        return;
-
     const NET_SETTINGS& netSettings = *m_Frame->Prj().GetProjectFile().NetSettings();
 
     for( CONSTRAINT_FIELD& field : m_fields )
@@ -466,7 +463,7 @@ void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxW
 {
     DRC_CONSTRAINT_T constraint;
 
-    if( !m_document || !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &constraint ) )
+    if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &constraint ) )
         return;
 
     const std::vector<int>                     indices = m_document->IndicesSetting( constraint );
