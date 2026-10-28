@@ -182,6 +182,10 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
 
     if( editingIndex() >= 0 )
     {
+        // A sibling page may have changed the rule's name, condition or layers since the form was filled
+        if( m_editor && !m_editor->IsModified() )
+            m_editor->TransferDataToWindow();
+
         selectIndex( editingIndex() );
     }
     else if( m_editingData && !m_editingData->IsNew() )
