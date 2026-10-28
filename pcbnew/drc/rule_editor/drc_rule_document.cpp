@@ -225,6 +225,10 @@ std::vector<int> DRC_RULE_DOCUMENT::IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME 
     static DRC_PANEL_MATCHER matcher;
     std::vector<int>         result;
 
+    // The entries are a previous parse, so they no longer describe the text
+    if( m_hasRawText )
+        return result;
+
     for( size_t i = 0; i < m_entries.size(); ++i )
     {
         const DRC_RE_LOADED_PANEL_ENTRY& entry = m_entries[i];
@@ -257,6 +261,9 @@ std::vector<int> DRC_RULE_DOCUMENT::IndicesSetting( DRC_CONSTRAINT_T aConstraint
 {
     std::vector<int> result;
 
+    if( m_hasRawText )
+        return result;
+
     for( size_t i = 0; i < m_entries.size(); ++i )
     {
         if( ConstraintsOf( m_entries[i] ).count( aConstraint ) )
@@ -269,6 +276,10 @@ std::vector<int> DRC_RULE_DOCUMENT::IndicesSetting( DRC_CONSTRAINT_T aConstraint
 
 int DRC_RULE_DOCUMENT::Add( const DRC_RE_LOADED_PANEL_ENTRY& aEntry )
 {
+    // Regenerating from stale entries would replace the text the user is still fixing
+    if( m_hasRawText )
+        return -1;
+
     m_entries.push_back( aEntry );
 
     if( m_entries.back().ruleGroupId <= 0 )
@@ -284,7 +295,7 @@ int DRC_RULE_DOCUMENT::Add( const DRC_RE_LOADED_PANEL_ENTRY& aEntry )
 
 void DRC_RULE_DOCUMENT::UpdateEntry( int aIndex, const DRC_RE_LOADED_PANEL_ENTRY& aEdited )
 {
-    if( aIndex < 0 || aIndex >= (int) m_entries.size() )
+    if( m_hasRawText || aIndex < 0 || aIndex >= (int) m_entries.size() )
         return;
 
     m_entries[aIndex] = aEdited;
@@ -323,7 +334,7 @@ void DRC_RULE_DOCUMENT::UpdateEntry( int aIndex, const DRC_RE_LOADED_PANEL_ENTRY
 
 void DRC_RULE_DOCUMENT::Remove( int aIndex )
 {
-    if( aIndex < 0 || aIndex >= (int) m_entries.size() )
+    if( m_hasRawText || aIndex < 0 || aIndex >= (int) m_entries.size() )
         return;
 
     bool applied = !m_entries[aIndex].constraintData || !m_entries[aIndex].constraintData->IsNew();
@@ -337,7 +348,7 @@ void DRC_RULE_DOCUMENT::Remove( int aIndex )
 
 int DRC_RULE_DOCUMENT::Duplicate( int aIndex )
 {
-    if( aIndex < 0 || aIndex >= (int) m_entries.size() || !m_entries[aIndex].constraintData )
+    if( m_hasRawText || aIndex < 0 || aIndex >= (int) m_entries.size() || !m_entries[aIndex].constraintData )
         return -1;
 
     const DRC_RE_LOADED_PANEL_ENTRY& source = m_entries[aIndex];
@@ -382,7 +393,7 @@ int DRC_RULE_DOCUMENT::Duplicate( int aIndex )
 
 bool DRC_RULE_DOCUMENT::Move( int aIndex, int aDelta, DRC_RULE_EDITOR_CONSTRAINT_NAME aType )
 {
-    if( aDelta == 0 )
+    if( m_hasRawText || aDelta == 0 )
         return false;
 
     std::vector<int> order = IndicesFor( aType );
