@@ -2811,12 +2811,33 @@ private:
 static void blockDragAppendConstraintCoMembers( BOARD* aBoard, std::vector<BOARD_ITEM*>& aItems )
 {
     std::set<KIID> known;
+    bool           grew = true;
 
     for( BOARD_ITEM* item : aItems )
+    {
         known.insert( item->m_Uuid );
 
+        // A carried footprint's pads reach further clusters
+        if( item->Type() == PCB_FOOTPRINT_T )
+        {
+            item->RunOnChildren( [&]( BOARD_ITEM* aChild )
+                                 {
+                                     known.insert( aChild->m_Uuid );
+                                 },
+                                 RECURSE_MODE::RECURSE );
+        }
+    }
+
+    auto include = [&]( BOARD_ITEM* aItem )
+    {
+        if( known.insert( aItem->m_Uuid ).second )
+        {
+            aItems.push_back( aItem );
+            grew = true;
+        }
+    };
+
     const std::vector<PCB_CONSTRAINT*> constraints = CollectResolvedConstraints( aBoard );
-    bool                               grew = true;
 
     while( grew )
     {
@@ -2843,11 +2864,18 @@ static void blockDragAppendConstraintCoMembers( BOARD* aBoard, std::vector<BOARD
                 if( known.count( member.m_item ) )
                     continue;
 
-                if( BOARD_ITEM* item = aBoard->ResolveItem( member.m_item, true ) )
+                BOARD_ITEM* item = aBoard->ResolveItem( member.m_item, true );
+
+                if( !item )
+                    continue;
+
+                include( item );
+
+                // On a board the solver moves a constrained child's whole footprint
+                if( FOOTPRINT* footprint = item->GetParentFootprint(); footprint && !aBoard->IsFootprintHolder() )
                 {
-                    known.insert( item->m_Uuid );
-                    aItems.push_back( item );
-                    grew = true;
+                    include( footprint );
+                    footprint->RunOnChildren( include, RECURSE_MODE::RECURSE );
                 }
             }
         }
@@ -3673,6 +3701,13 @@ bool BLOCK_DRAG_SESSION::Begin( const VECTOR2I& aOrigin, bool aPressInFlight )
                                                      pad->GetItemDescription( m_editor.frame(), false ) ) );
                 }
 
+                // The solver only moves a pad with its footprint, so it cannot follow one the router moves alone
+                if( BlockDragIsConstraintMember( *pad ) )
+                {
+                    return refuse( wxString::Format( _( "%s cannot be dragged." ),
+                                                     pad->GetItemDescription( m_editor.frame(), false ) ) );
+                }
+
                 // Keeps the router from moving the pad's whole footprint
                 independentPads.insert( pad );
             }
@@ -3826,18 +3861,16 @@ bool BLOCK_DRAG_SESSION::Begin( const VECTOR2I& aOrigin, bool aPressInFlight )
     // constraint clusters is free to move
     if( BoardHasConstraints( m_editor.board() ) )
     {
-        std::vector<PCB_SHAPE*>               blockConstrainedShapes;
+        std::vector<BOARD_ITEM*>              blockConstrainedItems;
         std::unordered_set<const BOARD_ITEM*> seeded;
 
         auto seedConstrained = [&]( BOARD_ITEM* aItem )
         {
-            PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( aItem );
-
-            if( !shape || !seeded.insert( shape ).second )
+            if( !IsConstrainableItem( aItem ) || !seeded.insert( aItem ).second )
                 return;
 
-            if( BlockDragIsConstraintMember( *shape ) )
-                blockConstrainedShapes.push_back( shape );
+            if( BlockDragIsConstraintMember( *aItem ) )
+                blockConstrainedItems.push_back( aItem );
         };
 
         for( auto& [targetPoints, behavior] : m_targets )
@@ -3904,11 +3937,11 @@ bool BLOCK_DRAG_SESSION::Begin( const VECTOR2I& aOrigin, bool aPressInFlight )
             seedConstrained( dep.shape );
         }
 
-        if( !blockConstrainedShapes.empty() )
+        if( !blockConstrainedItems.empty() )
         {
             m_constraintSession.emplace();
 
-            if( !m_constraintSession->Build( m_editor.board(), blockConstrainedShapes ) )
+            if( !m_constraintSession->Build( m_editor.board(), blockConstrainedItems ) )
                 m_constraintSession.reset();
         }
     }

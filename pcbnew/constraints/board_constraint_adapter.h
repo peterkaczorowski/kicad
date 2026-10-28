@@ -574,9 +574,9 @@ private:
 class BOARD_CONSTRAINT_BLOCK_SESSION : public BOARD_CONSTRAINT_SESSION
 {
 public:
-    /// Build one adapter over the clusters holding @p aBlockShapes. False when none of them
+    /// Build one adapter over the clusters holding @p aBlockItems. False when none of them
     /// are constrained, which tells the caller to edit without the solver.
-    bool Build( BOARD* aBoard, const std::vector<PCB_SHAPE*>& aBlockShapes );
+    bool Build( BOARD* aBoard, const std::vector<BOARD_ITEM*>& aBlockItems );
 
     /**
      * Solve one frame of the block edit and apply it.

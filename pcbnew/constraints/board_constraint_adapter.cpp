@@ -3421,11 +3421,11 @@ bool BOARD_CONSTRAINT_MOVE_SESSION::Solve(
 }
 
 
-bool BOARD_CONSTRAINT_BLOCK_SESSION::Build( BOARD* aBoard, const std::vector<PCB_SHAPE*>& aBlockShapes )
+bool BOARD_CONSTRAINT_BLOCK_SESSION::Build( BOARD* aBoard, const std::vector<BOARD_ITEM*>& aBlockItems )
 {
     reset();
 
-    if( !aBoard || aBlockShapes.empty() )
+    if( !aBoard || aBlockItems.empty() )
         return false;
 
     auto shapeToConstraints = buildShapeConstraintMap( aBoard, CollectResolvedConstraints( aBoard ) );
@@ -3435,7 +3435,7 @@ bool BOARD_CONSTRAINT_BLOCK_SESSION::Build( BOARD* aBoard, const std::vector<PCB
 
     // Every cluster the block touches goes into one adapter. Two block shapes can constrain
     // each other, and a cluster solved on its own would pull the other's anchors back
-    for( PCB_SHAPE* seed : aBlockShapes )
+    for( BOARD_ITEM* seed : aBlockItems )
     {
         if( !seed || visited.contains( seed->m_Uuid ) || !shapeToConstraints.contains( seed->m_Uuid ) )
             continue;
