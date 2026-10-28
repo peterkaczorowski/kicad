@@ -391,6 +391,16 @@ void PANEL_SETUP_CONSTRAINT_RULES::ImportSettingsFrom( BOARD* aBoard, const wxSt
 }
 
 
+void PANEL_SETUP_CONSTRAINT_RULES::DropImportedDefaults( const wxString& aSettingsPage )
+{
+    if( settingsPage() != aSettingsPage || m_importedDefaults.empty() )
+        return;
+
+    m_importedDefaults.clear();
+    updateDefaultLabels();
+}
+
+
 void PANEL_SETUP_CONSTRAINT_RULES::ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex )
 {
     if( m_list && m_section.ruleType == aType )

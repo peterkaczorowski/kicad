@@ -450,7 +450,19 @@ void DIALOG_BOARD_SETUP::onPageChanged( wxBookCtrlEvent& aEvent )
 {
     PAGED_DIALOG::onPageChanged( aEvent );
 
-    size_t page = aEvent.GetSelection();
+    size_t page = m_treebook->GetSelection();
+
+    // Leaving a settings page wrote its values to the board, so imported copies on rule pages are stale
+    if( m_currentPage == m_constraintsPage || m_currentPage == m_maskAndPastePage )
+    {
+        wxString owner = m_currentPage == m_constraintsPage ? _( "Constraints" ) : _( "Solder Mask/Paste" );
+
+        forEachOpenRulePage(
+                [&owner]( PANEL_SETUP_CONSTRAINT_RULES* aPage )
+                {
+                    aPage->DropImportedDefaults( owner );
+                } );
+    }
 
     if( int selected = m_treebook->GetSelection(); selected != wxNOT_FOUND )
         refreshRulePage( selected );

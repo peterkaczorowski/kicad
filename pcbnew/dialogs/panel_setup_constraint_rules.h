@@ -110,6 +110,11 @@ public:
     void ImportSettingsFrom( BOARD* aBoard, const wxString& aSettingsPage );
 
     /**
+     * Drops imported defaults once the settings page that owns them has written them to the board.
+     */
+    void DropImportedDefaults( const wxString& aSettingsPage );
+
+    /**
      * Opens a rule of this constraint type in the editor, if this page holds that constraint.
      */
     void ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex );
