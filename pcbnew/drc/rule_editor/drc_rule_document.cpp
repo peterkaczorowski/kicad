@@ -285,9 +285,7 @@ int DRC_RULE_DOCUMENT::Add( const DRC_RE_LOADED_PANEL_ENTRY& aEntry )
     if( m_entries.back().ruleGroupId <= 0 )
         m_entries.back().ruleGroupId = m_nextGroupId++;
 
-    // A rule open in its first editor is not in the document until it is applied.
-    if( !aEntry.constraintData || !aEntry.constraintData->IsNew() )
-        touch();
+    touch();
 
     return (int) m_entries.size() - 1;
 }
@@ -337,12 +335,8 @@ void DRC_RULE_DOCUMENT::Remove( int aIndex )
     if( m_hasRawText || aIndex < 0 || aIndex >= (int) m_entries.size() )
         return;
 
-    bool applied = !m_entries[aIndex].constraintData || !m_entries[aIndex].constraintData->IsNew();
-
     m_entries.erase( m_entries.begin() + aIndex );
-
-    if( applied )
-        touch();
+    touch();
 }
 
 

@@ -218,31 +218,6 @@ BOOST_AUTO_TEST_CASE( TextOnlyRuleListsUnderEachConstraintItSets )
 }
 
 
-BOOST_AUTO_TEST_CASE( ARuleNeverAppliedLeavesNoTrace )
-{
-    BOARD             board;
-    DRC_RULE_DOCUMENT document( &board );
-
-    document.Load();
-    BOOST_REQUIRE( !document.IsModified() );
-
-    DRC_RE_BASE_CONSTRAINT_DATA base( document.NextId(), wxS( "draft" ) );
-    auto                        data = DRC_RULE_EDITOR_UTILS::CreateConstraintData( MINIMUM_CLEARANCE, base );
-    data->SetIsNew( true );
-
-    int index = document.Add( DRC_RE_LOADED_PANEL_ENTRY( MINIMUM_CLEARANCE, data, wxS( "draft" ), wxEmptyString,
-                                                         RPT_SEVERITY_UNDEFINED, LSET() ) );
-
-    BOOST_CHECK_EQUAL( document.IndicesFor( MINIMUM_CLEARANCE ).size(), 1 );
-    BOOST_CHECK( !document.IsModified() );
-
-    document.Remove( index );
-
-    BOOST_CHECK( !document.IsModified() );
-    BOOST_CHECK_EQUAL( document.IndicesFor( MINIMUM_CLEARANCE ).size(), 0 );
-}
-
-
 BOOST_AUTO_TEST_CASE( ImportingFromABoardWithoutARulesFileChangesNothing )
 {
     BOARD             board;
