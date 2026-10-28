@@ -1983,19 +1983,29 @@ public:
         if( m_pinned )
         {
             VECTOR2I oldCorner( oldBox.GetLeft(), oldBox.GetTop() );
+            VECTOR2I newCorner = tl;
 
             if( isModified( aEditedPoint, aPoints.Point( RECT_TOP_RIGHT ) ) )
+            {
                 oldCorner = VECTOR2I( oldBox.GetRight(), oldBox.GetTop() );
+                newCorner = tr;
+            }
             else if( isModified( aEditedPoint, aPoints.Point( RECT_BOT_RIGHT ) ) )
+            {
                 oldCorner = VECTOR2I( oldBox.GetRight(), oldBox.GetBottom() );
+                newCorner = br;
+            }
             else if( isModified( aEditedPoint, aPoints.Point( RECT_BOT_LEFT ) ) )
+            {
                 oldCorner = VECTOR2I( oldBox.GetLeft(), oldBox.GetBottom() );
+                newCorner = bl;
+            }
 
             // Below this share of the selection diagonal a corner is too near the pin to scale by
             const double MIN_ARM_RATIO = 0.1;
 
             VECTOR2I oldArm = oldCorner - *m_pinned;
-            VECTOR2I newArm = aEditedPoint.GetPosition() - *m_pinned;
+            VECTOR2I newArm = newCorner - *m_pinned;
             VECTOR2I diagonal( oldBox.GetWidth(), oldBox.GetHeight() );
             double   span = static_cast<double>( oldArm.SquaredEuclideanNorm() );
             double   floor = static_cast<double>( diagonal.SquaredEuclideanNorm() ) * MIN_ARM_RATIO * MIN_ARM_RATIO;
