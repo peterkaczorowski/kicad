@@ -745,7 +745,7 @@ void PAGED_DIALOG::onSearchText( wxCommandEvent& aEvent )
     aEvent.Skip();
 
     wxWindow* focus = wxWindow::FindFocus();
-    bool      hadFocus = focus && ( focus == m_searchCtrl || focus->IsDescendant( m_searchCtrl ) );
+    bool      hadFocus = focus && m_searchCtrl->IsDescendant( focus );
     long      selFrom = 0;
     long      selTo = 0;
 
