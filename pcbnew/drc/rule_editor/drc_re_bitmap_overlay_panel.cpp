@@ -44,12 +44,10 @@ DRC_RE_BITMAP_OVERLAY_PANEL::DRC_RE_BITMAP_OVERLAY_PANEL( wxWindow* aParent, wxW
         m_logicalBitmapSize( 0, 0 )
 {
     // The illustration has no background of its own, so let the page behind it show through.
-    SetBackgroundStyle( wxBG_STYLE_TRANSPARENT );
+    // Where the port cannot, the paint handler erases it with a buffered DC that needs wxBG_STYLE_PAINT
+    m_erasesBackground = !aParent->IsTransparentBackgroundSupported();
+    SetBackgroundStyle( m_erasesBackground ? wxBG_STYLE_PAINT : wxBG_STYLE_TRANSPARENT );
     Create( aParent, aId );
-
-    // The style cannot be taken back off once it is set, so where the port cannot honour it the
-    // paint handler erases the background itself rather than leaving stale pixels behind.
-    m_erasesBackground = !IsTransparentBackgroundSupported();
 
     Bind( wxEVT_PAINT, &DRC_RE_BITMAP_OVERLAY_PANEL::OnPaint, this );
     Bind( wxEVT_DPI_CHANGED, &DRC_RE_BITMAP_OVERLAY_PANEL::OnDPIChanged, this );
