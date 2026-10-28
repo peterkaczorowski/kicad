@@ -262,23 +262,6 @@ std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME> DRC_RULE_EDITOR_UTILS::GetConstra
 }
 
 
-std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME> DRC_RULE_EDITOR_UTILS::SectionForConstraintCode( const wxString& aCode )
-{
-    static const std::map<wxString, DRC_RULE_EDITOR_CONSTRAINT_NAME> sharedCodes = {
-        { wxString::FromUTF8( DRC_RULES_LEXER::TokenName( DRCRULE_T::T_hole_size ) ), HOLE_SIZE },
-        { wxString::FromUTF8( DRC_RULES_LEXER::TokenName( DRCRULE_T::T_silk_clearance ) ), SILK_TO_SILK_CLEARANCE },
-        { wxString::FromUTF8( DRC_RULES_LEXER::TokenName( DRCRULE_T::T_length ) ), ABSOLUTE_LENGTH }
-    };
-
-    auto it = sharedCodes.find( aCode );
-
-    if( it != sharedCodes.end() )
-        return it->second;
-
-    return GetConstraintTypeFromCode( aCode );
-}
-
-
 wxString DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( DRC_RULE_EDITOR_CONSTRAINT_NAME aType )
 {
     return GetConstraintCode( aType );

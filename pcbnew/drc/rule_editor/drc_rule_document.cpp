@@ -20,6 +20,7 @@
 #include "drc_rule_document.h"
 
 #include <board.h>
+#include <drc/drc_rule_parser.h>
 #include <kiplatform/io.h>
 #include <string_utils.h>
 #include <algorithm>
@@ -28,6 +29,7 @@
 #include <wx/filename.h>
 
 #include "drc_re_rule_loader.h"
+#include "drc_re_panel_matcher.h"
 #include "drc_re_rule_saver.h"
 #include "drc_re_custom_rule_constraint_data.h"
 #include "drc_rule_editor_utils.h"
@@ -181,16 +183,47 @@ void DRC_RULE_DOCUMENT::SetText( const wxString& aText )
 }
 
 
+std::set<DRC_CONSTRAINT_T> DRC_RULE_DOCUMENT::ConstraintsOf( const DRC_RE_LOADED_PANEL_ENTRY& aEntry )
+{
+    std::set<DRC_CONSTRAINT_T> result;
+
+    if( !aEntry.constraintData )
+        return result;
+
+    // The condition cannot change which constraints are set, and leaving it out keeps the parse from failing on it
+    RULE_GENERATION_CONTEXT ctx;
+    ctx.ruleName = wxS( "rule" );
+    ctx.constraintCode = aEntry.constraintData->GetConstraintCode();
+
+    wxString                               ruleText = aEntry.constraintData->GenerateRule( ctx );
+    std::vector<std::shared_ptr<DRC_RULE>> rules;
+
+    try
+    {
+        DRC_RULES_PARSER parser( wxS( "(version 2)\n" ) + ruleText, wxS( "Rule Document" ) );
+        parser.Parse( rules, nullptr );
+    }
+    catch( const IO_ERROR& )
+    {
+        return result;
+    }
+
+    for( const std::shared_ptr<DRC_RULE>& rule : rules )
+    {
+        for( const DRC_CONSTRAINT& constraint : rule->m_Constraints )
+            result.insert( constraint.m_Type );
+    }
+
+    return result;
+}
+
+
 std::vector<int> DRC_RULE_DOCUMENT::IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType ) const
 {
     // A rule no graphical panel could take apart is kept as text. It still belongs on the
     // page of every constraint it sets.
-    wxString         code = DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( aType );
-    std::vector<int> result;
-
-    // Two sections can offer the same constraint, so only one of them lists text rules or
-    // the same rule appears twice.
-    bool listsTextRules = DRC_RULE_EDITOR_UTILS::SectionForConstraintCode( code ) == aType;
+    static DRC_PANEL_MATCHER matcher;
+    std::vector<int>         result;
 
     for( size_t i = 0; i < m_entries.size(); ++i )
     {
@@ -203,14 +236,15 @@ std::vector<int> DRC_RULE_DOCUMENT::IndicesFor( DRC_RULE_EDITOR_CONSTRAINT_NAME 
         {
             result.push_back( (int) i );
         }
-        else if( entry.panelType == CUSTOM_RULE && aType != CUSTOM_RULE && listsTextRules )
+        else if( entry.panelType == CUSTOM_RULE && aType != CUSTOM_RULE )
         {
-            auto custom = std::dynamic_pointer_cast<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( entry.constraintData );
-
-            if( ( custom && FindConstraintClause( custom->GetRuleText(), code ) != wxString::npos )
-                || FindConstraintClause( entry.originalRuleText, code ) != wxString::npos )
+            for( DRC_CONSTRAINT_T constraint : ConstraintsOf( entry ) )
             {
-                result.push_back( (int) i );
+                if( matcher.GetHomePanel( constraint ) == aType )
+                {
+                    result.push_back( (int) i );
+                    break;
+                }
             }
         }
     }
@@ -439,20 +473,30 @@ void DRC_RULE_DOCUMENT::touch()
 
 size_t DRC_RULE_DOCUMENT::FindConstraintClause( const wxString& aText, const wxString& aCode )
 {
-    wxString prefix = wxString::Format( wxS( "(constraint %s" ), aCode );
-    size_t   pos = aText.find( prefix );
+    const wxString keyword = wxS( "(constraint" );
+    size_t         pos = aText.find( keyword );
+
+    auto isSpace = []( wxUniChar aChar )
+    {
+        return aChar == ' ' || aChar == '\t' || aChar == '\n' || aChar == '\r';
+    };
 
     while( pos != wxString::npos )
     {
-        size_t end = pos + prefix.length();
+        size_t code = pos + keyword.length();
 
-        if( end >= aText.length() || aText[end] == ' ' || aText[end] == ')' || aText[end] == '\n'
-            || aText[end] == '\t' )
+        while( code < aText.length() && isSpace( aText[code] ) )
+            code++;
+
+        size_t end = code + aCode.length();
+
+        if( code > pos + keyword.length() && aText.compare( code, aCode.length(), aCode ) == 0
+            && ( end >= aText.length() || isSpace( aText[end] ) || aText[end] == ')' ) )
         {
             return pos;
         }
 
-        pos = aText.find( prefix, end );
+        pos = aText.find( keyword, pos + keyword.length() );
     }
 
     return wxString::npos;

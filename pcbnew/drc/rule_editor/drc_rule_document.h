@@ -20,8 +20,11 @@
 #ifndef DRC_RULE_DOCUMENT_H
 #define DRC_RULE_DOCUMENT_H
 
+#include <set>
 #include <vector>
 #include <wx/string.h>
+
+#include <drc/drc_constraint_types.h>
 
 #include "drc_re_loaded_rule.h"
 #include "drc_rule_editor_enums.h"
@@ -109,6 +112,9 @@ public:
      * a delimiter so a code that starts like another is not matched.
      */
     static size_t FindConstraintClause( const wxString& aText, const wxString& aCode );
+
+    /// The DRC constraints a rule sets, read back through the rules parser
+    static std::set<DRC_CONSTRAINT_T> ConstraintsOf( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
 
 private:
     /// Returns false when the file could not be read, leaving the document as it was

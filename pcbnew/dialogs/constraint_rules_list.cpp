@@ -280,11 +280,17 @@ wxString CONSTRAINT_RULES_LIST::ConstraintText( const DRC_RE_LOADED_PANEL_ENTRY&
         auto     custom = std::dynamic_pointer_cast<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>( aEntry.constraintData );
         wxString text = custom ? custom->GetRuleText() : aEntry.originalRuleText;
         wxString code = DRC_RULE_EDITOR_UTILS::ConstraintToKicadDrc( aType );
-        wxString prefix = wxString::Format( wxS( "(constraint %s" ), code );
         size_t   start = DRC_RULE_DOCUMENT::FindConstraintClause( text, code );
 
         if( start == wxString::npos )
             return _( "Custom rule" );
+
+        size_t body = start + wxString( wxS( "(constraint" ) ).length();
+
+        while( body < text.length() && wxIsspace( text[body] ) )
+            body++;
+
+        body += code.length();
 
         int depth = 0;
 
@@ -294,7 +300,7 @@ wxString CONSTRAINT_RULES_LIST::ConstraintText( const DRC_RE_LOADED_PANEL_ENTRY&
                 depth++;
             else if( text[i] == ')' && --depth == 0 )
             {
-                wxString clause = text.Mid( start + prefix.length(), i - start - prefix.length() );
+                wxString clause = text.Mid( body, i - body );
                 clause.Replace( wxS( "\n" ), wxS( " " ) );
                 clause.Replace( wxS( "\t" ), wxS( " " ) );
                 return inUserUnits( clause.Trim( true ).Trim( false ), aUnits ) + _( "  (text rule)" );

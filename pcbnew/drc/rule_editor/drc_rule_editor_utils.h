@@ -88,15 +88,6 @@ public:
     static std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME> GetConstraintTypeFromCode( const wxString& aCode );
 
     /**
-     * The section that lists a rule which exists only as text. Two sections of the same page can
-     * offer the same constraint, and then the broader of the two lists it.
-     *
-     * @param aCode The textual keyword for the constraint.
-     * @return The owning section, or an empty optional when the keyword is unknown.
-     */
-    static std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME> SectionForConstraintCode( const wxString& aCode );
-
-    /**
      * Convert a constraint type into the keyword used in a .kicad_drc file.
      *
      * @param aType The constraint type to convert.
