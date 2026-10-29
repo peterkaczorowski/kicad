@@ -326,6 +326,9 @@ std::unique_ptr<PAD> PCB_IO_EASYEDAPRO_V3_PARSER::createV3PAD( FOOTPRINT* aFootp
         pad->SetShape( PADSTACK::ALL_LAYERS, PAD_SHAPE::RECTANGLE );
     }
 
+    if( hasHole )
+        PCB_IO_EASYEDAPRO_PARSER::SizeHoleOnlyPad( *pad, aRow.inner.value( "plated", true ) );
+
     pad->SetThermalSpokeAngle( ANGLE_90 );
 
     return pad;
@@ -1209,6 +1212,7 @@ void PCB_IO_EASYEDAPRO_V3_PARSER::ParseBoard( BOARD* aBoard, const nlohmann::jso
                 zoneFillPoly.AddOutline( contour );
 
             zoneFillPoly.RebuildHolesFromContours();
+            zoneFillPoly.ClearArcs();
             zoneFillPoly.Fracture();
 
             std::unique_ptr<ZONE> zone = std::make_unique<ZONE>( aBoard );
@@ -1273,7 +1277,9 @@ void PCB_IO_EASYEDAPRO_V3_PARSER::ParseBoard( BOARD* aBoard, const nlohmann::jso
             zone->SetNet( aBoard->FindNet( netname ) );
             zone->SetLayer( klayer );
             zone->Outline()->Append( contour );
-            zone->SetFilledPolysList( klayer, contour );
+            SHAPE_POLY_SET teardropFill( contour );
+            teardropFill.ClearArcs();
+            zone->SetFilledPolysList( klayer, teardropFill );
             zone->SetNeedRefill( false );
             zone->SetIsFilled( true );
             zone->SetAssignedPriority( 600 );

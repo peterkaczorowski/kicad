@@ -55,6 +55,7 @@
 #include <tools/pcb_selection_tool.h>
 #include <tools/constraint_edit_tool.h>
 #include <tools/edit_tool.h>
+#include <tools/multichannel_tool.h>
 #include <tools/graphic_edit.h>
 #include <tools/item_modification_routine.h>
 #include <tools/pcb_picker_tool.h>
@@ -2333,6 +2334,12 @@ int EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
             tableDlg.ShowQuasiModal(); // Scintilla's auto-complete requires quasiModal
         }
     }
+    else if( selection.Size() == 1 && selection.Front()->Type() == PCB_GROUP_T
+             && MULTICHANNEL_TOOL::ChannelZone( static_cast<PCB_GROUP*>( selection.Front() ) ) )
+    {
+        // A repeated channel is edited through the Repeat Layout dialog, which applies to the whole set
+        m_toolMgr->RunAction( PCB_ACTIONS::repeatLayout );
+    }
     else if( selection.Size() == 1 && selection.Front()->IsBOARD_ITEM() )
     {
         // Display properties dialog
@@ -3444,6 +3451,25 @@ bool EDIT_TOOL::CanDuplicateSelection( const SELECTION& aSelection )
 }
 
 
+/**
+ * Handle items that have been duplicated. For example, notify the pad tool
+ * about duplicated pads.
+ */
+static void recordDuplicatedItems( TOOL_MANAGER* aToolMgr, const std::vector<BOARD_ITEM*>& aItems )
+{
+    PAD_TOOL* padTool = aToolMgr->GetTool<PAD_TOOL>();
+
+    if( !padTool )
+        return;
+
+    for( BOARD_ITEM* item : aItems )
+    {
+        if( PAD* pad = dynamic_cast<PAD*>( item ) )
+            padTool->RecordMasterPad( *pad );
+    }
+}
+
+
 int EDIT_TOOL::Duplicate( const TOOL_EVENT& aEvent )
 {
     if( isRouterActive() )
@@ -3625,9 +3651,15 @@ int EDIT_TOOL::Duplicate( const TOOL_EVENT& aEvent )
 
         // If items were duplicated, pick them up
         if( doMoveSelection( aEvent, &commit, true ) )
+        {
             commit.Push( _( "Duplicate" ) );
+
+            recordDuplicatedItems( m_toolMgr, new_items );
+        }
         else
+        {
             commit.Revert();
+        }
 
         // Deselect the duplicated item if we originally started as a hover selection
         if( is_hover )
@@ -3929,7 +3961,8 @@ int EDIT_TOOL::copyToClipboard( const TOOL_EVENT& aEvent )
                     sTool->FilterCollectorForLockedItems( aCollector );
             } );
 
-    m_selectionTool->ReportFilteredLockedItems();
+    if( m_selectionTool->ReportFilteredLockedItems() )
+        return 1;
 
     if( !selection.Empty() )
     {

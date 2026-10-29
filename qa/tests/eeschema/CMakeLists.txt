@@ -70,10 +70,12 @@ set( QA_EESCHEMA_SRCS
     sch_io/geda/test_geda_sch_import.cpp
     sch_io/diptrace/test_diptrace_sch_import.cpp
     sch_io/pcad/test_pcad_sch_import.cpp
+    sch_io/easyeda/test_easyeda_sch_import.cpp
     sch_io/orcad/test_orcad_sch_import.cpp
     sch_io/cadstar/test_issue14447_arc_connection.cpp
 
     erc/test_erc_empty_label.cpp
+    erc/test_erc_empty_power_value.cpp
     erc/test_erc_four_way.cpp
 	erc/test_erc_label_not_connected.cpp
 	erc/test_erc_multiple_pin_to_pin.cpp
@@ -166,6 +168,7 @@ set( QA_EESCHEMA_SRCS
     test_issue24943_variant_unit_sync.cpp
     test_issue25119_bom_netlist_variant.cpp
     test_issue25198_multi_top_level_plot.cpp
+    test_issue25869_variant_lib_symbols.cpp
     test_issue24961_group_promotion.cpp
     test_issue24663_sheet_dnp_fields.cpp
     test_issue25112_shared_sheet_field_scope.cpp
@@ -188,11 +191,14 @@ set( QA_EESCHEMA_SRCS
     http_lib_fake_server.cpp
     test_issue24403_directive_label_i18n.cpp
     test_issue24606_derived_symbol_fields.cpp
+    test_issue25606_derived_symbol_footprint.cpp
+    test_issue25900_delete_base_symbol.cpp
     test_issue23687_sim_value_field.cpp
     test_issue9673_bus_alias_highlighting.cpp
     test_nc_pin_connectivity.cpp
     test_crossing_label.cpp
     test_eagle_plugin.cpp
+    test_link_imported_footprints.cpp
     test_sch_footprint_field_reconciler.cpp
     test_symbol_import_reconciler.cpp
     test_easyedapro_v3_import.cpp
@@ -201,6 +207,7 @@ set( QA_EESCHEMA_SRCS
     test_junction_helpers.cpp
     test_junction_place.cpp
     test_issue18346_junction_fixup.cpp
+    test_issue25583_equidistant_pins.cpp
     test_bus_alias_whitespace.cpp
     test_bus_entry_concurrency.cpp
     test_bus_net_name_determinism.cpp
@@ -275,6 +282,7 @@ set( QA_EESCHEMA_SRCS
     test_netlist_exporter_xml_chain_gating.cpp
     test_netlist_exporter_xml_stacked.cpp
     test_netlist_exporter_xml_terminal_pins.cpp
+    test_netlist_exporter_xml_unit_fields.cpp
     test_netlist_exporter_xml_nested_groups.cpp
     test_resolve_drivers.cpp
     test_hierarchy_driver_ranking.cpp

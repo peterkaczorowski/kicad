@@ -639,136 +639,6 @@ private:
 };
 
 
-class REFERENCE_IMAGE_POINT_EDIT_BEHAVIOR : public POINT_EDIT_BEHAVIOR
-{
-    enum REFIMG_POINTS
-    {
-        REFIMG_ORIGIN = RECT_CENTER, // Reuse the center point fo rthe transform origin
-
-        REFIMG_MAX_POINTS,
-    };
-
-public:
-    REFERENCE_IMAGE_POINT_EDIT_BEHAVIOR( PCB_REFERENCE_IMAGE& aRefImage ) :
-            m_refImage( aRefImage )
-    {}
-
-    void MakePoints( EDIT_POINTS& aPoints ) override
-    {
-        REFERENCE_IMAGE& refImage = m_refImage.GetReferenceImage();
-
-        const VECTOR2I topLeft = refImage.GetPosition() - refImage.GetSize() / 2;
-        const VECTOR2I botRight = refImage.GetPosition() + refImage.GetSize() / 2;
-
-        aPoints.AddPoint( topLeft );
-        aPoints.AddPoint( VECTOR2I( botRight.x, topLeft.y ) );
-        aPoints.AddPoint( botRight );
-        aPoints.AddPoint( VECTOR2I( topLeft.x, botRight.y ) );
-
-        aPoints.AddPoint( refImage.GetPosition() + refImage.GetTransformOriginOffset() );
-    }
-
-    bool UpdatePoints( EDIT_POINTS& aPoints ) override
-    {
-        wxCHECK( aPoints.PointsSize() == REFIMG_MAX_POINTS, false );
-
-        REFERENCE_IMAGE& refImage = m_refImage.GetReferenceImage();
-
-        const VECTOR2I topLeft = refImage.GetPosition() - refImage.GetSize() / 2;
-        const VECTOR2I botRight = refImage.GetPosition() + refImage.GetSize() / 2;
-
-        aPoints.Point( RECT_TOP_LEFT ).SetPosition( topLeft );
-        aPoints.Point( RECT_TOP_RIGHT ).SetPosition( VECTOR2I( botRight.x, topLeft.y ) );
-        aPoints.Point( RECT_BOT_RIGHT ).SetPosition( botRight );
-        aPoints.Point( RECT_BOT_LEFT ).SetPosition( VECTOR2I( topLeft.x, botRight.y ) );
-        aPoints.Point( REFIMG_ORIGIN ).SetPosition( refImage.GetPosition() + refImage.GetTransformOriginOffset() );
-        return true;
-    }
-
-    void UpdateItem( const EDIT_POINT& aEditedPoint, EDIT_POINTS& aPoints, COMMIT& aCommit,
-                     std::vector<EDA_ITEM*>& aUpdatedItems ) override
-    {
-        CHECK_POINT_COUNT( aPoints, REFIMG_MAX_POINTS );
-
-        REFERENCE_IMAGE& refImage = m_refImage.GetReferenceImage();
-
-        const VECTOR2I topLeft = aPoints.Point( RECT_TOP_LEFT ).GetPosition();
-        const VECTOR2I topRight = aPoints.Point( RECT_TOP_RIGHT ).GetPosition();
-        const VECTOR2I botRight = aPoints.Point( RECT_BOT_RIGHT ).GetPosition();
-        const VECTOR2I botLeft = aPoints.Point( RECT_BOT_LEFT ).GetPosition();
-        const VECTOR2I xfrmOrigin = aPoints.Point( REFIMG_ORIGIN ).GetPosition();
-
-        if( isModified( aEditedPoint, aPoints.Point( REFIMG_ORIGIN ) ) )
-        {
-            // Moving the transform origin
-            // As the other points didn't move, we can get the image extent from them
-            const VECTOR2I newOffset = xfrmOrigin - ( topLeft + botRight ) / 2;
-            refImage.SetTransformOriginOffset( newOffset );
-        }
-        else
-        {
-            const VECTOR2I oldOrigin = m_refImage.GetPosition() + refImage.GetTransformOriginOffset();
-            const VECTOR2I oldSize = refImage.GetSize();
-            const VECTOR2I pos = refImage.GetPosition();
-
-            OPT_VECTOR2I newCorner;
-            VECTOR2I     oldCorner = pos;
-
-            if( isModified( aEditedPoint, aPoints.Point( RECT_TOP_LEFT ) ) )
-            {
-                newCorner = topLeft;
-                oldCorner -= oldSize / 2;
-            }
-            else if( isModified( aEditedPoint, aPoints.Point( RECT_TOP_RIGHT ) ) )
-            {
-                newCorner = topRight;
-                oldCorner -= VECTOR2I( -oldSize.x, oldSize.y ) / 2;
-            }
-            else if( isModified( aEditedPoint, aPoints.Point( RECT_BOT_LEFT ) ) )
-            {
-                newCorner = botLeft;
-                oldCorner -= VECTOR2I( oldSize.x, -oldSize.y ) / 2;
-            }
-            else if( isModified( aEditedPoint, aPoints.Point( RECT_BOT_RIGHT ) ) )
-            {
-                newCorner = botRight;
-                oldCorner += oldSize / 2;
-            }
-
-            if( newCorner )
-            {
-                // Turn in the respective vectors from the origin
-                *newCorner -= xfrmOrigin;
-                oldCorner -= oldOrigin;
-
-                // If we tried to cross the origin, clamp it to stop it
-                if( sign( newCorner->x ) != sign( oldCorner.x ) || sign( newCorner->y ) != sign( oldCorner.y ) )
-                {
-                    *newCorner = VECTOR2I( 0, 0 );
-                }
-
-                const double newLength = newCorner->EuclideanNorm();
-                const double oldLength = oldCorner.EuclideanNorm();
-
-                double ratio = oldLength > 0 ? ( newLength / oldLength ) : 1.0;
-
-                // Clamp the scaling to a minimum of 50 mils
-                VECTOR2I newSize = oldSize * ratio;
-                double   newWidth = std::max( newSize.x, EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 50 ) );
-                double   newHeight = std::max( newSize.y, EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 50 ) );
-                ratio = std::min( newWidth / oldSize.x, newHeight / oldSize.y );
-
-                // Also handles the origin offset
-                refImage.SetImageScale( refImage.GetImageScale() * ratio );
-            }
-        }
-    }
-
-private:
-    PCB_REFERENCE_IMAGE& m_refImage;
-};
-
-
 class BARCODE_POINT_EDIT_BEHAVIOR : public POINT_EDIT_BEHAVIOR
 {
 public:
@@ -1636,7 +1506,8 @@ private:
             // Find vector from nearest dimension point to edit position
             VECTOR2I directionA( cursorPos - m_dimension.GetStart() );
             VECTOR2I directionB( cursorPos - m_dimension.GetEnd() );
-            VECTOR2I direction = ( directionA < directionB ) ? directionA : directionB;
+            VECTOR2I direction = directionA.SquaredEuclideanNorm() < directionB.SquaredEuclideanNorm() ? directionA
+                                                                                                      : directionB;
 
             bool     vert;
             VECTOR2D featureLine( cursorPos - m_dimension.GetStart() );
@@ -1953,7 +1824,8 @@ class SHAPE_GROUP_POINT_EDIT_BEHAVIOR : public POINT_EDIT_BEHAVIOR
 public:
     SHAPE_GROUP_POINT_EDIT_BEHAVIOR( PCB_GROUP& aGroup ) :
             m_group( &aGroup ),
-            m_parent( &aGroup )
+            m_parent( &aGroup ),
+            m_pinned( std::nullopt )
     {
         for( BOARD_ITEM* item : aGroup.GetBoardItems() )
         {
@@ -1966,10 +1838,12 @@ public:
         }
     }
 
-    SHAPE_GROUP_POINT_EDIT_BEHAVIOR( std::vector<PCB_SHAPE*> aShapes, BOARD_ITEM* aParent ) :
+    SHAPE_GROUP_POINT_EDIT_BEHAVIOR( std::vector<PCB_SHAPE*> aShapes, BOARD_ITEM* aParent,
+                                     const std::optional<VECTOR2I>& aPinned ) :
             m_group( nullptr ),
             m_shapes( std::move( aShapes ) ),
-            m_parent( aParent )
+            m_parent( aParent ),
+            m_pinned( aPinned )
     {
         for( PCB_SHAPE* shape : m_shapes )
             m_originalWidths[shape] = static_cast<double>( shape->GetWidth() );
@@ -2015,6 +1889,12 @@ public:
 
         if( isModified( aEditedPoint, aPoints.Point( RECT_CENTER ) ) )
         {
+            if( m_pinned )
+            {
+                UpdatePoints( aPoints );
+                return;
+            }
+
             VECTOR2I delta = aPoints.Point( RECT_CENTER ).GetPosition() - oldCenter;
 
             if( m_group )
@@ -2045,9 +1925,48 @@ public:
 
         RECTANGLE_POINT_EDIT_BEHAVIOR::PinEditedCorner( aEditedPoint, aPoints, tl, tr, bl, br );
 
-        double sx = static_cast<double>( br.x - tl.x ) / static_cast<double>( oldBox.GetWidth() );
-        double sy = static_cast<double>( br.y - tl.y ) / static_cast<double>( oldBox.GetHeight() );
-        double scale = ( sx + sy ) / 2.0;
+        VECTOR2I origin = oldCenter;
+        double   scale;
+
+        // A scale holds exactly one point still, so a pinned selection has to scale about the pin
+        if( m_pinned )
+        {
+            VECTOR2I oldCorner( oldBox.GetLeft(), oldBox.GetTop() );
+
+            if( isModified( aEditedPoint, aPoints.Point( RECT_TOP_RIGHT ) ) )
+                oldCorner = VECTOR2I( oldBox.GetRight(), oldBox.GetTop() );
+            else if( isModified( aEditedPoint, aPoints.Point( RECT_BOT_RIGHT ) ) )
+                oldCorner = VECTOR2I( oldBox.GetRight(), oldBox.GetBottom() );
+            else if( isModified( aEditedPoint, aPoints.Point( RECT_BOT_LEFT ) ) )
+                oldCorner = VECTOR2I( oldBox.GetLeft(), oldBox.GetBottom() );
+
+            // Below this share of the selection diagonal a corner is too near the pin to scale by
+            const double MIN_ARM_RATIO = 0.1;
+
+            VECTOR2I oldArm = oldCorner - *m_pinned;
+            VECTOR2I newArm = aEditedPoint.GetPosition() - *m_pinned;
+            VECTOR2I diagonal( oldBox.GetWidth(), oldBox.GetHeight() );
+            double   span = static_cast<double>( oldArm.SquaredEuclideanNorm() );
+            double   floor = static_cast<double>( diagonal.SquaredEuclideanNorm() ) * MIN_ARM_RATIO * MIN_ARM_RATIO;
+
+            // A corner on the pin has no leverage, so any drag of it would scale wildly
+            if( span < floor )
+            {
+                UpdatePoints( aPoints );
+                return;
+            }
+
+            // Measured along the arm, so a corner level with the pin stays controllable
+            origin = *m_pinned;
+            scale = static_cast<double>( oldArm.Dot( newArm ) ) / span;
+        }
+        else
+        {
+            double sx = static_cast<double>( br.x - tl.x ) / static_cast<double>( oldBox.GetWidth() );
+            double sy = static_cast<double>( br.y - tl.y ) / static_cast<double>( oldBox.GetHeight() );
+
+            scale = ( sx + sy ) / 2.0;
+        }
 
         // Prevent scaling below a minimum threshold to avoid precision loss when shapes
         // are scaled to near-zero size. Also prevent negative scaling which would flip
@@ -2060,9 +1979,9 @@ public:
         for( PCB_SHAPE* shape : m_shapes )
         {
             aCommit.Modify( shape );
-            shape->Move( -oldCenter );
+            shape->Move( -origin );
             shape->Scale( scale );
-            shape->Move( oldCenter );
+            shape->Move( origin );
 
             if( auto shapeIt = m_originalWidths.find( shape ); shapeIt != m_originalWidths.end() )
             {
@@ -2082,6 +2001,8 @@ public:
 
     BOARD_ITEM* GetParent() const { return m_parent; }
 
+    const std::vector<PCB_SHAPE*>& GetShapes() const { return m_shapes; }
+
 private:
     BOX2I getBoundingBox() const
     {
@@ -2097,6 +2018,7 @@ private:
     PCB_GROUP*                             m_group;
     std::vector<PCB_SHAPE*>                m_shapes;
     BOARD_ITEM*                            m_parent;
+    std::optional<VECTOR2I>                m_pinned;
     std::unordered_map<PCB_SHAPE*, double> m_originalWidths;
 };
 
@@ -2134,6 +2056,8 @@ void PCB_POINT_EDITOR::Reset( RESET_REASON aReason )
             view->Remove( &m_preview );
     }
 
+    m_editedPoint = nullptr;
+    m_hoveredPoint = nullptr;
     m_angleItem.reset();
     m_editPoints.reset();
     m_altConstraint.reset();
@@ -2265,7 +2189,8 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
     case PCB_REFERENCE_IMAGE_T:
     {
         PCB_REFERENCE_IMAGE& refImage = static_cast<PCB_REFERENCE_IMAGE&>( *aItem );
-        m_editorBehavior = std::make_unique<REFERENCE_IMAGE_POINT_EDIT_BEHAVIOR>( refImage );
+        m_editorBehavior = std::make_unique<REFERENCE_IMAGE_POINT_EDIT_BEHAVIOR>( refImage.GetReferenceImage(),
+                                                                                  pcbIUScale.mmToIU( 1.0 ) );
         break;
     }
     case PCB_BARCODE_T:
@@ -2531,6 +2456,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     {
         // Multi-selection: check if all items are shapes
         std::vector<PCB_SHAPE*> shapes;
+        std::set<KIID>          shapeIds;
         bool allShapes = true;
         bool anyLocked = false;
 
@@ -2540,6 +2466,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             {
                 PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( selItem );
                 shapes.push_back( shape );
+                shapeIds.insert( shape->m_Uuid );
 
                 if( shape->IsLocked() )
                     anyLocked = true;
@@ -2550,10 +2477,20 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
         }
 
-        if( allShapes && shapes.size() > 1 && ( !anyLocked || overrideLocks ) )
+        std::vector<VECTOR2I> pinned;
+
+        if( allShapes && shapes.size() > 1 )
+            pinned = ConstraintPinnedPositions( board(), shapeIds );
+
+        // Two pins in different places leave a scale no fixed point to work from
+        if( allShapes && shapes.size() > 1 && ( !anyLocked || overrideLocks ) && pinned.size() < 2 )
         {
-            m_editorBehavior = std::make_unique<SHAPE_GROUP_POINT_EDIT_BEHAVIOR>(
-                    std::move( shapes ), item );
+            std::optional<VECTOR2I> pin;
+
+            if( !pinned.empty() )
+                pin = pinned.front();
+
+            m_editorBehavior = std::make_unique<SHAPE_GROUP_POINT_EDIT_BEHAVIOR>( std::move( shapes ), item, pin );
             m_editPoints = std::make_shared<EDIT_POINTS>( item );
             m_editorBehavior->MakePoints( *m_editPoints );
         }
@@ -3233,6 +3170,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 if( m_angleItem && getView()->HasItem( m_angleItem.get() ) )
                     getView()->Remove( m_angleItem.get() );
 
+                m_editedPoint = nullptr;
+                m_hoveredPoint = nullptr;
                 m_editPoints = makePoints( item );
 
                 if( m_angleItem )
@@ -3280,6 +3219,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         if( m_angleItem && getView()->HasItem( m_angleItem.get() ) )
             getView()->Remove( m_angleItem.get() );
 
+        m_hoveredPoint = nullptr;
         m_editPoints.reset();
         m_angleItem.reset();
     }
@@ -3350,26 +3290,22 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT& aCommit )
     // Re-derive any geometry constrained to the dragged segment endpoint (issue #2329).  The
     // behavior above has already moved the dragged point to the cursor, so its current endpoint
     // position is the pin target for the solver.
-    auto anyConstraints =
-            [&]() -> bool
-            {
-                if( !board() )
-                    return false;
+    if( auto* groupBehavior = dynamic_cast<SHAPE_GROUP_POINT_EDIT_BEHAVIOR*>( m_editorBehavior.get() );
+        groupBehavior && BoardHasConstraints( board() ) )
+    {
+        // A group edit writes its own shapes, so the neighbours still need re-solving
+        std::vector<PCB_SHAPE*> modified;
 
-                if( !board()->Constraints().empty() )
-                    return true;
+        ReSolveShapeClustersHoldingEdited( board(), groupBehavior->GetShapes(), &modified,
+                                           [&]( BOARD_ITEM* aNeighbor )
+                                           {
+                                               aCommit.Modify( aNeighbor );
+                                           } );
 
-                // In the footprint editor the constraints live on the footprint, not the board.
-                for( FOOTPRINT* fp : board()->Footprints() )
-                {
-                    if( !fp->Constraints().empty() )
-                        return true;
-                }
-
-                return false;
-            };
-
-    if( item->Type() == PCB_SHAPE_T && m_editedPoint && anyConstraints() )
+        for( PCB_SHAPE* neighbor : modified )
+            updatedItems.push_back( neighbor );
+    }
+    else if( item->Type() == PCB_SHAPE_T && m_editedPoint && BoardHasConstraints( board() ) )
     {
         PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
         SHAPE_T    type = shape->GetShape();
@@ -3632,6 +3568,7 @@ void PCB_POINT_EDITOR::updatePoints()
         if( getView()->HasItem( m_editPoints.get() ) )
             getView()->Remove( m_editPoints.get() );
 
+        m_hoveredPoint = nullptr;
         m_editPoints = makePoints( item );
         getView()->Add( m_editPoints.get() );
     }

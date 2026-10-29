@@ -19,6 +19,7 @@
  */
 
 #include <import_net_names.h>
+#include <diff_merge/merge_dispatch.h>
 #include <richio.h>
 #include <string_utils.h>
 #include <wx/crt.h>
@@ -2289,13 +2290,15 @@ int PCBNEW_JOBS_HANDLER::JobExportGerber( JOB* aJob )
     }
 
     PLOTTER* plotter = StartPlotBoard( brd, &plotOpts, layer, layerName, outPath, sheetName, sheetPath );
+    bool     success = false;
 
     if( plotter )
     {
         PlotBoardLayers( brd, plotter, aGerberJob->m_plotLayerSequence, plotOpts );
-        plotter->EndPlot();
+        success = plotter->EndPlot();
     }
-    else
+
+    if( !success )
     {
         m_reporter->Report( wxString::Format( _( "Failed to plot to '%s'.\n" ), outPath ), RPT_SEVERITY_ERROR );
         exitCode = CLI::EXIT_CODES::ERR_INVALID_OUTPUT_CONFLICT;
@@ -2824,11 +2827,6 @@ int PCBNEW_JOBS_HANDLER::doFpExportSvg( JOB_FP_EXPORT_SVG* aSvgJob, const FOOTPR
 
     PCB_PLOT_PARAMS plotOpts;
     PCB_PLOTTER::PlotJobToPlotOpts( plotOpts, aSvgJob, *m_reporter );
-
-    if( plotOpts.GetSketchPadsOnFabLayers() )
-    {
-        plotOpts.SetPlotPadNumbers( true );
-    }
 
     if( !PlotFootprintToSVG( *aFootprint, *Pgm().GetSettingsManager().GetProject( "" ), &aSvgJob->GetVarOverrides(),
                              plotOpts, aSvgJob->m_plotLayerSequence, aSvgJob->m_plotOnAllLayersSequence,
@@ -3823,6 +3821,8 @@ int PCBNEW_JOBS_HANDLER::JobImport( JOB* aJob )
     case JOB_PCB_IMPORT::FORMAT::SOLIDWORKS: fileType = PCB_IO_MGR::SOLIDWORKS_PCB; break;
 
     case JOB_PCB_IMPORT::FORMAT::EASYPC: fileType = PCB_IO_MGR::EASYPC; break;
+
+    case JOB_PCB_IMPORT::FORMAT::TARGET3001: fileType = PCB_IO_MGR::TARGET3001; break;
     }
 
     // FindPluginTypeFromBoardPath returns FILE_TYPE_NONE (not PCB_FILE_UNKNOWN) when no plugin
@@ -4316,8 +4316,11 @@ int PCBNEW_JOBS_HANDLER::JobDiff( JOB* aJob )
 // ============================================================================
 #include <diff_merge/pcb_geometry_extractor.h>
 #include <diff_merge/pcb_merge_applier.h>
+#include <diff_merge/auto_resolution.h>
 #include <diff_merge/kicad_merge_engine.h>
+#include <diff_merge/pcb_diff_canvas_context.h>
 #include <dialogs/dialog_kicad_merge_3way.h>
+#include <widgets/widget_diff_canvas.h>
 
 
 int PCBNEW_JOBS_HANDLER::RunMerge( KICAD_DIFF::DOC_KIND aKind, const wxString& aAncestor,
@@ -4365,6 +4368,13 @@ int PCBNEW_JOBS_HANDLER::runPcbMerge( const wxString& aAncestor, const wxString&
         return CLI::EXIT_CODES::ERR_INVALID_INPUT_FILE;
     }
 
+    const wxString formatNotice =
+            KICAD_DIFF::OlderFormatNotice( ancestor->GetFileFormatVersionAtLoad(), ours->GetFileFormatVersionAtLoad(),
+                                           theirs->GetFileFormatVersionAtLoad(), SEXPR_BOARD_FILE_VERSION );
+
+    if( !formatNotice.IsEmpty() )
+        m_reporter->Report( formatNotice + wxS( "\n" ), RPT_SEVERITY_WARNING );
+
     KICAD_DIFF::PCB_DIFFER ourDiff( ancestor, ours );
     KICAD_DIFF::PCB_DIFFER theirDiff( ancestor, theirs );
 
@@ -4374,9 +4384,7 @@ int PCBNEW_JOBS_HANDLER::runPcbMerge( const wxString& aAncestor, const wxString&
     KICAD_DIFF::KICAD_MERGE_ENGINE engine;
     KICAD_DIFF::MERGE_PLAN         plan = engine.Plan( ourDocDiff, theirDocDiff );
 
-    // A cancelled dialog leaves plan unresolved and falls through to the
-    // marker flow below.
-    if( aInteractive && !plan.Resolved() )
+    if( aInteractive && !KICAD_DIFF::BuildConflictList( plan ).empty() )
     {
         if( !Pgm().IsGUI() )
         {
@@ -4390,6 +4398,7 @@ int PCBNEW_JOBS_HANDLER::runPcbMerge( const wxString& aAncestor, const wxString&
         // boards behind the conflict bbox highlight.
         const KICAD_DIFF::DIFF_COLOR_THEME        theme;
         DIALOG_KICAD_MERGE_3WAY::CONFLICT_CONTEXT ctx;
+        ctx.formatNotice = formatNotice;
         ctx.ancestorGeometry = KICAD_DIFF::ExtractBoardGeometry( *ancestor, theme.reference );
         ctx.oursGeometry = KICAD_DIFF::ExtractBoardGeometry( *ours, theme.reference );
         ctx.theirsGeometry = KICAD_DIFF::ExtractBoardGeometry( *theirs, theme.comparison );
@@ -4399,10 +4408,55 @@ int PCBNEW_JOBS_HANDLER::runPcbMerge( const wxString& aAncestor, const wxString&
         KICAD_DIFF::CollectChangeBBoxes( ourDocDiff, ctx.oursBBoxes );
         KICAD_DIFF::CollectChangeBBoxes( theirDocDiff, ctx.theirsBBoxes );
 
+        ctx.describeItem = [ours, theirs, ancestor]( const KIID_PATH& aId ) -> wxString
+        {
+            if( aId.empty() )
+                return wxEmptyString;
+
+            UNITS_PROVIDER units( pcbIUScale, EDA_UNITS::MM );
+
+            for( BOARD* board : { ours, theirs, ancestor } )
+            {
+                if( !board )
+                    continue;
+
+                if( BOARD_ITEM* item = board->ResolveItem( aId.back(), true ) )
+                    return item->GetItemDescription( &units, false );
+            }
+
+            return wxEmptyString;
+        };
+
+        ctx.drawSide = [ancestor, ours, theirs, theme]( WIDGET_DIFF_CANVAS&           aCanvas,
+                                                        DIALOG_KICAD_MERGE_3WAY::SIDE aSide,
+                                                        const std::optional<KIID_PATH>& )
+        {
+            BOARD*         board = nullptr;
+            KIGFX::COLOR4D colour = theme.reference;
+
+            switch( aSide )
+            {
+            case DIALOG_KICAD_MERGE_3WAY::SIDE::OURS: board = ours; break;
+
+            case DIALOG_KICAD_MERGE_3WAY::SIDE::THEIRS:
+                board = theirs;
+                colour = theme.comparison;
+                break;
+
+            case DIALOG_KICAD_MERGE_3WAY::SIDE::ANCESTOR: board = ancestor; break;
+            }
+
+            if( board )
+                KICAD_DIFF::ConfigurePcbDiffCanvasContext( aCanvas, board, nullptr, colour );
+        };
+
         DIALOG_KICAD_MERGE_3WAY dlg( wxTheApp->GetTopWindow(), plan, std::move( ctx ) );
 
-        if( dlg.ShowModal() == wxID_APPLY )
-            plan = dlg.GetResolvedPlan();
+        // Cancelling leaves the conflicts unresolved and the files untouched.
+        if( dlg.ShowModal() != wxID_APPLY )
+            return CLI::EXIT_CODES::ERR_CANCELLED;
+
+        plan = dlg.GetResolvedPlan();
     }
 
     // Snapshot of the plan before the applier moves it; drives the
@@ -4704,8 +4758,105 @@ int PCBNEW_JOBS_HANDLER::JobFpDiff( JOB* aJob )
 // ============================================================================
 #include <dialogs/dialog_kicad_diff.h>
 #include <diff_merge/pcb_diff_canvas_context.h>
+#include <widgets/widget_diff_canvas.h>
 #include <diff_merge/pcb_geometry_extractor.h>
 #include <jobs/scratch_doc.h>
+
+
+// Both boards of a diff, kept while the caller draws them.
+struct PCB_DIFF_SIDES
+{
+    SCRATCH_DOC<BOARD>        a;
+    SCRATCH_DOC<BOARD>        b;
+    BOARD                     emptyA;
+    BOARD                     emptyB;
+    BOARD*                    boardA = nullptr;
+    BOARD*                    boardB = nullptr;
+    KICAD_DIFF::DOCUMENT_DIFF diff;
+};
+
+
+static int loadPcbDiffSides( SETTINGS_MANAGER& aMgr, REPORTER& aReporter, const wxString& aFileA,
+                             const wxString& aFileB, PCB_DIFF_SIDES& aSides )
+{
+    aSides.a = loadScratchBoard( aMgr, aFileA, /* aInitializeAfterLoad */ false );
+    aSides.b = loadScratchBoard( aMgr, aFileB, /* aInitializeAfterLoad */ false );
+
+    if( !aSides.a.doc && !aFileA.IsEmpty() )
+    {
+        aReporter.Report( wxString::Format( _( "Failed to load %s\n" ), aFileA ), RPT_SEVERITY_ERROR );
+        return CLI::EXIT_CODES::ERR_INVALID_INPUT_FILE;
+    }
+
+    if( !aSides.b.doc && !aFileB.IsEmpty() )
+    {
+        aReporter.Report( wxString::Format( _( "Failed to load %s\n" ), aFileB ), RPT_SEVERITY_ERROR );
+        return CLI::EXIT_CODES::ERR_INVALID_INPUT_FILE;
+    }
+
+    // An ADDED or REMOVED side is an empty board, so the differ still produces a per-item
+    // list rather than failing on an empty input file.
+    aSides.boardA = aSides.a.doc ? aSides.a.doc.get() : &aSides.emptyA;
+    aSides.boardB = aSides.b.doc ? aSides.b.doc.get() : &aSides.emptyB;
+
+    KICAD_DIFF::PCB_DIFFER differ( aSides.boardA, aSides.boardB, aFileB );
+    aSides.diff = differ.Diff();
+
+    return CLI::EXIT_CODES::SUCCESS;
+}
+
+
+// The two boards a window outside the kiface shows, taken off their canvases before they go.
+class PCB_DIFF_CANVAS_CONTEXT : public KICAD_DIFF::DIFF_CANVAS_CONTEXT
+{
+public:
+    PCB_DIFF_CANVAS_CONTEXT( WIDGET_DIFF_CANVAS* aBefore, WIDGET_DIFF_CANVAS* aAfter ) :
+            m_before( aBefore ),
+            m_after( aAfter )
+    {
+    }
+
+    ~PCB_DIFF_CANVAS_CONTEXT() override
+    {
+        m_before->SetContextItems( {} );
+        m_after->SetContextItems( {} );
+    }
+
+    PCB_DIFF_SIDES m_sides;
+
+private:
+    WIDGET_DIFF_CANVAS* m_before;
+    WIDGET_DIFF_CANVAS* m_after;
+};
+
+
+KICAD_DIFF::DIFF_CANVAS_CONTEXT*
+PCBNEW_JOBS_HANDLER::AttachDiffCanvases( KICAD_DIFF::DOC_KIND aKind, const wxString& aFileA, const wxString& aFileB,
+                                         WIDGET_DIFF_CANVAS* aBefore, WIDGET_DIFF_CANVAS* aAfter,
+                                         KICAD_DIFF::DOCUMENT_DIFF& aDiff, REPORTER* aReporter )
+{
+    SCOPED_SET_RESET<REPORTER*> reporterGuard( m_reporter, aReporter ? aReporter : m_reporter );
+
+    if( aKind != KICAD_DIFF::DOC_KIND::PCB )
+        return nullptr;
+
+    auto context = std::make_unique<PCB_DIFF_CANVAS_CONTEXT>( aBefore, aAfter );
+
+    if( loadPcbDiffSides( Pgm().GetSettingsManager(), *m_reporter, aFileA, aFileB, context->m_sides )
+        != CLI::EXIT_CODES::SUCCESS )
+    {
+        return nullptr;
+    }
+
+    const KICAD_DIFF::DIFF_COLOR_THEME theme;
+
+    KICAD_DIFF::ConfigurePcbDiffCanvasContext( *aBefore, context->m_sides.boardA, nullptr, theme.reference, {}, {},
+                                               {} );
+    KICAD_DIFF::ConfigurePcbDiffCanvasContext( *aAfter, nullptr, context->m_sides.boardB, theme.reference, {}, {}, {} );
+
+    aDiff = context->m_sides.diff;
+    return context.release();
+}
 
 
 int PCBNEW_JOBS_HANDLER::OpenDiffDialog( KICAD_DIFF::DOC_KIND aKind, const wxString& aFileA,
@@ -4721,11 +4872,6 @@ int PCBNEW_JOBS_HANDLER::OpenDiffDialog( KICAD_DIFF::DOC_KIND aKind, const wxStr
     wxWindow* parent = aParent ? aParent : ( wxTheApp ? wxTheApp->GetTopWindow() : nullptr );
 
     SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
-
-    auto loadBoardScratch = [&]( const wxString& aPath )
-    {
-        return loadScratchBoard( mgr, aPath, /* aInitializeAfterLoad */ false );
-    };
 
     KICAD_DIFF::DOCUMENT_DIFF     result;
     KICAD_DIFF::DOCUMENT_GEOMETRY refGeometry;
@@ -4752,36 +4898,17 @@ int PCBNEW_JOBS_HANDLER::OpenDiffDialog( KICAD_DIFF::DOC_KIND aKind, const wxStr
     {
     case KICAD_DIFF::DOC_KIND::PCB:
     {
-        SCRATCH_DOC<BOARD> a = loadBoardScratch( aFileA );
-        SCRATCH_DOC<BOARD> b = loadBoardScratch( aFileB );
+        PCB_DIFF_SIDES sides;
 
-        // Synthesize empty boards for ADDED / REMOVED sides so the differ
-        // can still produce a meaningful per-item list rather than failing
-        // on an empty input file.
-        BOARD emptyA;
-        BOARD emptyB;
+        if( int rc = loadPcbDiffSides( mgr, *m_reporter, aFileA, aFileB, sides ); rc != CLI::EXIT_CODES::SUCCESS )
+            return rc;
 
-        if( !a.doc && !aFileA.IsEmpty() )
-        {
-            m_reporter->Report( wxString::Format( _( "Failed to load %s\n" ), aFileA ), RPT_SEVERITY_ERROR );
-            return CLI::EXIT_CODES::ERR_INVALID_INPUT_FILE;
-        }
+        BOARD* boardA = sides.boardA;
+        BOARD* boardB = sides.boardB;
+        result = std::move( sides.diff );
 
-        if( !b.doc && !aFileB.IsEmpty() )
-        {
-            m_reporter->Report( wxString::Format( _( "Failed to load %s\n" ), aFileB ), RPT_SEVERITY_ERROR );
-            return CLI::EXIT_CODES::ERR_INVALID_INPUT_FILE;
-        }
-
-        BOARD* boardA = a.doc ? a.doc.get() : &emptyA;
-        BOARD* boardB = b.doc ? b.doc.get() : &emptyB;
-
-        KICAD_DIFF::PCB_DIFFER differ( boardA, boardB, aFileB );
-        result = differ.Diff();
-
-        // Extract background geometry so the dialog's canvas shows the
-        // actual board outline + footprint footprints beneath the diff
-        // bbox rectangles. Theme defaults: muted blue (ref) / gold (comp).
+        // Background geometry, so the dialog's canvas shows the board outline and footprints
+        // beneath the change rectangles.
         const KICAD_DIFF::DIFF_COLOR_THEME theme;
         refGeometry = KICAD_DIFF::ExtractBoardGeometry( *boardA, theme.reference );
         compGeometry = KICAD_DIFF::ExtractBoardGeometry( *boardB, theme.comparison );

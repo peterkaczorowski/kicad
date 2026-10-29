@@ -1032,7 +1032,9 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintToBoard( bool aAddNew )
     {
         // In the main board the new footprint replaces the old one (pos, orient, ref, value, connections
         // and properties are kept) and the sourceFootprint (old footprint) is deleted
-        mainpcb->ExchangeFootprint( sourceFootprint, newFootprint, commit, true /* match pad positions */ );
+        mainpcb->ExchangeFootprint( sourceFootprint, newFootprint, commit,
+                                    pcbframe->GetPcbNewSettings()->m_FlipDirection,
+                                    true /* match pad positions */ );
 
         commit.Push( _( "Update Footprint" ) );
     }
@@ -1283,7 +1285,7 @@ bool FOOTPRINT_EDIT_FRAME::RevertFootprint( bool aSkipConfirmation )
             const wxString oldKey = m_activeTab ? m_activeTab->GetTabKey() : wxString();
 
             freeUndoRedoCommandsWithItems( m_undoList, m_redoList );
-            installFootprintOnActiveBoard( restored.release() );
+            ReloadFootprint( restored.release() );
 
             // The tab is keyed on the footprint name, which the revert may have rolled back
             if( m_activeTab && m_activeTab->GetTabKey() != oldKey )

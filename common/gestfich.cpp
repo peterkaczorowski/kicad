@@ -134,7 +134,6 @@ wxString FindKicadFile( const wxString& shortname )
         wxT( "Contents/Applications/pcbnew.app/Contents/MacOS/" ),
         wxT( "Contents/Applications/eeschema.app/Contents/MacOS/" ),
         wxT( "Contents/Applications/gerbview.app/Contents/MacOS/" ),
-        wxT( "Contents/Applications/bitmap2component.app/Contents/MacOS/" ),
         wxT( "Contents/Applications/pcb_calculator.app/Contents/MacOS/" ),
         wxT( "Contents/Applications/pl_editor.app/Contents/MacOS/" ),
 #else
@@ -957,18 +956,24 @@ bool SCOPED_TEMP_PATH::MakeFile( const wxString& aPrefix )
 }
 
 
-bool SCOPED_TEMP_PATH::MakeDirectory( const wxString& aPrefix )
+bool SCOPED_TEMP_PATH::MakeDirectory( const wxString& aPrefix, int aPermissions )
 {
-    if( !MakeFile( aPrefix ) || !wxRemoveFile( m_path ) )
+    SCOPED_TEMP_PATH tempFile;
+
+    if( !tempFile.MakeFile( aPrefix ) || !wxRemoveFile( tempFile.Path() ) )
         return false;
 
-    // A non-recursive Mkdir fails on a leaf that someone created after the remove
-    if( wxFileName::Mkdir( m_path, wxS_DIR_DEFAULT, 0 ) )
-        return true;
+    wxString path = tempFile.Path();
 
-    // That leaf is not ours to delete
-    m_path.clear();
-    return false;
+    // Stop owning the name before mkdir so a collision is never removed.
+    tempFile.m_path.clear();
+
+    // Non-recursive creation rejects an existing file, directory or symlink.
+    if( !wxFileName::Mkdir( path, aPermissions, 0 ) )
+        return false;
+
+    m_path = path;
+    return true;
 }
 
 

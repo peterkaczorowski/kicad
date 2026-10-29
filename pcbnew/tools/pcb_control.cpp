@@ -20,6 +20,10 @@
  */
 
 #include "pcb_control.h"
+
+#include <wx/hyperlink.h>
+#include <wx/filename.h>
+
 #include "convert_basic_shapes_to_polygon.h"
 
 #include <advanced_config.h>
@@ -27,6 +31,7 @@
 #include <kiplatform/ui.h>
 #include <kiway.h>
 #include <tools/edit_tool.h>
+#include <tools/pad_tool.h>
 #include <tools/board_inspection_tool.h>
 #include <router/router_tool.h>
 #include <pgm_base.h>
@@ -71,7 +76,6 @@
 #include <filename_resolver.h>
 #include <3d_cache/3d_cache.h>
 #include <embedded_files.h>
-#include <wx/filename.h>
 #include <zone.h>
 #include <confirm.h>
 #include <kidialog.h>
@@ -79,6 +83,8 @@
 #include <core/kicad_algo.h>
 #include <dialogs/hotkey_cycle_popup.h>
 #include <dialogs/dialog_map_layers.h>
+#include <drc/drc_engine.h>
+#include <drc/drc_rule.h>
 #include <pcb_io/common/plugin_common_layer_mapping.h>
 #include <kicad_clipboard.h>
 #include <origin_viewitem.h>
@@ -96,7 +102,6 @@
 #include <widgets/wx_progress_reporters.h>
 #include <widgets/wx_infobar.h>
 #include <pcb_io/pcb_io.h>
-#include <wx/hyperlink.h>
 
 
 using namespace std::placeholders;
@@ -822,6 +827,10 @@ int PCB_CONTROL::InteractiveDelete( const TOOL_EVENT& aEvent )
         return 0;
 
     PCB_PICKER_TOOL* picker = m_toolMgr->GetTool<PCB_PICKER_TOOL>();
+    EDIT_TOOL*       editTool = m_toolMgr->GetTool<EDIT_TOOL>();
+
+    if( !picker || !editTool )
+        return 0;
 
     m_pickerItem = nullptr;
     m_toolMgr->RunAction( ACTIONS::selectionClear );
@@ -834,7 +843,7 @@ int PCB_CONTROL::InteractiveDelete( const TOOL_EVENT& aEvent )
     picker->ClearHandlers();
 
     picker->SetClickHandler(
-            [this]( const VECTOR2D& aPosition ) -> bool
+            [this, editTool]( const VECTOR2D& aPosition ) -> bool
             {
                 if( m_pickerItem )
                 {
@@ -853,7 +862,6 @@ int PCB_CONTROL::InteractiveDelete( const TOOL_EVENT& aEvent )
                     PCB_SELECTION items;
                     items.Add( m_pickerItem );
 
-                    EDIT_TOOL* editTool = m_toolMgr->GetTool<EDIT_TOOL>();
                     editTool->DeleteItems( items, false );
 
                     m_pickerItem = nullptr;
@@ -1054,6 +1062,25 @@ void PCB_CONTROL::pruneItemLayers( std::vector<BOARD_ITEM*>& aItems )
     }
 
     aItems = returnItems;
+}
+
+
+/**
+ * Handle items that have been pasted. For example, notify the pad tool
+ * about pasted pads.
+ */
+static void recordPastedItems( TOOL_MANAGER* aToolMgr, const std::vector<BOARD_ITEM*>& aItems )
+{
+    PAD_TOOL* padTool = aToolMgr->GetTool<PAD_TOOL>();
+
+    if( !padTool )
+        return;
+
+    for( BOARD_ITEM* item : aItems )
+    {
+        if( PAD* pad = dynamic_cast<PAD*>( item ) )
+            padTool->RecordMasterPad( *pad );
+    }
 }
 
 
@@ -1318,6 +1345,9 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
 
             cancelled = !placeBoardItems( &commit, pastedItems, true, true, mode == PASTE_MODE::UNIQUE_ANNOTATIONS,
                                           false );
+
+            if( !cancelled )
+                recordPastedItems( m_toolMgr, pastedItems );
         }
         else    // isBoardEditor
         {
@@ -1364,6 +1394,10 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
         pruneItemLayers( pastedItems );
 
         cancelled = !placeBoardItems( &commit, pastedItems, true, true, mode == PASTE_MODE::UNIQUE_ANNOTATIONS, false );
+
+        if( !cancelled )
+            recordPastedItems( m_toolMgr, pastedItems );
+
         break;
     }
 
@@ -1700,8 +1734,7 @@ int PCB_CONTROL::ApplyDesignBlockLayout( const TOOL_EVENT& aEvent )
                                           .m_copyPlacement = true,
                                           .m_copyOtherItems = true,
                                           .m_groupItems = false,
-                                          .m_includeLockedItems = true,
-                                          .m_anchorFp = nullptr };
+                                          .m_includeLockedItems = true };
 
         // Give the appended block's auto-generated nets a private namespace so they cannot fuse by
         // name with a different part's net on the board, which would corrupt the topology match
@@ -2833,6 +2866,11 @@ int PCB_CONTROL::UpdateMessagePanel( const TOOL_EVENT& aEvent )
                             areaValid = false;
                             return;
                         }
+
+                        // An image has no physical area to contribute and no polygon
+                        // representation, so leave it out without invalidating the total.
+                        if( aItem->Type() == PCB_REFERENCE_IMAGE_T )
+                            return;
 
                         if( PCB_GROUP* group = dynamic_cast<PCB_GROUP*>( aItem ) )
                         {

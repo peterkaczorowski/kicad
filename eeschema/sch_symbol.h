@@ -53,6 +53,8 @@ class LEGACY_SYMBOL_LIBS;
 class SCH_SCREEN;
 class SCH_COMMIT;
 class SCH_SHAPE;
+class SCH_SYMBOL_FIELD_PROPERTY;
+
 
 namespace kiapi::schematic::types
 {
@@ -987,6 +989,8 @@ public:
     bool IsPower() const override;
     bool IsNormal() const override;
 
+    void SetLocalPowerProp( bool aLocal );
+
     bool GetShowPinNames() const override;
     void SetShowPinNames( bool aShow ) override;
 
@@ -1029,11 +1033,23 @@ public:
     bool ClearVariantSymbolOverride( const SCH_SHEET_PATH& aPath, const wxString& aVariantName );
 
     /**
+     * @return the distinct alternate-symbol LIB_IDs referenced by any variant of any instance.
+     */
+    std::vector<LIB_ID> GetVariantSymbolOverrides() const;
+
+    /**
+     * Load a flattened copy of an alternate symbol from the project's symbol libraries.
+     *
+     * @return the symbol, or nullptr if the library or symbol cannot be found.
+     */
+    std::unique_ptr<LIB_SYMBOL> LoadAlternateFromLibrary( const LIB_ID& aLibId ) const;
+
+    /**
      * Resolve the alternate library symbol for a given variant.
      *
-     * Looks up the variant's symbol override and resolves the LIB_ID through
-     * the project's symbol library adapter. Returns nullptr if the variant has no
-     * override or if the LIB_ID cannot be resolved.
+     * Looks up the variant's symbol override and resolves the LIB_ID through the schematic's
+     * library symbols first, then the project's symbol library adapter. Returns nullptr if the
+     * variant has no override or if the LIB_ID cannot be resolved.
      *
      * @param aVariantName the variant to resolve.
      * @param aPath the sheet path for this instance.
@@ -1139,10 +1155,13 @@ private:
 
     std::vector<SCH_FIELD>                 m_fields;        ///< Variable length list of fields.
 
-    /// Per-object cache of dynamic property descriptors for custom fields and
-    /// effective pin-map entries, keyed by descriptor name and populated
-    /// lazily.
-    mutable std::map<wxString, std::unique_ptr<PROPERTY_BASE>> m_dynamicPropertyCache;
+    /// Per-object cache of dynamic property descriptors for custom fields, keyed by descriptor name
+    /// and populated lazily.  Entries linger after a key is removed but are simply not enumerated.
+    mutable std::map<wxString, std::unique_ptr<SCH_SYMBOL_FIELD_PROPERTY>> m_fieldPropsStorageCache;
+
+    /// Same for effective pin-map entries.  We can't combine these because they're indexed by name
+    /// and could have collisions.  Entries linger after a key is removed but are simply not enumerated.
+    mutable std::map<wxString, std::unique_ptr<PROPERTY_BASE>> m_pinMapPropsStorageCache;
 
     std::unique_ptr<LIB_SYMBOL>            m_part;          ///< A flattened copy of the #LIB_SYMBOL from the
                                                             ///< #PROJECT object's libraries.

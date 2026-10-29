@@ -270,6 +270,12 @@ public:
      */
     PCB_GROUP* GetEnteredGroup() { return m_enteredGroup; }
 
+    /**
+     * Tell the painter whether items outside the entered group should be dimmed, and recolour
+     * the board if that changed.
+     */
+    void SetGroupEditModeActive( bool aActive );
+
     PCB_LAYER_ID GetActiveLayer() { return m_frame->GetActiveLayer(); }
 
     enum STOP_CONDITION
@@ -311,10 +317,17 @@ public:
      * footprint move rigidly with it, so only descendants outside a parent footprint count
      * (group members, see issue 6841).
      */
-    static bool HasLockedDescendant( const BOARD_ITEM* aItem );
+    static bool HasLockedDescendant( const BOARD_ITEM& aItem );
 
-    /// True if aItem may be selected while aEnteredGroup is entered (24967).
-    static bool isWithinEnteredGroup( BOARD_ITEM* aItem, PCB_GROUP* aEnteredGroup, bool aIsFootprintEditor );
+    /**
+     * True if an item may be selected by connection expansion.
+     *
+     * While @a aEnteredGroup is entered, @a aItem qualifies only if it is within that group's scope.
+     * Otherwise, it qualifies if it belongs to no group, or if its parent group is a generator
+     * that opts in through PCB_GENERATOR::IsSelectableAsConnected().
+     */
+    static bool itemIsSelectableAsConnected( const BOARD_ITEM& aItem, const PCB_GROUP* aEnteredGroup,
+                                             bool aIsFootprintEditor );
 
     /**
      * True if the Render tab's Footprints Front/Back switches leave aItem drawn, mirroring the

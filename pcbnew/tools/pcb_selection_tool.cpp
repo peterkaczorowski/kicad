@@ -47,6 +47,7 @@ using namespace std::placeholders;
 #include <dialog_filter_selection.h>
 #include <view/view_controls.h>
 #include <gal/painter.h>
+#include <pcb_painter.h>
 #include <router/router_tool.h>
 #include <pcbnew_settings.h>
 #include <tool/action_menu.h>
@@ -321,6 +322,11 @@ bool PCB_SELECTION_TOOL::Init()
     auto tableCellSelection = SELECTION_CONDITIONS::MoreThan( 0 )
                                 && SELECTION_CONDITIONS::OnlyTypes( tableCellTypes );
 
+    SELECTION_CONDITION referenceImageSelection = []( const SELECTION& aSel )
+    {
+        return aSel.GetSize() == 1 && static_cast<BOARD_ITEM*>( *aSel.begin() )->Type() == PCB_REFERENCE_IMAGE_T;
+    };
+
     SELECTION_CONDITION netItemSelection = []( const SELECTION& aSel )
     {
         if( aSel.GetSize() != 1 )
@@ -344,6 +350,7 @@ bool PCB_SELECTION_TOOL::Init()
     menu.AddItem( PCB_ACTIONS::applyDesignBlockLayout, applyDesignBlockLayoutCondition, 1 );
     menu.AddItem( PCB_ACTIONS::placeLinkedDesignBlock,  groupEnterCondition, 1 );
     menu.AddItem( PCB_ACTIONS::saveToLinkedDesignBlock, groupEnterCondition, 1 );
+    menu.AddItem( PCB_ACTIONS::convertImageToOutlines, referenceImageSelection, 1 );
     menu.AddItem( PCB_ACTIONS::clearHighlight,          haveHighlight,       1 );
     menu.AddSeparator(                                  haveHighlight,       1 );
 
@@ -582,7 +589,10 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 selectPoint( evt->Position() );
 
             if( m_selection.GetSize() == 1 && m_selection[0]->Type() == PCB_GROUP_T )
+            {
                 EnterGroup();
+                selectPoint( evt->Position() );
+            }
             else if( !selectChartRow( evt->Position() ) )
                 m_toolMgr->RunAction( PCB_ACTIONS::properties );
         }
@@ -846,9 +856,6 @@ void PCB_SELECTION_TOOL::EnterGroup()
     m_enteredGroup = aGroup;
     m_enteredGroup->SetFlags( ENTERED );
 
-    for( EDA_ITEM* member : m_enteredGroup->GetItems() )
-        select( member );
-
     m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
 
     // Processing the selection event can re-enter the tool and ExitGroup(), which clears
@@ -860,6 +867,20 @@ void PCB_SELECTION_TOOL::EnterGroup()
     view()->Hide( m_enteredGroup, true );
     m_enteredGroupOverlay.Add( m_enteredGroup );
     view()->Update( &m_enteredGroupOverlay );
+
+    SetGroupEditModeActive( true );
+}
+
+
+void PCB_SELECTION_TOOL::SetGroupEditModeActive( bool aActive )
+{
+    auto* settings = static_cast<KIGFX::PCB_PAINTER*>( view()->GetPainter() )->GetSettings();
+
+    if( settings->IsGroupEditModeActive() == aActive )
+        return;
+
+    settings->SetGroupEditModeActive( aActive );
+    view()->UpdateAllItems( KIGFX::COLOR );
 }
 
 
@@ -882,6 +903,8 @@ void PCB_SELECTION_TOOL::ExitGroup( bool aSelectGroup )
     m_enteredGroupOverlay.Clear();
     m_enteredGroup = nullptr;
     view()->Update( &m_enteredGroupOverlay );
+
+    SetGroupEditModeActive( false );
 }
 
 
@@ -1041,10 +1064,9 @@ bool PCB_SELECTION_TOOL::selectPoint( const VECTOR2I& aWhere, bool aOnDrag, bool
     // If still more than one item we're going to have to ask the user.
     if( collector.GetCount() > 1 )
     {
-        if( aOnDrag )
-            Wait( TOOL_EVENT( TC_ANY, TA_MOUSE_UP, BUT_LEFT ) );
+        bool shutdown = aOnDrag && !Wait( TOOL_EVENT( TC_ANY, TA_MOUSE_UP, BUT_LEFT ) );
 
-        if( !doSelectionMenu( &collector ) )
+        if( shutdown || !doSelectionMenu( &collector ) )
         {
             if( aSelectionCancelledFlag )
                 *aSelectionCancelledFlag = true;
@@ -2396,9 +2418,9 @@ void PCB_SELECTION_TOOL::selectAllConnectedTracks( const std::vector<BOARD_CONNE
     auto connectivity = board()->GetConnectivity();
 
     // Don't let expansion select outside an entered group, or select() would ExitGroup mid-walk.
-    auto inScope = [this]( BOARD_ITEM* aItem )
+    const auto inScope = [this]( BOARD_ITEM* aItem )
     {
-        return isWithinEnteredGroup( aItem, m_enteredGroup, m_isFootprintEditor );
+        return itemIsSelectableAsConnected( *aItem, m_enteredGroup, m_isFootprintEditor );
     };
 
     std::set<PAD*>                     startPadSet;
@@ -3319,8 +3341,6 @@ void PCB_SELECTION_TOOL::doSyncSelection( const std::vector<BOARD_ITEM*>& aItems
         }
     }
 
-    view()->UpdateAllLayersColor();
-
     m_frame->GetCanvas()->ForceRefresh();
 
     if( m_selection.Size() > 0 )
@@ -4058,6 +4078,8 @@ void PCB_SELECTION_TOOL::RebuildSelection()
     {
         m_enteredGroupOverlay.Clear();
         m_enteredGroup = nullptr;
+
+        SetGroupEditModeActive( false );
     }
 }
 
@@ -4472,8 +4494,8 @@ void PCB_SELECTION_TOOL::select( EDA_ITEM* aItem )
             return;
     }
 
-    if( m_enteredGroup && !PCB_GROUP::WithinScope( static_cast<BOARD_ITEM*>( aItem ), m_enteredGroup,
-                                                   m_isFootprintEditor ) )
+    if( m_enteredGroup
+        && !PCB_GROUP::WithinScope( *static_cast<BOARD_ITEM*>( aItem ), m_enteredGroup, m_isFootprintEditor ) )
     {
         ExitGroup();
     }
@@ -5141,11 +5163,11 @@ bool PCB_SELECTION_TOOL::ReportFilteredLockedItems()
 }
 
 
-bool PCB_SELECTION_TOOL::HasLockedDescendant( const BOARD_ITEM* aItem )
+bool PCB_SELECTION_TOOL::HasLockedDescendant( const BOARD_ITEM& aItem )
 {
     bool lockedDescendant = false;
 
-    aItem->RunOnChildren(
+    aItem.RunOnChildren(
             [&]( BOARD_ITEM* curr_item )
             {
                 if( !curr_item->GetParentFootprint() && curr_item->IsLocked() )
@@ -5157,14 +5179,33 @@ bool PCB_SELECTION_TOOL::HasLockedDescendant( const BOARD_ITEM* aItem )
 }
 
 
-bool PCB_SELECTION_TOOL::isWithinEnteredGroup( BOARD_ITEM* aItem, PCB_GROUP* aEnteredGroup, bool aIsFootprintEditor )
+bool PCB_SELECTION_TOOL::itemIsSelectableAsConnected( const BOARD_ITEM& aItem, const PCB_GROUP* aEnteredGroup,
+                                                      bool aIsFootprintEditor )
 {
     if( aEnteredGroup )
         return PCB_GROUP::WithinScope( aItem, aEnteredGroup, aIsFootprintEditor );
 
-    // Not entered: keep expansion at the top level so it can't reach into a group and
-    // silently pull the whole group into a later delete.
-    return aItem->GetParentGroup() == nullptr;
+    EDA_GROUP* parent = aItem.GetParentGroup();
+
+    // If the item has no parent group, it is considered selectable as connected.
+    if( !parent )
+        return true;
+
+    const PCB_GROUP& group = static_cast<const PCB_GROUP&>( *parent->AsEdaItem() );
+
+    // Some generators opt-in to select-through-connection (e.g. tuning patterns)
+    if( group.Type() == PCB_GENERATOR_T )
+    {
+        const PCB_GENERATOR& generator = static_cast<const PCB_GENERATOR&>( group );
+
+        if( generator.IsSelectableAsConnected() )
+            return true;
+    }
+
+    // The item is not in an entered group, and not otherwise selectable via connection
+    // Disallow, so that expansion cannot reach into a group and silently pull
+    // the whole group into a later delete (issue 24967).
+    return false;
 }
 
 
@@ -5177,11 +5218,11 @@ void PCB_SELECTION_TOOL::FilterCollectorForLockedItems( GENERAL_COLLECTOR& aColl
         // Iterate from the back so we don't have to worry about removals.
         for( int i = (int) aCollector.GetCount() - 1; i >= 0; --i )
         {
-            BOARD_ITEM* item = aCollector[i];
+            BOARD_ITEM& item = *aCollector[i];
 
-            if( item->IsLocked() || HasLockedDescendant( item ) )
+            if( item.IsLocked() || HasLockedDescendant( item ) )
             {
-                aCollector.Remove( item );
+                aCollector.Remove( &item );
                 m_lockedItemsFiltered = true;
             }
         }
@@ -5230,7 +5271,7 @@ void PCB_SELECTION_TOOL::FilterCollectorForHierarchy( GENERAL_COLLECTOR& aCollec
             start = fp;
 
         // If a group is entered, disallow selections of objects outside the group.
-        if( m_enteredGroup && !PCB_GROUP::WithinScope( item, m_enteredGroup, m_isFootprintEditor ) )
+        if( m_enteredGroup && !PCB_GROUP::WithinScope( *item, m_enteredGroup, m_isFootprintEditor ) )
         {
             aCollector.Remove( item );
             continue;
@@ -5255,7 +5296,7 @@ void PCB_SELECTION_TOOL::FilterCollectorForHierarchy( GENERAL_COLLECTOR& aCollec
 
         if( !selectableParent )
         {
-            if( EDA_GROUP* top = PCB_GROUP::TopLevelGroup( start, m_enteredGroup, m_isFootprintEditor ) )
+            if( EDA_GROUP* top = PCB_GROUP::TopLevelGroup( *start, m_enteredGroup, m_isFootprintEditor ) )
             {
                 if( top->AsEdaItem() != item )
                 {

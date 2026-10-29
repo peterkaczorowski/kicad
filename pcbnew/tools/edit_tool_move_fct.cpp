@@ -1000,7 +1000,11 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
                 {
                     PAD*       pad = static_cast<PAD*>( item );
                     FOOTPRINT* fp = pad->GetParentFootprint();
-                    msg = wxString::Format( _( "%s pad %s" ), fp->GetReference(), pad->GetNumber() );
+
+                    if( fp )
+                        msg = wxString::Format( _( "%s pad %s" ), fp->GetReference(), pad->GetNumber() );
+                    else
+                        msg = pad->GetItemDescription( editFrame, false );
                 }
                 else
                 {
@@ -1792,6 +1796,10 @@ bool EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent, BOARD_COMMIT* aCommit
         }
 
     } while( ( evt = Wait() ) ); // Assignment (instead of equality test) is intentional
+
+    // A shutdown abandons the move rather than committing it
+    if( !evt )
+        restore_state = true;
 
     // Clear temporary COURTYARD_CONFLICT flag and ensure the conflict shadow is cleared
     if( showCourtyardConflicts )

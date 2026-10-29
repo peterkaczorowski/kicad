@@ -674,8 +674,7 @@ void PCB_PROPERTIES_PANEL::onContextMenu( wxCommandEvent& aEvent )
     case ID_CTX_ADD_CUSTOM_PROPERTY:    addBlankCustomProperty();                           break;
     case ID_CTX_REMOVE_FIELD:           removeField( m_contextMenuPropertyName );           break;
     case ID_CTX_REMOVE_CUSTOM_PROPERTY: removeCustomProperty( m_contextMenuPropertyName );  break;
-    default:
-        break;
+    default:                                                                                break;
     }
 }
 
@@ -683,11 +682,11 @@ void PCB_PROPERTIES_PANEL::onContextMenu( wxCommandEvent& aEvent )
 void PCB_PROPERTIES_PANEL::addBlankField()
 {
     SELECTION fallbackSelection;
-    const SELECTION& selection = getSelection( fallbackSelection );
+    SELECTION editableSelection = filterOutReadOnlyGenChildren( getSelection( fallbackSelection ) );
 
     settlePendingLabelEdit();
 
-    if( selection.Empty() )
+    if( editableSelection.Empty() )
         return;
 
     // Pick a unique untranslated placeholder name that doesn't collide with an existing field.
@@ -698,7 +697,7 @@ void PCB_PROPERTIES_PANEL::addBlankField()
         name   = GetUserFieldName( n, UNTRANSLATED );
         bool used = false;
 
-        for( EDA_ITEM* item : selection )
+        for( EDA_ITEM* item : editableSelection )
         {
             if( item->Type() == PCB_FOOTPRINT_T && static_cast<FOOTPRINT*>( item )->HasField( name ) )
             {
@@ -714,7 +713,7 @@ void PCB_PROPERTIES_PANEL::addBlankField()
     BOARD_COMMIT changes( m_frame );
     PROPERTY_COMMIT_HANDLER handler( &changes );
 
-    for( EDA_ITEM* item : selection )
+    for( EDA_ITEM* item : editableSelection )
     {
         if( item->Type() != PCB_FOOTPRINT_T )
             continue;
@@ -740,11 +739,12 @@ void PCB_PROPERTIES_PANEL::addBlankField()
 void PCB_PROPERTIES_PANEL::addBlankCustomProperty()
 {
     SELECTION fallbackSelection;
-    const SELECTION& selection = getSelection( fallbackSelection );
+    SELECTION editableSelection = filterOutReadOnlyGenChildren( getSelection( fallbackSelection ) );
+
 
     settlePendingLabelEdit();
 
-    if( selection.Empty() )
+    if( editableSelection.Empty() )
         return;
 
     wxString name;
@@ -754,7 +754,7 @@ void PCB_PROPERTIES_PANEL::addBlankCustomProperty()
         name   = wxString::Format( wxS( "Property%d" ), n );
         bool used = false;
 
-        for( EDA_ITEM* item : selection )
+        for( EDA_ITEM* item : editableSelection )
         {
             wxString dummy;
 
@@ -772,7 +772,7 @@ void PCB_PROPERTIES_PANEL::addBlankCustomProperty()
     BOARD_COMMIT changes( m_frame );
     PROPERTY_COMMIT_HANDLER handler( &changes );
 
-    for( EDA_ITEM* item : selection )
+    for( EDA_ITEM* item : editableSelection )
     {
         if( item->IsBOARD_ITEM() )
         {
@@ -793,12 +793,12 @@ void PCB_PROPERTIES_PANEL::addBlankCustomProperty()
 void PCB_PROPERTIES_PANEL::removeField( const wxString& aName )
 {
     SELECTION fallbackSelection;
-    const SELECTION& selection = getSelection( fallbackSelection );
+    SELECTION editableSelection = filterOutReadOnlyGenChildren( getSelection( fallbackSelection ) );
 
     BOARD_COMMIT changes( m_frame );
     PROPERTY_COMMIT_HANDLER handler( &changes );
 
-    for( EDA_ITEM* item : selection )
+    for( EDA_ITEM* item : editableSelection )
     {
         if( item->Type() != PCB_FOOTPRINT_T )
             continue;
@@ -823,12 +823,12 @@ void PCB_PROPERTIES_PANEL::removeField( const wxString& aName )
 void PCB_PROPERTIES_PANEL::removeCustomProperty( const wxString& aName )
 {
     SELECTION fallbackSelection;
-    const SELECTION& selection = getSelection( fallbackSelection );
+    SELECTION editableSelection = filterOutReadOnlyGenChildren( getSelection( fallbackSelection ) );
 
     BOARD_COMMIT changes( m_frame );
     PROPERTY_COMMIT_HANDLER handler( &changes );
 
-    for( EDA_ITEM* item : selection )
+    for( EDA_ITEM* item : editableSelection )
     {
         if( item->IsBOARD_ITEM() )
         {
@@ -980,6 +980,7 @@ void PCB_PROPERTIES_PANEL::valueChanging( wxPropertyGridEvent& aEvent )
                                               validationFailure->get()->Format( m_frame ) );
         m_frame->ShowInfoBarError( errorMsg );
         aEvent.Veto();
+        m_ValueChangeVetoed = true;
         return;
     }
 
@@ -1251,9 +1252,18 @@ void PCB_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
 
                 PCB_CONSTRAINT* driving = SetDimensionValueMode(
                         board, dim, mode, length, overrideText,
-                        [&]( BOARD_ITEM* aItem ) { changes.Modify( aItem ); },
-                        [&]( BOARD_ITEM* aItem ) { changes.Add( aItem ); },
-                        [&]( BOARD_ITEM* aItem ) { changes.Remove( aItem ); } );
+                        [&]( BOARD_ITEM* aItem )
+                        {
+                            changes.Modify( aItem );
+                        },
+                        [&]( BOARD_ITEM* aItem )
+                        {
+                            changes.Add( aItem );
+                        },
+                        [&]( BOARD_ITEM* aItem )
+                        {
+                            changes.Remove( aItem );
+                        } );
 
                 if( driving )
                     drivingConstraints.push_back( driving );

@@ -98,6 +98,13 @@ public:
     bool IsFootprintShown( const FOOTPRINT* aFootprint ) const;
 
     /**
+     * Return the directory of @a aFootprint's library.
+     *
+     * 3D model filenames stored relative to that library are resolved against this path.
+     */
+    wxString GetFootprintLibraryPath( const FOOTPRINT* aFootprint ) const;
+
+    /**
      * Set current board to be rendered.
      *
      * @param aBoard board to process.
@@ -326,12 +333,12 @@ public:
     }
 
     /**
-     *  Get the backdrill and tertiary drill polygons.
+     *  Get the secondary and tertiary drill polygons.
      *
      */
-    const SHAPE_POLY_SET& GetBackdrillPolys() const noexcept
+    const SHAPE_POLY_SET& GetSecondarydrillPolys() const noexcept
     {
-        return m_BackdrillPolys;
+        return m_SecondarydrillPolys;
     }
 
     const SHAPE_POLY_SET& GetTertiarydrillPolys() const noexcept
@@ -465,6 +472,11 @@ public:
     const MAP_POLY& GetHoleIdPolysMap() const noexcept { return m_layerHoleIdPolys; }
     const MAP_POLY& GetHoleOdPolysMap() const noexcept { return m_layerHoleOdPolys; }
 
+    bool ShowMissingModels()
+    {
+        return m_IsPreviewer || m_Cfg->m_Render.show_missing_models;
+    }
+
 private:
     /**
      * Create the board outline polygon.
@@ -584,8 +596,8 @@ private:
     MAP_POLY                m_layerHoleOdPolys;     ///< Hole outer diameters (per layer)
     MAP_POLY                m_layerHoleIdPolys;     ///< Hole inner diameters (per layer)
 
-    SHAPE_POLY_SET          m_BackdrillPolys;        ///< Board backdrill polygons B.Cu->in
-    SHAPE_POLY_SET          m_TertiarydrillPolys;    ///< Board tertiary drill polygons F.Cu->in
+    SHAPE_POLY_SET          m_SecondarydrillPolys;  ///< Board secondary dril polygons F.Cu->in
+    SHAPE_POLY_SET          m_TertiarydrillPolys;   ///< Board tertiary drill polygons B.Cu->in
 
     SHAPE_POLY_SET          m_NPTH_ODPolys;         ///< NPTH outer diameters
     SHAPE_POLY_SET          m_TH_ODPolys;           ///< PTH outer diameters

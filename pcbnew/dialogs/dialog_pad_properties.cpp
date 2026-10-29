@@ -22,7 +22,6 @@
 
 #include "kiway_holder.h"
 #include "mail_type.h"
-#include <drc/drc_item.h>
 #include <base_units.h>
 #include <bitmaps.h>
 #include <board_commit.h>
@@ -36,6 +35,7 @@
 #include <geometry/shape_segment.h>
 #include <dialog_pad_properties.h>
 #include <dialogs/html_message_box.h>
+#include <drc/drc_item.h>
 #include <macros.h>
 #include <pad.h>
 #include <pad_utils.h>
@@ -356,9 +356,10 @@ void DIALOG_PAD_PROPERTIES::OnHoleSizeCalculator( wxCommandEvent& aEvent )
 
 void DIALOG_PAD_PROPERTIES::prepareCanvas()
 {
-    GAL_DISPLAY_OPTIONS_IMPL opts = m_parent->GetGalDisplayOptions();
     COLOR_SETTINGS*          colorSettings = m_parent->GetColorSettings();
 
+    // Warning: the opts data life time must be at least the dialog life time
+    static GAL_DISPLAY_OPTIONS_IMPL opts = m_parent->GetGalDisplayOptions();
     opts.m_forceDisplayCursor = false;
 
     // Initialize the canvas to display the pad
@@ -1611,15 +1612,23 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
     wxArrayString error_msgs;
     wxArrayString warning_msgs;
 
-    m_previewPad->CheckPad( m_parentFrame, true,
-            [&]( int errorCode, const wxString& msg )
+    PAD_UTILS::CheckPad( *m_previewPad, *m_parentFrame, true,
+            [&]( const PAD_UTILS::PAD_CHECK_RESULT& aResult )
             {
-                if( errorCode == DRCE_PADSTACK_INVALID )
-                    error_msgs.Add( _( "Error: " ) + msg );
-                else if( errorCode == DRCE_PADSTACK )
-                    warning_msgs.Add( _( "Warning: " ) + msg );
-                else if( errorCode == DRCE_PAD_TH_WITH_NO_HOLE )
+                int drcCode = ConvertPadCheckToDrcCode( aResult.code );
+
+                if( drcCode == DRCE_PADSTACK_INVALID )
+                {
+                    error_msgs.Add( wxString::Format( wxT( "Error: %s" ), aResult.message ) );
+                }
+                else if( drcCode == DRCE_PADSTACK )
+                {
+                    warning_msgs.Add( wxString::Format( wxT( "Warning: %s" ), aResult.message ) );
+                }
+                else if( drcCode == DRCE_PAD_TH_WITH_NO_HOLE )
+                {
                     error_msgs.Add( _( "Error: Through hole pad has no hole." ) );
+                }
             } );
 
     if( error_msgs.GetCount() || warning_msgs.GetCount() )
@@ -1759,9 +1768,9 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
 
     commit.Modify( m_currentPad );
 
-    // transferDataToPad() works in absolute board coordinates and is only exercised with
-    // the unparented preview pad, so build the final settings there, then copy them onto
-    // the real (footprint-parented) pad below.
+    // Build the final settings on the preview pad, then copy them onto the real pad below.
+    // Note that the preview inherits the real pad's parent footprint, so transferDataToPad()
+    // stores its position in the footprint's frame rather than in board coordinates.
     if( !transferDataToPad( m_previewPad ) )
         return false;
 
@@ -1805,7 +1814,10 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
         m_currentPad->Flip( m_currentPad->GetPosition(), FLIP_DIRECTION::TOP_BOTTOM );
     }
 
-    m_currentPad->SetPosition( m_previewPad->GetPosition() );
+    // Use the position from the dialog fields, which is the absolute position (which is
+    // only equal to the position in the FP in the FP editor). The preview pad's position is in
+    // frame-absolute coordinates, and we may be in the PCB frame.
+    m_currentPad->SetPosition( VECTOR2I( m_posX.GetIntValue(), m_posY.GetIntValue() ) );
 
     m_parent->SetMsgPanel( m_currentPad );
 
@@ -2170,17 +2182,8 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     switch( aPad->GetAttribute() )
     {
     case PAD_ATTRIB::PTH:
-        break;
-
     case PAD_ATTRIB::CONN:
     case PAD_ATTRIB::SMD:
-        // SMD and PAD_ATTRIB::CONN has no hole.
-        // basically, SMD and PAD_ATTRIB::CONN are same type of pads
-        // PAD_ATTRIB::CONN has just a default non technical layers that differs from SMD
-        // and are intended to be used in virtual edge board connectors
-        // However we can accept a non null offset,
-        // mainly to allow complex pads build from a set of basic pad shapes
-        aPad->SetDrillSize( VECTOR2I( 0, 0 ) );
         break;
 
     case PAD_ATTRIB::NPTH:
@@ -2310,77 +2313,88 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
 
     aPad->SetLayerSet( padLayerMask );
 
-    // Backdrills are written through the PADSTACK accessors, which stamp each side's start layer
-    // (top = F_Cu, bottom = B_Cu) so the result is read back correctly by older KiCad.
-    int  backDrillSel = m_backDrillChoice->GetSelection();
-    bool wantTop = ( backDrillSel == 1 || backDrillSel == 3 );    // 1: Top, 3: Top & bottom
-    bool wantBottom = ( backDrillSel == 2 || backDrillSel == 3 ); // 2: Bottom
+    PADSTACK&  padstack = aPad->Padstack();
+    const bool canHaveDrills = aPad->GetAttribute() == PAD_ATTRIB::PTH || aPad->GetAttribute() == PAD_ATTRIB::NPTH;
 
-    PADSTACK& padstack = aPad->Padstack();
-
-    if( wantTop )
+    if( !canHaveDrills )
     {
-        padstack.SetBackdrillSize( true, m_backDrillTopSizeBinder.GetIntValue() );
-
-        if( m_backDrillTopLayer->GetSelection() != wxNOT_FOUND )
-            padstack.SetBackdrillEndLayer( true, ToLAYER_ID( (intptr_t) m_backDrillTopLayer->GetClientData(
-                                                         m_backDrillTopLayer->GetSelection() ) ) );
+        // The drill, backdrill and post-machining controls are disabled for this pad type, but
+        // may still hold content from an earlier type.  Clear the whole padstack drilling
+        // rather than trusting them.
+        PAD_UTILS::RemoveAllDrillsFromPadstack( padstack );
     }
     else
     {
-        padstack.SetBackdrillSize( true, std::nullopt );
+        // Backdrills are written through the PADSTACK accessors, which stamp each side's start
+        // layer (top = F_Cu, bottom = B_Cu) so the result is read back correctly by older KiCad.
+        int  backDrillSel = m_backDrillChoice->GetSelection();
+        bool wantTop = ( backDrillSel == 1 || backDrillSel == 3 );    // 1: Top, 3: Top & bottom
+        bool wantBottom = ( backDrillSel == 2 || backDrillSel == 3 ); // 2: Bottom
+
+        if( wantTop )
+        {
+            padstack.SetBackdrillSize( true, m_backDrillTopSizeBinder.GetIntValue() );
+
+            if( m_backDrillTopLayer->GetSelection() != wxNOT_FOUND )
+                padstack.SetBackdrillEndLayer( true, ToLAYER_ID( (intptr_t) m_backDrillTopLayer->GetClientData(
+                                                             m_backDrillTopLayer->GetSelection() ) ) );
+        }
+        else
+        {
+            padstack.SetBackdrillSize( true, std::nullopt );
+        }
+
+        if( wantBottom )
+        {
+            padstack.SetBackdrillSize( false, m_backDrillBottomSizeBinder.GetIntValue() );
+
+            if( m_backDrillBottomLayer->GetSelection() != wxNOT_FOUND )
+                padstack.SetBackdrillEndLayer( false, ToLAYER_ID( (intptr_t) m_backDrillBottomLayer->GetClientData(
+                                                              m_backDrillBottomLayer->GetSelection() ) ) );
+        }
+        else
+        {
+            padstack.SetBackdrillSize( false, std::nullopt );
+        }
+
+        // Front Post Machining
+        PADSTACK::POST_MACHINING_PROPS frontPostMachining;
+
+        switch( m_topPostMachining->GetSelection() )
+        {
+        case 1: frontPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK;           break;
+        case 2: frontPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERBORE;           break;
+        default: frontPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::NOT_POST_MACHINED;    break;
+        }
+
+        frontPostMachining.size = m_topPostMachineSize1Binder.GetIntValue();
+
+        if( frontPostMachining.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK )
+            frontPostMachining.angle = KiROUND( m_topPostMachineSize2Binder.GetDoubleValue() * 10.0 );
+        else
+            frontPostMachining.depth = m_topPostMachineSize2Binder.GetIntValue();
+
+        aPad->Padstack().FrontPostMachining() = frontPostMachining;
+
+        // Back Post Machining
+        PADSTACK::POST_MACHINING_PROPS backPostMachining;
+
+        switch( m_bottomPostMachining->GetSelection() )
+        {
+        case 1: backPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK;            break;
+        case 2: backPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERBORE;            break;
+        default: backPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::NOT_POST_MACHINED;     break;
+        }
+
+        backPostMachining.size = m_bottomPostMachineSize1Binder.GetIntValue();
+
+        if( backPostMachining.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK )
+            backPostMachining.angle = KiROUND( m_bottomPostMachineSize2Binder.GetDoubleValue() * 10.0 );
+        else
+            backPostMachining.depth = m_bottomPostMachineSize2Binder.GetIntValue();
+
+        aPad->Padstack().BackPostMachining() = backPostMachining;
     }
-
-    if( wantBottom )
-    {
-        padstack.SetBackdrillSize( false, m_backDrillBottomSizeBinder.GetIntValue() );
-
-        if( m_backDrillBottomLayer->GetSelection() != wxNOT_FOUND )
-            padstack.SetBackdrillEndLayer( false, ToLAYER_ID( (intptr_t) m_backDrillBottomLayer->GetClientData(
-                                                          m_backDrillBottomLayer->GetSelection() ) ) );
-    }
-    else
-    {
-        padstack.SetBackdrillSize( false, std::nullopt );
-    }
-
-    // Front Post Machining
-    PADSTACK::POST_MACHINING_PROPS frontPostMachining;
-
-    switch( m_topPostMachining->GetSelection() )
-    {
-    case 1:  frontPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK;       break;
-    case 2:  frontPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERBORE;       break;
-    default: frontPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::NOT_POST_MACHINED; break;
-    }
-
-    frontPostMachining.size = m_topPostMachineSize1Binder.GetIntValue();
-
-    if( frontPostMachining.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK )
-        frontPostMachining.angle = KiROUND( m_topPostMachineSize2Binder.GetDoubleValue() * 10.0 );
-    else
-        frontPostMachining.depth = m_topPostMachineSize2Binder.GetIntValue();
-
-    aPad->Padstack().FrontPostMachining() = frontPostMachining;
-
-    // Back Post Machining
-    PADSTACK::POST_MACHINING_PROPS backPostMachining;
-
-    switch( m_bottomPostMachining->GetSelection() )
-    {
-    case 1:  backPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK;       break;
-    case 2:  backPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::COUNTERBORE;       break;
-    default: backPostMachining.mode = PAD_DRILL_POST_MACHINING_MODE::NOT_POST_MACHINED; break;
-    }
-
-    backPostMachining.size = m_bottomPostMachineSize1Binder.GetIntValue();
-
-    if( backPostMachining.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK )
-        backPostMachining.angle = KiROUND( m_bottomPostMachineSize2Binder.GetDoubleValue() * 10.0 );
-    else
-        backPostMachining.depth = m_bottomPostMachineSize2Binder.GetIntValue();
-
-    aPad->Padstack().BackPostMachining() = backPostMachining;
 
     // If we created new layers, initialize them
     for( const auto& [newLayer, initFromLayer] : newLayerMap )

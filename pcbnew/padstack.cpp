@@ -546,22 +546,24 @@ BACKDRILL_MODE PADSTACK::GetBackdrillMode() const
 
 void PADSTACK::SetBackdrillMode( BACKDRILL_MODE aMode )
 {
-    auto apply = [this]( bool aTop, bool aWant )
-    {
-        if( aWant )
-        {
-            DRILL_PROPS& drill = backdrillWriteSlot( aTop );
-            drill.start = aTop ? F_Cu : B_Cu;
-            drill.shape = PAD_DRILL_SHAPE::CIRCLE;
+    auto apply =
+            [this]( bool aTop, bool aWant )
+            {
+                if( aWant )
+                {
+                    DRILL_PROPS& drill = backdrillWriteSlot( aTop );
+                    drill.start = aTop ? F_Cu : B_Cu;
+                    drill.end = drill.start;                 // Must-cut a single copper layer
+                    drill.shape = PAD_DRILL_SHAPE::CIRCLE;
 
-            if( drill.size.x <= 0 )
-                drill.size = m_drill.size * 1.1; // Backdrill slightly larger than main drill
-        }
-        else
-        {
-            clearBackdrillSide( aTop );
-        }
-    };
+                    if( drill.size.x <= 0 )
+                        drill.size = m_drill.size * 1.1;     // Backdrill slightly larger than main drill
+                }
+                else
+                {
+                    clearBackdrillSide( aTop );
+                }
+            };
 
     apply( true, aMode == BACKDRILL_MODE::BACKDRILL_TOP || aMode == BACKDRILL_MODE::BACKDRILL_BOTH );
     apply( false, aMode == BACKDRILL_MODE::BACKDRILL_BOTTOM || aMode == BACKDRILL_MODE::BACKDRILL_BOTH );
@@ -1187,17 +1189,37 @@ PADSTACK::COPPER_LAYER_PROPS& PADSTACK::CopperLayer( PCB_LAYER_ID aLayer )
     if( m_mode == MODE::NORMAL )
         return m_copperProps[ALL_LAYERS];
 
+    PCB_LAYER_ID key = aLayer;
+
     if( m_mode == MODE::FRONT_INNER_BACK )
     {
         if( IsFrontLayer( aLayer ) )
-            return m_copperProps[F_Cu];
+            key = F_Cu;
         else if( IsBackLayer( aLayer ) )
-            return m_copperProps[B_Cu];
+            key = B_Cu;
         else
-            return m_copperProps[INNER_LAYERS];
+            key = INNER_LAYERS;
     }
 
-    return m_copperProps[aLayer];
+    // A layer without an entry reads through to another one, so a new entry starts from what was read
+    const bool readsThrough = m_copperProps.contains( ALL_LAYERS )
+                              || ( m_mode == MODE::CUSTOM && !m_copperProps.empty() );
+
+    if( !m_copperProps.contains( key ) && readsThrough )
+    {
+        COPPER_LAYER_PROPS inherited = std::as_const( *this ).CopperLayer( aLayer );
+
+        // the new layer owns its primitives, as flipping or editing one layer must not change the other
+        for( std::shared_ptr<PCB_SHAPE>& shape : inherited.custom_shapes )
+        {
+            shape.reset( static_cast<PCB_SHAPE*>( shape->Clone() ) );
+            shape->SetParent( m_parent );
+        }
+
+        return m_copperProps.emplace( key, std::move( inherited ) ).first->second;
+    }
+
+    return m_copperProps[key];
 }
 
 

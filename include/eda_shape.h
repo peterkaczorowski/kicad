@@ -97,6 +97,8 @@ public:
 
     virtual ~EDA_SHAPE();
 
+    virtual EDA_ITEM* AsEdaItem() { return nullptr; }
+
     void SwapShape( EDA_SHAPE* aImage );
 
     void Serialize( google::protobuf::Any &aContainer ) const override;
@@ -433,7 +435,7 @@ public:
     const ELLIPSE<int>& GetEllipse() const { return m_ellipse; }
 
     VECTOR2I getCenter() const;
-    void     SetCenter( const VECTOR2I& aCenter );
+    virtual void SetCenter( const VECTOR2I& aCenter );
 
     /**
      * Set the end point from the angle center and start.
@@ -479,6 +481,12 @@ public:
      * the scenes.  However, they are what SHOULD be stored.
      */
     virtual void SetArcGeometry( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd );
+
+    /**
+     * Set the shape from three points, falling back to a SEGMENT from \a aStart to \a aEnd when the points
+     * are collinear and so have no finite arc center.
+     */
+    void SetArcOrSegment( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd );
 
     /**
      * Set the data used for mid point caching.

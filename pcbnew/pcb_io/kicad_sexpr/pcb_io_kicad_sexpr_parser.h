@@ -45,6 +45,7 @@
 
 #include <chrono>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -292,7 +293,7 @@ private:
 
     PCB_SHAPE*           parsePCB_SHAPE( BOARD_ITEM* aParent );
     PCB_TEXT*            parsePCB_TEXT( BOARD_ITEM* aParent, PCB_TEXT* aBaseText = nullptr );
-    void                 parsePCB_TEXT_effects( PCB_TEXT* aText, PCB_TEXT* aBaseText = nullptr );
+    bool                 parsePCB_TEXT_effects( PCB_TEXT* aText, PCB_TEXT* aBaseText = nullptr );
     PCB_REFERENCE_IMAGE* parsePCB_REFERENCE_IMAGE( BOARD_ITEM* aParent );
     PCB_TEXTBOX*         parsePCB_TEXTBOX( BOARD_ITEM* aParent );
     PCB_BARCODE*         parsePCB_BARCODE( BOARD_ITEM* aParent );
@@ -333,7 +334,7 @@ private:
     void        parsePostMachining( PADSTACK::POST_MACHINING_PROPS& aProps );
     void        parsePadstack( PAD* aPad );
 
-    PCB_ARC*       parseARC();
+    PCB_TRACK*     parseARC();
     PCB_TRACK*     parsePCB_TRACK();
     PCB_VIA*       parsePCB_VIA();
     void           parseViastack( PCB_VIA* aVia );
@@ -534,6 +535,7 @@ private:
 
     /// if resetting UUIDs, record new ones to update groups with.
     KIID_MAP            m_resetKIIDMap;
+    std::set<KIID>      m_linkedZones;       ///< Zones read with a link set or anchor
 
     bool                m_showLegacySegmentZoneWarning;
     bool                m_showLegacy5ZoneWarning;

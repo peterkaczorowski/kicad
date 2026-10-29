@@ -21,14 +21,13 @@
 #define BOARD_INSPECTION_TOOL_H
 
 #include <dialogs/dialog_book_reporter.h>
-#include <drc/drc_rule.h>
-#include <drc/drc_engine.h>
 #include <pcb_edit_frame.h>
 #include <rc_item.h>
 #include <tools/pcb_actions.h>
 #include <tools/pcb_tool_base.h>
 
 class CONNECTIVITY_DATA;
+class DRC_ENGINE;
 class FOOTPRINT_DIFF_WIDGET;
 
 
@@ -104,8 +103,6 @@ public:
         return !m_currentlyHighlighted.empty();
     }
 
-    wxString m_highlightedNetChain;
-
 private:
     /// Diff the board at aOtherPath against the live one and show the dialog.
     int showBoardComparison( const wxString& aOtherPath, const wxString& aProjectPath,
@@ -130,23 +127,25 @@ private:
 
     std::unique_ptr<DRC_ENGINE> makeDRCEngine( bool* aCompileError, bool* aCourtyardError );
 
-    wxString getItemDescription( BOARD_ITEM* aItem );
+    wxString getItemDescription( const BOARD_ITEM* aItem );
 
     void reportCompileError( REPORTER* r );
-    void reportHeader( const wxString& aTitle, BOARD_ITEM* a, REPORTER* r );
-    void reportHeader( const wxString& aTitle, BOARD_ITEM* a, BOARD_ITEM* b, REPORTER* r );
-    void reportHeader( const wxString& aTitle, BOARD_ITEM* a, BOARD_ITEM* b, PCB_LAYER_ID aLayer,
+    void reportHeader( const wxString& aTitle, const BOARD_ITEM* a, REPORTER* r );
+    void reportHeader( const wxString& aTitle, const BOARD_ITEM* a, const BOARD_ITEM* b, REPORTER* r );
+    void reportHeader( const wxString& aTitle, const BOARD_ITEM* a, const BOARD_ITEM* b, PCB_LAYER_ID aLayer,
                        REPORTER* r );
 
     FOOTPRINT_DIFF_WIDGET* constructDiffPanel( wxPanel* aParentPanel );
 
-    void reportClearance( BOARD_ITEM* aItemA, BOARD_ITEM* aItemB );
+    void reportClearance( const BOARD_ITEM* aItemA, const BOARD_ITEM* aItemB );
 
     void filterCollectorForInspection( GENERAL_COLLECTOR& aCollector, const VECTOR2I& aPos );
 
     BOARD_ITEM* pickItemForInspection( const TOOL_EVENT& aEvent, const wxString& aPrompt,
-                                       const std::vector<KICAD_T>& aTypes,
-                                       BOARD_ITEM* aLockedHighlight );
+                                       const std::vector<KICAD_T>& aTypes, BOARD_ITEM* aLockedHighlight );
+
+public:
+    wxString            m_HighlightedNetChain;
 
 private:
     PCB_EDIT_FRAME*     m_frame;    // Pointer to the currently used edit frame.

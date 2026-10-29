@@ -55,7 +55,8 @@ using namespace std::placeholders;
 // stamps the item's view private data, which a later VIEW::Remove would mis-index.
 static bool isNoGeometryItem( const BOARD_ITEM* aItem )
 {
-    return aItem->Type() == PCB_NETINFO_T || aItem->Type() == PCB_CONSTRAINT_T;
+    return aItem->Type() == PCB_NETINFO_T || aItem->Type() == PCB_CONSTRAINT_T
+           || aItem->Type() == PCB_3D_BODY_T;
 }
 
 
@@ -263,6 +264,13 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
     }
 
     undoList.SetDescription( aMessage );
+
+    // Copies handed in through Modified() were not made by makeImage(), but the undo stack owns them all
+    for( const COMMIT_LINE& entry : m_entries )
+    {
+        if( entry.m_copy )
+            entry.m_copy->SetFlags( UR_TRANSIENT );
+    }
 
     TEARDROP_MANAGER                   teardropMgr( board, m_toolMgr );
     std::shared_ptr<CONNECTIVITY_DATA> connectivity = board->GetConnectivity();
@@ -523,12 +531,14 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
                         {
                             parentFP->Remove( boardItem );
                             connectivity->Remove( boardItem );
+                            itemsChanged.push_back( parentFP );
                         }
                     }
                     else if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
                     {
                         parentFP->Remove( boardItem );
                         connectivity->Remove( boardItem );
+                        itemsChanged.push_back( parentFP );
                     }
                     else
                     {
@@ -554,16 +564,21 @@ void BOARD_COMMIT::Push( const wxString& aMessage, int aCommitFlags )
 
             // No-geometry items: never in the view, so skip view->Remove.
             case PCB_CONSTRAINT_T:
+            case PCB_3D_BODY_T:
                 if( !( changeFlags & CHT_DONE ) )
                 {
                     if( m_isFootprintEditor )
                     {
                         if( FOOTPRINT* parentFP = board->GetFirstFootprint() )
+                        {
                             parentFP->Remove( boardItem );
+                            itemsChanged.push_back( parentFP );
+                        }
                     }
                     else if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
                     {
                         parentFP->Remove( boardItem );
+                        itemsChanged.push_back( parentFP );
                     }
                     else
                     {
@@ -927,11 +942,15 @@ void BOARD_COMMIT::RevertToCheckpoint( int aCheckpoint )
                 if( m_isFootprintEditor )
                 {
                     if( FOOTPRINT* parentFP = board->GetFirstFootprint() )
+                    {
                         parentFP->Remove( boardItem );
+                        itemsChanged.push_back( parentFP );
+                    }
                 }
                 else if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
                 {
                     parentFP->Remove( boardItem );
+                    itemsChanged.push_back( parentFP );
                 }
                 else
                 {
@@ -963,12 +982,14 @@ void BOARD_COMMIT::RevertToCheckpoint( int aCheckpoint )
                 {
                     parentFP->Add( boardItem, ADD_MODE::INSERT );
                     connectivity->Add( boardItem );
+                    itemsChanged.push_back( parentFP );
                 }
             }
             else if( FOOTPRINT* parentFP = boardItem->GetParentFootprint() )
             {
                 parentFP->Add( boardItem, ADD_MODE::INSERT );
                 connectivity->Add( boardItem );
+                itemsChanged.push_back( parentFP );
             }
             else
             {
@@ -1049,7 +1070,7 @@ void BOARD_COMMIT::RevertToCheckpoint( int aCheckpoint )
         }
     }
 
-    m_entries.erase( m_entries.begin() + aCheckpoint, m_entries.end() );
+    dropEntriesAfter( aCheckpoint );
 }
 
 

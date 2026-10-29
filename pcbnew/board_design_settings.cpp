@@ -18,6 +18,7 @@
  */
 
 #include "board_design_settings.h"
+#include "widgets/report_severity.h"
 
 #include <algorithm>
 #include <cmath>
@@ -38,6 +39,7 @@
 #include <settings/parameters.h>
 #include <project/project_file.h>
 #include <advanced_config.h>
+#include <wx/debug.h>
 
 const int bdsSchemaVersion = 3;
 
@@ -176,6 +178,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
 
     m_DRCSeverities[ DRCE_DANGLING_TRACK ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_DANGLING_VIA ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_COPPER_OUTSIDE_BOARD ] = RPT_SEVERITY_WARNING;
 
     m_DRCSeverities[DRCE_MICROVIA_CROSSES_CORE] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[DRCE_MICROVIA_STACK_NOT_FILLED] = RPT_SEVERITY_WARNING;
@@ -1591,15 +1594,22 @@ bool BOARD_DESIGN_SETTINGS::LoadFromFile( const wxString& aDirectory )
 }
 
 
-SEVERITY BOARD_DESIGN_SETTINGS::GetSeverity( int aDRCErrorCode )
+SEVERITY BOARD_DESIGN_SETTINGS::GetSeverity( int aDRCErrorCode ) const
 {
-    return m_DRCSeverities[ aDRCErrorCode ];
+    auto it = m_DRCSeverities.find( aDRCErrorCode );
+
+    // If not found, return the default severity for unrecognized error codes.
+    // As constructed, the default severity for unrecognized error codes is RPT_SEVERITY_ERROR.
+    wxCHECK_MSG( it != m_DRCSeverities.end(), RPT_SEVERITY_ERROR,
+                 wxString::Format( wxT( "DRC error code %d not found" ), aDRCErrorCode ) );
+
+    return it->second;
 }
 
 
-bool BOARD_DESIGN_SETTINGS::Ignore( int aDRCErrorCode )
+bool BOARD_DESIGN_SETTINGS::Ignore( int aDRCErrorCode ) const
 {
-    return m_DRCSeverities[ aDRCErrorCode ] == RPT_SEVERITY_IGNORE;
+    return GetSeverity( aDRCErrorCode ) == RPT_SEVERITY_IGNORE;
 }
 
 
@@ -1614,16 +1624,11 @@ BOARD_DESIGN_SETTINGS::ValidateDesignRules( std::optional<EDA_UNITS> aUnits ) co
             {
                 if( aValue < aMin || aValue > aMax )
                 {
-                    wxString minValue = EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, units,
-                                                                              aMin, true );
-                    wxString maxValue = EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, units,
-                                                                              aMax, true );
+                    wxString min = EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, units, aMin, true );
+                    wxString max = EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, units, aMax, true );
 
-                    errors.push_back( {
-                            aField,
-                            wxString::Format( _( "Value must be between %s and %s." ),
-                                              minValue, maxValue )
-                    } );
+                    errors.push_back( { aField,
+                                        wxString::Format( _( "Value must be between %s and %s." ), min, max ) } );
                 }
             };
 
@@ -1632,11 +1637,8 @@ BOARD_DESIGN_SETTINGS::ValidateDesignRules( std::optional<EDA_UNITS> aUnits ) co
             {
                 if( !std::isfinite( aValue ) || aValue < aMin || aValue > aMax )
                 {
-                    errors.push_back( {
-                            aField,
-                            wxString::Format( _( "Value must be between %.3f and %.3f." ),
-                                              aMin, aMax )
-                    } );
+                    errors.push_back( { aField,
+                                        wxString::Format( _( "Value must be between %.3f and %.3f." ), aMin, aMax ) } );
                 }
             };
 
@@ -1673,10 +1675,8 @@ BOARD_DESIGN_SETTINGS::ValidateDesignRules( std::optional<EDA_UNITS> aUnits ) co
 
     if( m_MinResolvedSpokes < 0 || m_MinResolvedSpokes > 99 )
     {
-        errors.push_back( {
-                wxS( "min_resolved_spokes" ),
-                _( "Value must be between 0 and 99." )
-        } );
+        errors.push_back( { wxS( "min_resolved_spokes" ),
+                            _( "Value must be between 0 and 99." ) } );
     }
 
     addRangeError( wxS( "max_error" ), m_MaxError,
@@ -1694,36 +1694,18 @@ BOARD_DESIGN_SETTINGS::ValidateDesignRules( std::optional<EDA_UNITS> aUnits ) co
     addRatioRangeError( wxS( "solder_paste_margin_ratio" ), m_SolderPasteMarginRatio,
                         -1.0, 1.0 );
 
-    TEARDROP_PARAMETERS_LIST& teardropParamsList =
-            const_cast<TEARDROP_PARAMETERS_LIST&>( m_TeardropParamsList );
+    TEARDROP_PARAMETERS_LIST& teardropParamsList = const_cast<TEARDROP_PARAMETERS_LIST&>( m_TeardropParamsList );
 
     for( size_t ii = 0; ii < teardropParamsList.GetParametersCount(); ++ii )
     {
         const TEARDROP_PARAMETERS* params = teardropParamsList.GetParameters( static_cast<TARGET_TD>( ii ) );
-        std::string target = GetTeardropTargetCanonicalName( static_cast<TARGET_TD>( ii ) );
-
-        if( params->m_TdMaxLen < 0 )
-        {
-            errors.push_back( {
-                    wxString::Format( wxS( "teardrop_parameters[%s].max_length" ), target ),
-                    _( "Value must be greater than or equal to 0." )
-            } );
-        }
-
-        if( params->m_TdMaxWidth < 0 )
-        {
-            errors.push_back( {
-                    wxString::Format( wxS( "teardrop_parameters[%s].max_width" ), target ),
-                    _( "Value must be greater than or equal to 0." )
-            } );
-        }
+        std::string                target = GetTeardropTargetCanonicalName( static_cast<TARGET_TD>( ii ) );
 
         addRatioRangeError( wxString::Format( wxS( "teardrop_parameters[%s].best_length_ratio" ), target ),
                             params->m_BestLengthRatio, 0.0, 1.0 );
         addRatioRangeError( wxString::Format( wxS( "teardrop_parameters[%s].best_width_ratio" ), target ),
                             params->m_BestWidthRatio, 0.0, 1.0 );
-        addRatioRangeError( wxString::Format( wxS( "teardrop_parameters[%s].width_to_size_filter_ratio" ),
-                                              target ),
+        addRatioRangeError( wxString::Format( wxS( "teardrop_parameters[%s].width_to_size_filter_ratio" ), target ),
                             params->m_WidthtoSizeFilterRatio, 0.0, 1.0 );
     }
 
@@ -1733,10 +1715,8 @@ BOARD_DESIGN_SETTINGS::ValidateDesignRules( std::optional<EDA_UNITS> aUnits ) co
 
         if( diffPair.m_Width > 0 && diffPair.m_Gap <= 0 )
         {
-            errors.push_back( {
-                    wxString::Format( wxS( "diff_pair_dimensions_list[%zu].gap" ), ii ),
-                    _( "No differential pair gap defined." )
-            } );
+            errors.push_back( { wxString::Format( wxS( "diff_pair_dimensions_list[%zu].gap" ), ii ),
+                                _( "No differential pair gap defined." ) } );
         }
     }
 
@@ -1753,13 +1733,11 @@ BOARD_DESIGN_SETTINGS::ValidateDesignRules( std::optional<EDA_UNITS> aUnits ) co
         if( viaDim.m_Drill > 0 )
             viaDrill = viaDim.m_Drill;
 
-        if( std::optional<PCB_VIA::VIA_PARAMETER_ERROR> error =
-                    PCB_VIA::ValidateViaParameters( viaDiameter, viaDrill ) )
+        if( std::optional<PCB_VIA::VIA_PARAMETER_ERROR> error = PCB_VIA::ValidateViaParameters( viaDiameter,
+                                                                                                viaDrill ) )
         {
-            errors.push_back( {
-                    wxString::Format( wxS( "via_dimensions_list[%zu]" ), ii ),
-                    error->m_Message
-            } );
+            errors.push_back( { wxString::Format( wxS( "via_dimensions_list[%zu]" ), ii ),
+                                error->m_Message } );
         }
     }
 
@@ -1784,14 +1762,14 @@ BOARD_DESIGN_SETTINGS::GetDesignRuleWarnings( std::optional<EDA_UNITS> aUnits ) 
 
     if( m_ViasMinSize < impliedViaMin )
     {
-        warnings.push_back( {
-                wxS( "min_via_diameter" ),
-                wxString::Format( _( "Minimum via diameter (%s) is smaller than the minimum drill size (%s) "
-                                     "plus twice the minimum annular width (%s), so it has no effect. "
-                                     "The effective minimum via diameter is %s." ),
-                                  str( m_ViasMinSize ), str( m_MinThroughDrill ),
-                                  str( m_ViasMinAnnularWidth ), str( impliedViaMin ) )
-        } );
+        warnings.push_back( { wxS( "min_via_diameter" ),
+                              wxString::Format( _( "Minimum via diameter (%s) is smaller than the minimum drill "
+                                                   "size (%s) plus twice the minimum annular width (%s), so it "
+                                                   "has no effect. The effective minimum via diameter is %s." ),
+                                                str( m_ViasMinSize ),
+                                                str( m_MinThroughDrill ),
+                                                str( m_ViasMinAnnularWidth ),
+                                                str( impliedViaMin ) ) } );
     }
 
     return warnings;

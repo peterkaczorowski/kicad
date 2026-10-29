@@ -219,6 +219,7 @@ public:
     static TOOL_ACTION drawBezier;
     static TOOL_ACTION placePoint;
     static TOOL_ACTION placeReferenceImage;
+    static TOOL_ACTION convertImageToOutlines;
     static TOOL_ACTION placeText;
     static TOOL_ACTION drawTextBox;
     static TOOL_ACTION drawTable;
@@ -704,8 +705,13 @@ public:
     static TOOL_ACTION ddAppendBoard;
     static TOOL_ACTION ddImportFootprint;
     static TOOL_ACTION ddImportGraphics;
+    static TOOL_ACTION ddPlaceReferenceImage;
 
     static TOOL_ACTION repeatLayout;
+    static TOOL_ACTION updateLinkedLayouts;
+    static TOOL_ACTION unlinkLayout;
+    static TOOL_ACTION expandToMatchingTopology;
+    static TOOL_ACTION expandToLargestTopology;
     static TOOL_ACTION generatePlacementRuleAreas;
 
     /// Footprint wizard frame actions:

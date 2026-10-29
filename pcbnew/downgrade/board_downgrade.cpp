@@ -109,6 +109,10 @@ static constexpr int VER_SIM_EXCLUSION = 20260828;
 static constexpr int VER_VIA_STACK = 20260830;
 static constexpr int VER_CUSTOM_PROPERTIES = 20260831;
 static constexpr int VER_DRILL_DRAWINGS = 20260901;
+static constexpr int VER_FOOTPRINT_HEIGHT = 20261017;
+static constexpr int VER_LINKED_PLACEMENT = 20261018;
+static constexpr int VER_IMAGE_ROTATION = 20261025;
+static constexpr int VER_IMAGE_OPACITY = 20261025;
 
 // The board format these rules were written against. When SEXPR_BOARD_FILE_VERSION moves past
 // it, ClassifyBoardForDowngrade asserts in debug builds until the new format is covered.
@@ -120,7 +124,7 @@ static constexpr int VER_DRILL_DRAWINGS = 20260901;
 // 3. Otherwise add a VER_ constant above, a BOARD_RULE row that counts and strips the feature,
 //    and a dated row in BOARD_TOKENS or BOARD_VALUES for each new node head or bareword value.
 // 4. Set this constant to the new version.
-static constexpr int BOARD_DOWNGRADE_COVERED = 20260901;
+static constexpr int BOARD_DOWNGRADE_COVERED = 20261025;
 
 
 static bool isEllipse( const BOARD_ITEM* aItem )
@@ -317,7 +321,13 @@ static void dropPcbPointsFp( FOOTPRINT* aFootprint )
 
 static void dropExtrudedBodiesFp( FOOTPRINT* aFootprint )
 {
-    aFootprint->ClearExtrudedBody();
+    aFootprint->ClearBody();
+}
+
+
+static void dropFootprintHeightsFp( FOOTPRINT* aFootprint )
+{
+    aFootprint->SetHeight( 0 );
 }
 
 
@@ -472,7 +482,7 @@ static int countExtrudedBodies( const BOARD* aBoard )
 
     for( FOOTPRINT* fp : aBoard->Footprints() )
     {
-        if( fp->HasExtrudedBody() )
+        if( fp->HasBody() )
             count++;
     }
 
@@ -484,6 +494,27 @@ static void dropExtrudedBodies( BOARD* aBoard )
 {
     for( FOOTPRINT* fp : aBoard->Footprints() )
         dropExtrudedBodiesFp( fp );
+}
+
+
+static int countFootprintHeights( const BOARD* aBoard )
+{
+    int count = 0;
+
+    for( FOOTPRINT* fp : aBoard->Footprints() )
+    {
+        if( fp->GetHeight() != 0 )
+            count++;
+    }
+
+    return count;
+}
+
+
+static void dropFootprintHeights( BOARD* aBoard )
+{
+    for( FOOTPRINT* fp : aBoard->Footprints() )
+        dropFootprintHeightsFp( fp );
 }
 
 
@@ -1630,6 +1661,69 @@ static void dropGrids( BOARD* aBoard )
 }
 
 
+static int countReferenceImageRotations( const BOARD* aBoard )
+{
+    const auto isRotatedReferenceImage = []( const BOARD_ITEM* aItem )
+    {
+        if( aItem->Type() != PCB_REFERENCE_IMAGE_T )
+            return false;
+
+        const PCB_REFERENCE_IMAGE& refImage = static_cast<const PCB_REFERENCE_IMAGE&>( *aItem );
+        return !refImage.GetReferenceImage().GetOrientation().IsZero();
+    };
+
+    size_t count = std::count_if( aBoard->Drawings().begin(), aBoard->Drawings().end(), isRotatedReferenceImage );
+
+    for( FOOTPRINT* fp : aBoard->Footprints() )
+    {
+        count += std::count_if( fp->GraphicalItems().begin(), fp->GraphicalItems().end(), isRotatedReferenceImage );
+    }
+
+    return static_cast<int>( count );
+}
+
+
+static int countReferenceImageOpacities( const BOARD* aBoard )
+{
+    const auto isReferenceImageWithOpacity = []( const BOARD_ITEM* aItem )
+    {
+        if( aItem->Type() != PCB_REFERENCE_IMAGE_T )
+            return false;
+
+        const PCB_REFERENCE_IMAGE& refImage = static_cast<const PCB_REFERENCE_IMAGE&>( *aItem );
+        return refImage.GetReferenceImage().GetOpacity() < 1.0;
+    };
+
+    size_t count = std::count_if( aBoard->Drawings().begin(), aBoard->Drawings().end(), isReferenceImageWithOpacity );
+
+    for( FOOTPRINT* fp : aBoard->Footprints() )
+    {
+        count += std::count_if( fp->GraphicalItems().begin(), fp->GraphicalItems().end(), isReferenceImageWithOpacity );
+    }
+
+    return static_cast<int>( count );
+}
+
+
+static void dropReferenceImageOpacities( BOARD* aBoard )
+{
+    const auto clearOpacity = []( BOARD_ITEM* aItem )
+    {
+        if( aItem->Type() == PCB_REFERENCE_IMAGE_T )
+            static_cast<PCB_REFERENCE_IMAGE*>( aItem )->GetReferenceImage().SetOpacity( 1.0 );
+    };
+
+    for( BOARD_ITEM* item : aBoard->Drawings() )
+        clearOpacity( item );
+
+    for( FOOTPRINT* fp : aBoard->Footprints() )
+    {
+        for( BOARD_ITEM* item : fp->GraphicalItems() )
+            clearOpacity( item );
+    }
+}
+
+
 static int countDrillDrawings( const BOARD* aBoard )
 {
     return countDrawings( aBoard, isDrillDrawing );
@@ -1856,6 +1950,30 @@ static void dropCustomProperties( BOARD* aBoard )
                          if( aItem )
                              aItem->ClearCustomProperties();
                      } );
+}
+
+
+static int countLinkedPlacementAreas( const BOARD* aBoard )
+{
+    int count = 0;
+
+    for( const ZONE* zone : aBoard->Zones() )
+    {
+        if( zone->GetLinkSet() != niluuid )
+            ++count;
+    }
+
+    return count;
+}
+
+
+static void dropLinkedPlacementAreas( BOARD* aBoard )
+{
+    for( ZONE* zone : aBoard->Zones() )
+    {
+        zone->SetLinkSet( niluuid );
+        zone->SetRepeatOptions( REPEAT_LAYOUT_OPTIONS() );
+    }
 }
 
 
@@ -2464,6 +2582,7 @@ struct BOARD_RULE
 
 static std::vector<BOARD_RULE> boardRules()
 {
+    // clang-format off
     return {
         { VER_CONSTRAINTS, DOWNGRADE_BUCKET::BLOCK, _( "Unreviewed generated objects" ),
           _( "Unknown generator kinds or detached generated children cannot be safely exported." ),
@@ -2541,6 +2660,16 @@ static std::vector<BOARD_RULE> boardRules()
         { VER_DRILL_DRAWINGS, DOWNGRADE_BUCKET::DROP, _( "Drill symbol configuration" ),
           _( "Drill symbol assignments and display settings are removed. Holes are unchanged." ),
           countDrillSymbolConfiguration, dropDrillSymbolConfiguration },
+        { VER_LINKED_PLACEMENT, DOWNGRADE_BUCKET::DROP, _( "Linked placement rule areas" ),
+          _( "Links between placement rule areas and their saved repeat layout options are removed. "
+             "The copied layouts are kept." ),
+          countLinkedPlacementAreas, dropLinkedPlacementAreas },
+        { VER_IMAGE_ROTATION, DOWNGRADE_BUCKET::BLOCK, _( "Rotated reference images" ),
+          _( "The target cannot store an image rotation." ),
+          countReferenceImageRotations, nullptr },
+        { VER_IMAGE_OPACITY, DOWNGRADE_BUCKET::DROP, _( "Reference image opacity" ),
+          _( "The target cannot store an image opacity. Opacity will be ignored." ),
+          countReferenceImageOpacities, dropReferenceImageOpacities },
         { VER_NET_CHAINS, DOWNGRADE_BUCKET::DROP, _( "Net chains" ),
           _( "No equivalent in the target. Connectivity will change." ),
           countNetChains, dropNetChains },
@@ -2551,6 +2680,9 @@ static std::vector<BOARD_RULE> boardRules()
         { VER_EXTRUDED_BODY, DOWNGRADE_BUCKET::DROP, _( "Extruded 3D bodies" ),
           _( "No equivalent in the target. The 3D body is left out." ),
           countExtrudedBodies, dropExtrudedBodies, dropExtrudedBodiesFp },
+        { VER_FOOTPRINT_HEIGHT, DOWNGRADE_BUCKET::DROP, _( "Footprint overall height" ),
+          _( "No equivalent in the target. The footprint height is left out." ),
+          countFootprintHeights, dropFootprintHeights, dropFootprintHeightsFp },
         { VER_THIEVING, DOWNGRADE_BUCKET::BLOCK, _( "Copper-thieving zones" ),
           _( "A refill in the target would turn the pattern into solid copper." ),
           countThievingZones, nullptr },
@@ -2682,6 +2814,7 @@ static std::vector<BOARD_RULE> boardRules()
           _( "The target cannot represent a scaled footprint." ),
           countScaledFootprints, nullptr },
     };
+    // clang-format on
 }
 
 
@@ -2885,6 +3018,11 @@ static constexpr DATED_TOKEN BOARD_TOKENS[] = {
     { "drill_chart", VER_DRILL_DRAWINGS },
     { "drill_map", VER_DRILL_DRAWINGS },
     { "drill_symbol_profile", VER_DRILL_DRAWINGS },
+    { "link", VER_LINKED_PLACEMENT },
+    { "connected_routing", VER_LINKED_PLACEMENT },
+    { "other_items", VER_LINKED_PLACEMENT },
+    { "group_items", VER_LINKED_PLACEMENT },
+    { "locked_items", VER_LINKED_PLACEMENT },
     { "templates", VER_VIA_STITCH },
     { "hatch_position", VER_ZONE_DEFAULTS },
     { "covering", VER_VIA_PROTECTION },

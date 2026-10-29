@@ -150,6 +150,7 @@
 #include <widgets/wx_infobar.h>
 #include <widgets/panel_selection_filter.h>
 #include <widgets/pcb_properties_panel.h>
+#include <widgets/git_commit_pane.h>
 #include <widgets/pcb_net_inspector_panel.h>
 #include <widgets/wx_aui_utils.h>
 #include <kiplatform/app.h>
@@ -318,6 +319,7 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_netInspectorPanel = new PCB_NET_INSPECTOR_PANEL( this, this );
     m_designBlocksPane = new PCB_DESIGN_BLOCK_PANE( this, nullptr, m_designBlockHistoryList );
     m_constraintsPanel = new PANEL_CONSTRAINTS( this );
+    m_gitCommitPane = new GIT_COMMIT_PANE( this );
 
     m_auimgr.SetManagedWindow( this );
 
@@ -428,7 +430,25 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                       .CloseButton( true )
                       .Hide() );
 
+    m_auimgr.AddPane( m_gitCommitPane,
+                      EDA_PANE()
+                              .Name( GitCommitPaneName() )
+                              .Right()
+                              .Layer( 5 )
+                              .Caption( _( "Version Control" ) )
+                              .PaneBorder( false )
+                              .MinSize( wxSize( m_gitCommitPane->GetMinDockWidth(), FromDIP( 120 ) ) )
+                              .BestSize( wxSize( std::max( m_gitCommitPane->GetMinDockWidth(), FromDIP( 300 ) ),
+                                                 FromDIP( 300 ) ) )
+                              .FloatingSize( FromDIP( wxSize( 300, 400 ) ) )
+                              .DestroyOnClose( false )
+                              .CloseButton( true )
+                              .Hide() );
+
     RestoreAuiLayout();
+
+    // A saved layout brings its own minimum, so the one the panel needs is set again.
+    m_auimgr.GetPane( GitCommitPaneName() ).min_size.x = m_gitCommitPane->GetMinDockWidth();
 
     m_auimgr.GetPane( "LayersManager" ).Show( m_ShowLayerManagerTools );
     m_auimgr.GetPane( "SelectionFilter" ).Show( m_ShowLayerManagerTools );
@@ -436,6 +456,7 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_auimgr.GetPane( NetInspectorPanelName() ).Show( m_ShowNetInspector );
     m_auimgr.GetPane( SearchPaneName() ).Show( m_ShowSearch );
     m_auimgr.GetPane( DesignBlocksPaneName() ).Show( GetPcbNewSettings()->m_AuiPanels.design_blocks_show );
+    m_auimgr.GetPane( GitCommitPaneName() ).Show( GetPcbNewSettings()->m_AuiPanels.show_git_commit_pane );
 
     wxAuiPaneInfo& selectionFilterPane = m_auimgr.GetPane( wxS( "SelectionFilter" ) );
 
@@ -626,6 +647,9 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_acceptedExts.emplace( FILEEXT::LegacyPcbFileExtension, &PCB_ACTIONS::ddAppendBoard );
     m_acceptedExts.emplace( wxS( "dxf" ), &PCB_ACTIONS::ddImportGraphics );
     m_acceptedExts.emplace( FILEEXT::SVGFileExtension, &PCB_ACTIONS::ddImportGraphics );
+    m_acceptedExts.emplace( FILEEXT::PngFileExtension, &PCB_ACTIONS::ddPlaceReferenceImage );
+    m_acceptedExts.emplace( FILEEXT::JpegFileExtension, &PCB_ACTIONS::ddPlaceReferenceImage );
+    m_acceptedExts.emplace( wxS( "jpeg" ), &PCB_ACTIONS::ddPlaceReferenceImage );
     DragAcceptFiles( true );
 
     Bind( EDA_EVT_CLOSE_DIALOG_BOOK_REPORTER, &PCB_EDIT_FRAME::onCloseModelessBookReporterDialogs, this );
@@ -1053,7 +1077,15 @@ void PCB_EDIT_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
                             }
 
                             if( aDep->IsBOARD_ITEM() )
-                                view->Update( aDep, KIGFX::REPAINT );
+                            {
+                                if( PCB_TEXT* text = dynamic_cast<PCB_TEXT*>( aDep ) )
+                                {
+                                    text->ClearRenderCache();
+                                    text->ClearBoundingBoxCache();
+                                }
+
+                                view->Update( aDep, KIGFX::GEOMETRY | KIGFX::REPAINT );
+                            }
                         } );
             }
         }
@@ -1300,6 +1332,12 @@ void PCB_EDIT_FRAME::setupUIConditions()
                 return m_auimgr.GetPane( DesignBlocksPaneName() ).IsShown();
             };
 
+    auto gitCommitPaneCond =
+            [this] ( const SELECTION& )
+            {
+                return IsGitCommitPaneShown();
+            };
+
     auto highContrastCond =
             [this] ( const SELECTION& )
             {
@@ -1357,6 +1395,7 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::showSearch,           CHECK( searchPaneCond ) );
     mgr->SetConditions( PCB_ACTIONS::showConstraintsPanel, CHECK( constraintsPaneCond ) );
     mgr->SetConditions( PCB_ACTIONS::showDesignBlockPanel, CHECK( designBlockCond ) );
+    mgr->SetConditions( ACTIONS::showGitCommitPane,        CHECK( gitCommitPaneCond ) );
 
     mgr->SetConditions( PCB_ACTIONS::saveBoardAsDesignBlock,     ENABLE( hasElements ) );
     mgr->SetConditions( PCB_ACTIONS::saveSelectionAsDesignBlock, ENABLE( SELECTION_CONDITIONS::NotEmpty ) );
@@ -2035,6 +2074,8 @@ void PCB_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
         cfg->m_AuiPanels.search_panel_height = m_searchPane->GetSize().y;
         cfg->m_AuiPanels.search_panel_width = m_searchPane->GetSize().x;
         cfg->m_AuiPanels.search_panel_dock_direction = searchPaneInfo.dock_direction;
+
+        cfg->m_AuiPanels.show_git_commit_pane = m_auimgr.GetPane( GitCommitPaneName() ).IsShown();
 
         if( m_netInspectorPanel )
         {

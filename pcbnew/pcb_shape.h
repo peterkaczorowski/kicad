@@ -43,6 +43,8 @@ public:
 
     ~PCB_SHAPE() override;
 
+    EDA_ITEM* AsEdaItem() override { return this; }
+
     void CopyFrom( const BOARD_ITEM* aOther ) override;
 
     static bool ClassOf( const EDA_ITEM* aItem )
@@ -196,6 +198,7 @@ public:
 
     void SetStart( const VECTOR2I& aStart ) override;
     void SetEnd( const VECTOR2I& aEnd ) override;
+    void SetCenter( const VECTOR2I& aCenter ) override;
 
     void SetCornerRadius( int aCornerRadius ) override;
 

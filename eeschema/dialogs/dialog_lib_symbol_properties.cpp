@@ -579,6 +579,11 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::Validate()
         if( subRef.IsEmpty() )
             subRef = LIB_SYMBOL::LetterSubReference( row + 1, 'A' );
 
+        // For empty names we only check letter reference for collsions, which means the user _could_
+        // end up with a collision if they name a unit with a digit, and then use the symbol in a
+        // schematic which uses .digit, -digit or _digit notation for units.  We'll leave that to ERC
+        // to catch.
+
         if( !seenSubRefs.insert( subRef.Upper() ).second )
         {
             m_delayedErrorMessage = wxString::Format( _( "The unit name '%s' is already in use." ), subRef );
@@ -797,9 +802,6 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
             m_libEntry->SetLocalPower();
         else
             m_libEntry->SetGlobalPower();
-
-        // Power symbols must have value matching name for now
-        m_libEntry->GetValueField().SetText( newName );
     }
     else
     {
@@ -964,9 +966,6 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnGridCellChanged( wxGridEvent& event )
 
 void DIALOG_LIB_SYMBOL_PROPERTIES::OnSymbolNameText( wxCommandEvent& event )
 {
-    if( m_OptionPower->IsChecked() )
-        m_grid->SetCellValue( m_fields->GetFieldRow( FIELD_T::VALUE ), FDC_VALUE, m_SymbolNameCtrl->GetValue() );
-
     OnModify();
 }
 
@@ -1230,19 +1229,6 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 {
     m_OptionPartsInterchangeable->Enable( !m_libEntry->IsDerived() && m_unitSpinCtrl->GetValue() > 1 );
     m_pinNameOffset.Enable( m_PinsNameInsideButt->GetValue() );
-
-    if( m_grid->IsCellEditControlShown() )
-    {
-        int row = m_grid->GetGridCursorRow();
-        int col = m_grid->GetGridCursorCol();
-
-        if( row == m_fields->GetFieldRow( FIELD_T::VALUE ) && col == FDC_VALUE && m_OptionPower->IsChecked() )
-        {
-            wxGridCellEditor* editor = m_grid->GetCellEditor( row, col );
-            m_SymbolNameCtrl->ChangeValue( editor->GetValue() );
-            editor->DecRef();
-        }
-    }
 
     // Handle shown columns changes
     std::bitset<64> shownColumns = m_grid->GetShownColumns();

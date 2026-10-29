@@ -112,12 +112,12 @@ public:
 
     bool HasHole() const override
     {
-        return GetDrillSizeX() > 0 && GetDrillSizeY() > 0;
+        return GetDrillSize().x > 0 && GetDrillSize().y > 0;
     }
 
     bool HasDrilledHole() const override
     {
-        return HasHole() && GetDrillSizeX() == GetDrillSizeY();
+        return HasHole() && GetDrillSize().x == GetDrillSize().y;
     }
 
     bool IsLocked() const override;
@@ -292,11 +292,11 @@ public:
     // in the GUI when the padstack mode is set to anything other than NORMAL, but so that the code
     // compiles, these are set up to work with the front layer (in other words, assume the mode is
     // NORMAL, where F_Cu stores the whole padstack data)
-    void SetSizeX( int aX );
-    int  GetSizeX() const;
+    void SetSizeXProp( int aX );
+    int  GetSizeXProp() const;
 
-    void SetSizeY( int aY );
-    int  GetSizeY() const;
+    void SetSizeYProp( int aY );
+    int  GetSizeYProp() const;
 
     void SetDelta( PCB_LAYER_ID aLayer, const VECTOR2I& aSize )
     {
@@ -318,10 +318,10 @@ public:
 
     void     SetDrillSize( const VECTOR2I& aSize ) { SetPrimaryDrillSize( aSize ); }
     VECTOR2I GetDrillSize() const { return GetPrimaryDrillSize(); }
-    void     SetDrillSizeX( int aX );
-    int      GetDrillSizeX() const { return GetPrimaryDrillSizeX(); }
-    void     SetDrillSizeY( int aY );
-    int      GetDrillSizeY() const { return GetPrimaryDrillSizeY(); }
+    void     SetDrillSizeXProp( int aX );
+    int      GetDrillSizeXProp() const { return GetPrimaryDrillSizeX(); }
+    void     SetDrillSizeYProp( int aY );
+    int      GetDrillSizeYProp() const { return GetPrimaryDrillSizeY(); }
 
     void     SetOffset( PCB_LAYER_ID aLayer, const VECTOR2I& aOffset );
     VECTOR2I GetOffset( PCB_LAYER_ID aLayer ) const;
@@ -1056,9 +1056,6 @@ public:
 
     void SetZoneLayerOverride( PCB_LAYER_ID aLayer, ZONE_LAYER_OVERRIDE aOverride );
 
-    void CheckPad( UNITS_PROVIDER* aUnitsProvider, bool aForPadProperties,
-                   const std::function<void( int aErrorCode, const wxString& aMsg )>& aErrorHandler ) const;
-
     BACKDRILL_MODE GetBackdrillMode() const { return m_padStack.GetBackdrillMode(); }
     void SetBackdrillMode( BACKDRILL_MODE aMode ) { m_padStack.SetBackdrillMode( aMode ); }
 
@@ -1107,8 +1104,7 @@ private:
 
     PAD_DRAW_CACHE_DATA& getDrawCache() const;
 
-    void doCheckPad( PCB_LAYER_ID aLayer, UNITS_PROVIDER* aUnitsProvider, bool aForPadProperties,
-                     const std::function<void( int aErrorCode, const wxString& aMsg )>& aErrorHandler ) const;
+    std::shared_ptr<SHAPE_COMPOUND> getMaskShape( PCB_LAYER_ID aLayer, int aExpansion ) const;
 
 private:
     wxString          m_number;             // Pad name (pin number in schematic)
@@ -1124,6 +1120,10 @@ private:
     mutable std::mutex m_dataMutex;
 
     mutable std::unique_ptr<PAD_DRAW_CACHE_DATA> m_drawCache;
+
+    // Mask apertures, keyed by expansion because that comes from settings, not geometry
+    mutable std::mutex                                                              m_maskShapeMutex;
+    mutable std::map<PCB_LAYER_ID, std::pair<int, std::shared_ptr<SHAPE_COMPOUND>>> m_maskShapes;
 
     mutable int       m_effectiveBoundingRadius;
 

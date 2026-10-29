@@ -546,6 +546,13 @@ TOOL_ACTION PCB_ACTIONS::placeReferenceImage( TOOL_ACTION_ARGS()
         .Flags( AF_ACTIVATE )
         .Parameter<PCB_REFERENCE_IMAGE*>( nullptr ) );
 
+TOOL_ACTION PCB_ACTIONS::convertImageToOutlines( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.InteractiveDrawing.convertImageToOutlines" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Convert to Outlines..." ) )
+        .Tooltip( _( "Trace the image into board graphics" ) )
+        .Icon( BITMAPS::image ) );
+
 TOOL_ACTION PCB_ACTIONS::placeText( TOOL_ACTION_ARGS()
         .Name( "pcbnew.InteractiveDrawing.text" )
         .Scope( AS_GLOBAL )
@@ -2690,7 +2697,7 @@ TOOL_ACTION PCB_ACTIONS::showFootprintAssociations( TOOL_ACTION_ARGS()
         .Scope( AS_GLOBAL )
         .FriendlyName( _( "Show Footprint Associations" ) )
         .Tooltip( _( "Show footprint library and schematic symbol associations" ) )
-        .Icon( BITMAPS::edit_cmp_symb_links ) );
+        .Icon( BITMAPS::link ) );
 
 //Geographic re-annotation tool
 TOOL_ACTION PCB_ACTIONS::boardReannotate( TOOL_ACTION_ARGS()
@@ -3037,6 +3044,34 @@ TOOL_ACTION PCB_ACTIONS::repeatLayout( TOOL_ACTION_ARGS()
         .Icon( BITMAPS::copy )
         );
 
+TOOL_ACTION PCB_ACTIONS::updateLinkedLayouts( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Multichannel.updateLinkedLayouts" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Update Linked Layouts" ) )
+        .Tooltip( _( "Copies the selected Rule Area onto the Rule Areas linked to it" ) )
+        .Icon( BITMAPS::refresh ) );
+
+TOOL_ACTION PCB_ACTIONS::expandToMatchingTopology( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Multichannel.expandToMatchingTopology" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Expand Selection by One Step" ) )
+        .Tooltip( _( "Adds the neighbouring parts, as long as the selection still repeats elsewhere on the board" ) )
+        .Icon( BITMAPS::select_same_sheet ) );
+
+TOOL_ACTION PCB_ACTIONS::expandToLargestTopology( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Multichannel.expandToLargestTopology" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Expand Selection to Largest Matching Topology" ) )
+        .Tooltip( _( "Adds parts until the selection no longer repeats elsewhere on the board" ) )
+        .Icon( BITMAPS::select_same_sheet ) );
+
+TOOL_ACTION PCB_ACTIONS::unlinkLayout( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Multichannel.unlinkLayout" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Unlink Layout" ) )
+        .Tooltip( _( "Removes the selected Rule Areas from the set of linked layouts" ) )
+        .Icon( BITMAPS::group_ungroup ) );
+
 // ROUTER_TOOL
 //
 TOOL_ACTION PCB_ACTIONS::routeSingleTrack( TOOL_ACTION_ARGS()
@@ -3345,6 +3380,10 @@ TOOL_ACTION PCB_ACTIONS::ddImportFootprint( TOOL_ACTION_ARGS()
 
 TOOL_ACTION PCB_ACTIONS::ddImportGraphics( TOOL_ACTION_ARGS()
         .Name( "pcbnew.InteractiveDrawing.ddImportGraphics" )
+        .Scope( AS_GLOBAL ) );
+
+TOOL_ACTION PCB_ACTIONS::ddPlaceReferenceImage( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.InteractiveDrawing.ddPlaceReferenceImage" )
         .Scope( AS_GLOBAL ) );
 
 // actions for footprint wizard frame

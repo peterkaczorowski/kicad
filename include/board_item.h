@@ -20,7 +20,6 @@
 
 #pragma once
 
-
 #include <map>
 
 #include <core/mirror.h>
@@ -32,12 +31,14 @@
 #include <lset.h>
 #include <stroke_params.h>
 #include <geometry/eda_angle.h>
-#include "macros.h"
-#include "drc/drc_rule.h"
+#include <macros.h>
+#include <drc/drc_constraint_types.h>
+
 
 class BOARD;
 class BOARD_DESIGN_SETTINGS;
 class BOARD_ITEM_CONTAINER;
+class BOARD_ITEM_INDEX;
 class BOARD_COMMIT;
 class SHAPE_POLY_SET;
 class SHAPE_SEGMENT;
@@ -425,7 +426,7 @@ public:
     bool IsLocked() const override;
     void SetLocked( bool aLocked ) override { m_isLocked = aLocked; }
 
-    bool IsIndexedInBoard() const { return m_boardCacheOwner != nullptr; }
+    bool IsIndexedInBoard() const { return m_owningIndex != nullptr; }
 
     int GetMaxError() const;
 
@@ -600,10 +601,13 @@ protected:
     bool            m_isKnockout;
     bool            m_isLocked;
 
-    // Board that indexed this item, or nullptr. Set only by BOARD. Clones start detached.
-    mutable BOARD*  m_boardCacheOwner = nullptr;
+    /**
+     * Board index that indexes this item, or nullptr. Set only by the board's BOARD_ITEM_INDEX.
+     * Clones start detached.
+     */
+    mutable BOARD_ITEM_INDEX* m_owningIndex = nullptr;
 
-    friend class BOARD;
+    friend class BOARD_ITEM_INDEX;
 };
 
 DECLARE_ENUM_TO_WXANY( PCB_LAYER_ID );
