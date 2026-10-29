@@ -244,21 +244,18 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
     LSET ruleLayers = m_drcEngine->GetLayersForConstraintType( TEXT_HEIGHT_CONSTRAINT )
                       | m_drcEngine->GetLayersForConstraintType( TEXT_THICKNESS_CONSTRAINT );
 
-    forEachGeometryItem( itemTypes, LSET::AllLayersMask(),
+    forEachGeometryItem( itemTypes, ruleLayers,
             [&]( BOARD_ITEM* item ) -> bool
             {
                 ++count;
                 return true;
             } );
 
-    forEachGeometryItem( itemTypes, LSET::AllLayersMask(),
+    forEachGeometryItem( itemTypes, ruleLayers,
             [&]( BOARD_ITEM* item ) -> bool
             {
                 if( !reportProgress( ii++, count, progressDelta ) )
                     return false;
-
-                if( IsPcbLayer( item->GetLayer() ) && !ruleLayers.test( item->GetLayer() ) )
-                    return true;
 
                 if( EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( item ) )
                 {
