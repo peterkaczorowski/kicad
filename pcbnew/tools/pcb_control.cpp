@@ -3330,10 +3330,11 @@ int PCB_CONTROL::CollectAndEmbed3DModels( const TOOL_EVENT& aEvent )
  */
 static EMBEDDED_FILES* findEmbeddedStore( const wxString& aName, FOOTPRINT* aFootprint, BOARD* aBoard )
 {
-    if( aFootprint->GetEmbeddedFiles()->HasFile( aName ) )
+    // Probe with the accessor the caller fetches with.  The two key themselves differently.
+    if( aFootprint->GetEmbeddedFiles()->GetEmbeddedFile( aName ) )
         return aFootprint->GetEmbeddedFiles();
 
-    if( aBoard->GetEmbeddedFiles()->HasFile( aName ) )
+    if( aBoard->GetEmbeddedFiles()->GetEmbeddedFile( aName ) )
         return aBoard->GetEmbeddedFiles();
 
     return nullptr;
@@ -3404,7 +3405,14 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
             if( !model.m_Filename.StartsWith( prefix ) )
                 continue;
 
-            wxString name = model.m_Filename.Mid( prefix.length() );
+            // The store is keyed by the bare name.
+            wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
+
+            if( name.IsEmpty() )
+            {
+                failedCount++;
+                continue;
+            }
 
             if( failed.count( name ) )
                 continue;
