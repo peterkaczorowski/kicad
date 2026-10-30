@@ -22,6 +22,7 @@
 #include "pcb_control.h"
 
 #include <wx/hyperlink.h>
+#include <widgets/wx_progress_reporters.h>
 #include <wx/filename.h>
 
 #include "convert_basic_shapes_to_polygon.h"
@@ -3444,10 +3445,14 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     BOARD_COMMIT commit( m_frame );
 
-    std::map<wxString, wxString> written;   // embedded name -> the path footprints now use
-    std::set<wxString>           extracted; // every name written out, companions included
+    // A footprint can hold its own file under a name the board also uses.
+    using STORED_FILE = std::pair<EMBEDDED_FILES*, wxString>;
+
+    std::map<STORED_FILE, wxString>               written; // stored file -> the path footprints now use
+    std::set<STORED_FILE>                         failed;
+    std::set<wxString>                            failedNames;
+    std::set<wxString>                            extracted; // every name written out, companions included
     std::map<EMBEDDED_FILES*, std::set<wxString>> owners;    // which store each one came from
-    std::set<wxString>           failed;
 
     // Destination name -> the content hash holding it.
     std::map<wxString, std::string> claimed;
@@ -3535,11 +3540,18 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
         return wxEmptyString;
     };
 
+    // Nothing touches the board until every file is out.
+    std::unique_ptr<WX_PROGRESS_REPORTER> progress;
+
+    if( pending.size() > 4 && Pgm().IsGUI() )
+    {
+        progress = std::make_unique<WX_PROGRESS_REPORTER>( m_frame, _( "Extract 3D Models" ), (int) pending.size(),
+                                                           PR_CAN_ABORT );
+    }
+
     for( FOOTPRINT* fp : brd->Footprints() )
     {
-        bool fpModified = false;
-
-        for( FP_3DMODEL& model : fp->Models() )
+        for( const FP_3DMODEL& model : fp->Models() )
         {
             if( !model.m_Filename.StartsWith( prefix ) )
                 continue;
@@ -3550,51 +3562,81 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
             if( name.IsEmpty() )
                 continue;
 
-            if( failed.count( name ) )
+            EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd );
+            STORED_FILE     key( store, name );
+
+            if( written.count( key ) || failed.count( key ) )
                 continue;
 
-            auto it = written.find( name );
+            if( progress )
+            {
+                if( !progress->KeepRefreshing() )
+                    return 0;
+
+                progress->Report( name );
+                progress->AdvanceProgress();
+            }
+
+            wxString placed = store ? placeFile( store->GetEmbeddedFile( name ) ) : wxString();
+
+            if( placed.IsEmpty() )
+            {
+                failed.insert( key );
+                failedNames.insert( name );
+                continue;
+            }
+
+            written[key] = linkPrefix + placed;
+            extracted.insert( name );
+            owners[store].insert( name );
+
+            // Embedding also takes a VRML model's STEP companion, which no footprint names.
+            const wxString base = name.BeforeLast( '.' );
+
+            if( base.IsEmpty() )
+                continue;
+
+            for( const auto& [companion, entry] : store->EmbeddedFileMap() )
+            {
+                if( companion == name || extracted.count( companion ) )
+                    continue;
+
+                if( entry->type != EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL )
+                    continue;
+
+                if( companion.BeforeLast( '.' ) != base )
+                    continue;
+
+                if( !placeFile( entry.get() ).IsEmpty() )
+                {
+                    extracted.insert( companion );
+                    owners[store].insert( companion );
+                }
+            }
+        }
+    }
+
+    if( progress )
+        progress.reset();
+
+    for( FOOTPRINT* fp : brd->Footprints() )
+    {
+        bool fpModified = false;
+
+        for( FP_3DMODEL& model : fp->Models() )
+        {
+            if( !model.m_Filename.StartsWith( prefix ) )
+                continue;
+
+            wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
+
+            if( name.IsEmpty() )
+                continue;
+
+            auto it = written.find( STORED_FILE( findEmbeddedStore( name, fp, brd ), name ) );
 
             if( it == written.end() )
-            {
-                EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd );
-                wxString        placed = store ? placeFile( store->GetEmbeddedFile( name ) ) : wxString();
-
-                if( placed.IsEmpty() )
-                {
-                    failed.insert( name );
-                    continue;
-                }
-
-                extracted.insert( name );
-                owners[store].insert( name );
-
-                // Embedding also takes a VRML model's STEP companion, which no footprint names.
-                const wxString base = name.BeforeLast( '.' );
-
-                if( !base.IsEmpty() )
-                {
-                    for( const auto& [companion, entry] : store->EmbeddedFileMap() )
-                    {
-                        if( companion == name || extracted.count( companion ) )
-                            continue;
-
-                        if( entry->type != EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL )
-                            continue;
-
-                        if( companion.BeforeLast( '.' ) != base )
-                            continue;
-
-                        if( !placeFile( entry.get() ).IsEmpty() )
-                        {
-                            extracted.insert( companion );
-                            owners[store].insert( companion );
-                        }
-                    }
-                }
-
-                it = written.emplace( name, linkPrefix + placed ).first;
-            }
+                continue;
 
             if( !fpModified )
                 commit.Modify( fp );
@@ -3603,6 +3645,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
             fpModified = true;
         }
     }
+
 
     if( !extracted.empty() )
     {
@@ -3637,11 +3680,11 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     else
         msg = _( "No 3D models could be extracted." );
 
-    if( !failed.empty() )
+    if( !failedNames.empty() )
     {
         wxString names;
 
-        for( const wxString& name : failed )
+        for( const wxString& name : failedNames )
             names += ( names.IsEmpty() ? wxString() : wxT( ", " ) ) + name;
 
         DisplayErrorMessage( m_frame, msg, wxString::Format( _( "These models could not be extracted: %s" ), names ) );
