@@ -19,6 +19,7 @@
 
 #include <pcbnew_utils/board_test_utils.h>
 #include <pcbnew_utils/board_file_utils.h>
+#include <qa_utils/file_utils.h>
 #include <qa_utils/wx_utils/unit_test_utils.h>
 
 #include <pcb_io/pads/pcb_io_pads.h>
@@ -38,6 +39,9 @@
 #include <pcb_dimension.h>
 #include <project/net_settings.h>
 #include <board_stackup_manager/board_stackup.h>
+
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <set>
 
@@ -1198,6 +1202,71 @@ BOOST_AUTO_TEST_CASE( ImportMaskPasteLayers )
         BOOST_CHECK_MESSAGE( !pad->IsOnLayer( F_Paste ), "U5 pad should NOT have F.Paste (explicitly zero-size)" );
         BOOST_CHECK_MESSAGE( !pad->IsOnLayer( B_Cu ),    "U5 SMD pad should not be on B.Cu" );
     }
+}
+
+
+/// A footprint padstack entry for PADS routing layer 63 lands on In62_Cu.
+BOOST_AUTO_TEST_CASE( ImportPadstackOnLastInnerLayer )
+{
+    const std::string data = R"PADS(!PADS-POWERPCB-V9.5-MILS-250L! DESIGN DATABASE ASCII FILE 1.0
+
+*PCB*        GENERAL PARAMETERS OF THE PCB
+
+UNITS 0
+MAXIMUMLAYER 64
+ORIGIN 0.0 0.0
+
+*REMARK* Generated regression data for a padstack on routing layer 63.
+
+*PARTDECAL*  ITEMS
+
+HIGH_INNER M 0 0 0 1 1 0 0
+T 0 0 0 0 1
+PAD 0 4
+-2 0 R
+-1 0 R
+0 0 R
+63 500 R
+
+*PART*       PART ITEMS
+
+U1 HIGH_INNER 500 500 0 0 0
+
+*MISC*      MISCELLANEOUS PARAMETERS
+
+LAYER DATA
+{
+)PADS";
+
+    KI_TEST::SCOPED_TEMP_DIR tempDir( "kicad_pads_high_inner_" );
+    std::filesystem::path    generatedPath = tempDir.Path() / "high_inner.asc";
+
+    {
+        std::ofstream output( generatedPath, std::ios::binary );
+        BOOST_REQUIRE( output.is_open() );
+        output << data;
+
+        for( int layer = 1; layer <= 64; ++layer )
+        {
+            output << "LAYER " << layer << "\n{\nLAYER_NAME Layer " << layer << "\nLAYER_TYPE ROUTING\n}\n";
+        }
+
+        output << "}\n\n*END*\n";
+        BOOST_REQUIRE( output.good() );
+    }
+
+    PCB_IO_PADS            plugin;
+    std::unique_ptr<BOARD> board = plugin.LoadBoard( wxString::FromUTF8( generatedPath.string() ) );
+
+    BOOST_REQUIRE( board );
+    BOOST_REQUIRE_EQUAL( board->GetCopperLayerCount(), 64 );
+    BOOST_REQUIRE_EQUAL( board->Footprints().size(), 1 );
+    BOOST_REQUIRE_EQUAL( board->Footprints().front()->Pads().size(), 1 );
+
+    PAD* pad = board->Footprints().front()->Pads().front();
+    BOOST_CHECK( pad->IsOnLayer( In62_Cu ) );
+    BOOST_CHECK( !pad->IsOnLayer( F_Cu ) );
+    BOOST_CHECK_GT( pad->GetSize( In62_Cu ).x, 0 );
 }
 
 

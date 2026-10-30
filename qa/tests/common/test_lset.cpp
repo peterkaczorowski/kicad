@@ -160,6 +160,8 @@ BOOST_AUTO_TEST_CASE(LSETStaticMasks)
     LSET internalCuMask = LSET::InternalCuMask();
     BOOST_CHECK(internalCuMask.Contains(PCB_LAYER_ID::In1_Cu));
     BOOST_CHECK(internalCuMask.Contains(PCB_LAYER_ID::In30_Cu));
+    BOOST_CHECK( internalCuMask.Contains( PCB_LAYER_ID::In62_Cu ) );
+    BOOST_CHECK_EQUAL( internalCuMask.count(), MAX_CU_LAYERS - 2 );
     BOOST_CHECK(!internalCuMask.Contains(PCB_LAYER_ID::F_Cu));
     BOOST_CHECK(!internalCuMask.Contains(PCB_LAYER_ID::B_Cu));
 }

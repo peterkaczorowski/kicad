@@ -25,6 +25,7 @@
 
 #define CSS_COLOR( r, g, b, a ) COLOR4D().FromCSSRGBA( r, g, b, a )
 
+// clang-format off
 static const std::map<int, COLOR4D> s_defaultTheme =
         {
             { LAYER_SCHEMATIC_ANCHOR,     CSS_COLOR( 0,   0,   255, 1 ) },
@@ -216,6 +217,38 @@ static const std::map<int, COLOR4D> s_defaultTheme =
             { In28_Cu,                      CSS_COLOR( 40,  204, 217, 1 ) },
             { In29_Cu,                      CSS_COLOR( 232, 178, 167, 1 ) },
             { In30_Cu,                      CSS_COLOR( 242, 237, 161, 1 ) },
+            { In31_Cu,                      CSS_COLOR( 237, 124, 51,  1 ) },
+            { In32_Cu,                      CSS_COLOR( 91,  195, 235, 1 ) },
+            { In33_Cu,                      CSS_COLOR( 247, 111, 142, 1 ) },
+            { In34_Cu,                      CSS_COLOR( 167, 165, 198, 1 ) },
+            { In35_Cu,                      CSS_COLOR( 40,  204, 217, 1 ) },
+            { In36_Cu,                      CSS_COLOR( 232, 178, 167, 1 ) },
+            { In37_Cu,                      CSS_COLOR( 242, 237, 161, 1 ) },
+            { In38_Cu,                      CSS_COLOR( 237, 124, 51,  1 ) },
+            { In39_Cu,                      CSS_COLOR( 91,  195, 235, 1 ) },
+            { In40_Cu,                      CSS_COLOR( 247, 111, 142, 1 ) },
+            { In41_Cu,                      CSS_COLOR( 167, 165, 198, 1 ) },
+            { In42_Cu,                      CSS_COLOR( 40,  204, 217, 1 ) },
+            { In43_Cu,                      CSS_COLOR( 232, 178, 167, 1 ) },
+            { In44_Cu,                      CSS_COLOR( 242, 237, 161, 1 ) },
+            { In45_Cu,                      CSS_COLOR( 237, 124, 51,  1 ) },
+            { In46_Cu,                      CSS_COLOR( 91,  195, 235, 1 ) },
+            { In47_Cu,                      CSS_COLOR( 247, 111, 142, 1 ) },
+            { In48_Cu,                      CSS_COLOR( 167, 165, 198, 1 ) },
+            { In49_Cu,                      CSS_COLOR( 40,  204, 217, 1 ) },
+            { In50_Cu,                      CSS_COLOR( 232, 178, 167, 1 ) },
+            { In51_Cu,                      CSS_COLOR( 242, 237, 161, 1 ) },
+            { In52_Cu,                      CSS_COLOR( 237, 124, 51,  1 ) },
+            { In53_Cu,                      CSS_COLOR( 91,  195, 235, 1 ) },
+            { In54_Cu,                      CSS_COLOR( 247, 111, 142, 1 ) },
+            { In55_Cu,                      CSS_COLOR( 167, 165, 198, 1 ) },
+            { In56_Cu,                      CSS_COLOR( 40,  204, 217, 1 ) },
+            { In57_Cu,                      CSS_COLOR( 232, 178, 167, 1 ) },
+            { In58_Cu,                      CSS_COLOR( 242, 237, 161, 1 ) },
+            { In59_Cu,                      CSS_COLOR( 237, 124, 51,  1 ) },
+            { In60_Cu,                      CSS_COLOR( 91,  195, 235, 1 ) },
+            { In61_Cu,                      CSS_COLOR( 247, 111, 142, 1 ) },
+            { In62_Cu,                      CSS_COLOR( 167, 165, 198, 1 ) },
             { B_Cu,                         CSS_COLOR( 77,  127, 196, 1 ) },
 
             { B_Adhes,                      CSS_COLOR( 0,   0, 132,   1 ) },
@@ -301,6 +334,7 @@ static const std::map<int, COLOR4D> s_defaultTheme =
             { LAYER_3D_F_COURTYARD,         CSS_COLOR( 255, 38,  226, 1 ) },
             { LAYER_3D_B_COURTYARD,         CSS_COLOR( 38,  233, 255, 1 ) }
         };
+// clang-format on
 
 // These are looping colors used higher-order copper layers
 static const std::vector<COLOR4D> s_copperColors =
@@ -323,6 +357,7 @@ static const std::vector<COLOR4D> s_userColors =
     { CSS_COLOR( 194, 194, 194, 1 ) },
 };
 
+// clang-format off
 static const std::map<int, COLOR4D> s_classicTheme =
         {
             { LAYER_SCHEMATIC_ANCHOR,       CSS_COLOR( 0, 0, 255, 1 ) },
@@ -508,6 +543,38 @@ static const std::map<int, COLOR4D> s_classicTheme =
             { In28_Cu,                      COLOR4D( BROWN ) },
             { In29_Cu,                      COLOR4D( LIGHTGRAY ) },
             { In30_Cu,                      COLOR4D( BLUE ) },
+            { In31_Cu,                      COLOR4D( GREEN ) },
+            { In32_Cu,                      COLOR4D( RED ) },
+            { In33_Cu,                      COLOR4D( YELLOW ) },
+            { In34_Cu,                      COLOR4D( LIGHTMAGENTA ) },
+            { In35_Cu,                      COLOR4D( LIGHTRED ) },
+            { In36_Cu,                      COLOR4D( CYAN ) },
+            { In37_Cu,                      COLOR4D( GREEN ) },
+            { In38_Cu,                      COLOR4D( BLUE ) },
+            { In39_Cu,                      COLOR4D( DARKGRAY ) },
+            { In40_Cu,                      COLOR4D( MAGENTA ) },
+            { In41_Cu,                      COLOR4D( LIGHTGRAY ) },
+            { In42_Cu,                      COLOR4D( MAGENTA ) },
+            { In43_Cu,                      COLOR4D( RED ) },
+            { In44_Cu,                      COLOR4D( BROWN ) },
+            { In45_Cu,                      COLOR4D( LIGHTGRAY ) },
+            { In46_Cu,                      COLOR4D( BLUE ) },
+            { In47_Cu,                      COLOR4D( GREEN ) },
+            { In48_Cu,                      COLOR4D( RED ) },
+            { In49_Cu,                      COLOR4D( YELLOW ) },
+            { In50_Cu,                      COLOR4D( LIGHTMAGENTA ) },
+            { In51_Cu,                      COLOR4D( LIGHTRED ) },
+            { In52_Cu,                      COLOR4D( CYAN ) },
+            { In53_Cu,                      COLOR4D( GREEN ) },
+            { In54_Cu,                      COLOR4D( BLUE ) },
+            { In55_Cu,                      COLOR4D( DARKGRAY ) },
+            { In56_Cu,                      COLOR4D( MAGENTA ) },
+            { In57_Cu,                      COLOR4D( LIGHTGRAY ) },
+            { In58_Cu,                      COLOR4D( MAGENTA ) },
+            { In59_Cu,                      COLOR4D( RED ) },
+            { In60_Cu,                      COLOR4D( BROWN ) },
+            { In61_Cu,                      COLOR4D( LIGHTGRAY ) },
+            { In62_Cu,                      COLOR4D( BLUE ) },
             { B_Cu,                         COLOR4D( GREEN ) },
 
             { B_Adhes,                      COLOR4D( BLUE ) },
@@ -593,5 +660,6 @@ static const std::map<int, COLOR4D> s_classicTheme =
             { LAYER_3D_F_COURTYARD,         COLOR4D( LIGHTGRAY ) },
             { LAYER_3D_B_COURTYARD,         COLOR4D( DARKGRAY ) }
         };
+// clang-format on
 
 #endif

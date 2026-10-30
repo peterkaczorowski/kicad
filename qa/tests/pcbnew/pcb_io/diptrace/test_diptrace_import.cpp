@@ -42,6 +42,12 @@
 #include <wx/filefn.h>
 #include <wx/filename.h>
 
+#include <algorithm>
+#include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <vector>
+
 
 struct DIPTRACE_PCB_IMPORT_FIXTURE
 {
@@ -56,7 +62,288 @@ struct DIPTRACE_PCB_IMPORT_FIXTURE
 };
 
 
+class GENERATED_DIPTRACE_FILE
+{
+public:
+    GENERATED_DIPTRACE_FILE() :
+            m_path( wxFileName::CreateTempFileName( wxS( "kicad_diptrace_generated_" ) ) )
+    {
+    }
+
+    ~GENERATED_DIPTRACE_FILE()
+    {
+        if( !m_path.IsEmpty() )
+            wxRemoveFile( m_path );
+    }
+
+    bool Write( const std::vector<uint8_t>& aData )
+    {
+        wxFFile output( m_path, wxS( "wb" ) );
+
+        return output.IsOpened() && output.Write( aData.data(), aData.size() ) == aData.size();
+    }
+
+    std::string Path() const { return m_path.ToStdString(); }
+
+private:
+    wxString m_path;
+};
+
+
+static std::vector<uint8_t> readBinaryFile( const std::string& aPath )
+{
+    std::ifstream input( aPath, std::ios::binary );
+
+    if( !input.is_open() )
+        return {};
+
+    return std::vector<uint8_t>( ( std::istreambuf_iterator<char>( input ) ), std::istreambuf_iterator<char>() );
+}
+
+
+static int readDiptraceInt3( const std::vector<uint8_t>& aData, size_t aOffset )
+{
+    int raw = ( static_cast<int>( aData.at( aOffset ) ) << 16 ) | ( static_cast<int>( aData.at( aOffset + 1 ) ) << 8 )
+              | static_cast<int>( aData.at( aOffset + 2 ) );
+
+    return raw - DIPTRACE::INT3_BIAS;
+}
+
+
+static void appendDiptraceInt3( std::vector<uint8_t>& aData, int aValue )
+{
+    uint32_t raw = static_cast<uint32_t>( aValue + DIPTRACE::INT3_BIAS );
+    aData.push_back( static_cast<uint8_t>( raw >> 16 ) );
+    aData.push_back( static_cast<uint8_t>( raw >> 8 ) );
+    aData.push_back( static_cast<uint8_t>( raw ) );
+}
+
+
+static void appendDiptraceInt4( std::vector<uint8_t>& aData, int aValue )
+{
+    uint32_t raw = static_cast<uint32_t>( static_cast<int64_t>( aValue ) + DIPTRACE::INT4_BIAS );
+    aData.push_back( static_cast<uint8_t>( raw >> 24 ) );
+    aData.push_back( static_cast<uint8_t>( raw >> 16 ) );
+    aData.push_back( static_cast<uint8_t>( raw >> 8 ) );
+    aData.push_back( static_cast<uint8_t>( raw ) );
+}
+
+
+static void writeDiptraceInt3( std::vector<uint8_t>& aData, size_t aOffset, int aValue )
+{
+    uint32_t raw = static_cast<uint32_t>( aValue + DIPTRACE::INT3_BIAS );
+    aData.at( aOffset ) = static_cast<uint8_t>( raw >> 16 );
+    aData.at( aOffset + 1 ) = static_cast<uint8_t>( raw >> 8 );
+    aData.at( aOffset + 2 ) = static_cast<uint8_t>( raw );
+}
+
+
+static void appendDiptraceString( std::vector<uint8_t>& aData, const std::string& aText )
+{
+    uint16_t length = static_cast<uint16_t>( aText.size() );
+    aData.push_back( static_cast<uint8_t>( length >> 8 ) );
+    aData.push_back( static_cast<uint8_t>( length ) );
+
+    for( unsigned char ch : aText )
+    {
+        aData.push_back( 0 );
+        aData.push_back( ch );
+    }
+}
+
+
+/// Append a layer record in the diptrace_pcb.ksy grammar, other fields copied from rotate.dip.
+static void appendDiptraceLayer( std::vector<uint8_t>& aData, int aId, const std::string& aName )
+{
+    aData.push_back( 1 ); // flag
+    appendDiptraceInt3( aData, aId );
+    aData.insert( aData.end(), { 0xFF, 0x80, 0x40 } );
+    appendDiptraceString( aData, aName );
+    appendDiptraceInt3( aData, 0 );    // Signal
+    appendDiptraceInt3( aData, 0 );    // field_b
+    appendDiptraceInt3( aData, -1 );   // no plane net
+    appendDiptraceInt4( aData, 6000 ); // field_d from rotate.dip
+    aData.push_back( 0 );              // separator
+}
+
+
+static std::vector<uint8_t> replaceDiptraceLayerSection( const std::vector<uint8_t>& aSource, size_t aCountOffset,
+                                                         size_t aOldSectionEnd, int aLayerCount )
+{
+    std::vector<uint8_t> generated( aSource.begin(), aSource.begin() + aCountOffset );
+    appendDiptraceInt3( generated, aLayerCount );
+
+    for( int ordinal = 0; ordinal < aLayerCount; ++ordinal )
+    {
+        int id = ordinal;
+
+        // re-arm_pub.dip uses ids 0 to 3, so keep 3 as the bottom id
+        if( ordinal >= 3 )
+            id = ( ordinal == aLayerCount - 1 ) ? 3 : ordinal + 1;
+
+        std::string name;
+
+        if( ordinal == 0 )
+            name = "Generated Top";
+        else if( ordinal == aLayerCount - 1 )
+            name = "Generated Bottom";
+        else
+            name = "Generated Inner " + std::to_string( ordinal );
+
+        appendDiptraceLayer( generated, id, name );
+    }
+
+    generated.insert( generated.end(), aSource.begin() + aOldSectionEnd, aSource.end() );
+    return generated;
+}
+
+
 BOOST_FIXTURE_TEST_SUITE( DipTracePcbImport, DIPTRACE_PCB_IMPORT_FIXTURE )
+
+
+/// Expand re-arm_pub.dip to 64 copper layers and route one via between layer ids 32 and 63.
+BOOST_AUTO_TEST_CASE( Generated64LayerRoutingMapsHighLayerIds )
+{
+    static constexpr size_t  LAYER_COUNT_OFFSET = 0x176;
+    static constexpr size_t  OLD_LAYER_SECTION_END = 0x1FF;
+    static constexpr size_t  CHAIN_OFFSET = 0x26A44;
+    static constexpr size_t  PREVIOUS_NODE_OFFSET = 0x26AF4;
+    static constexpr size_t  VIA_NODE_OFFSET = 0x26B1D;
+    static constexpr size_t  NEXT_NODE_OFFSET = 0x26B46;
+    static constexpr uint8_t CHAIN_MARKER[] = { 0x00, 0x00, 0x00, 0x0F, 0x42, 0x3F };
+
+    std::vector<uint8_t> source = readBinaryFile( GetTestDataDir() + "re-arm_pub.dip" );
+    BOOST_REQUIRE_GT( source.size(), NEXT_NODE_OFFSET + 41 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, LAYER_COUNT_OFFSET ), 4 );
+    BOOST_REQUIRE( std::equal( std::begin( CHAIN_MARKER ), std::end( CHAIN_MARKER ), source.begin() + CHAIN_OFFSET ) );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, CHAIN_OFFSET + 6 ), 10 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, CHAIN_OFFSET + 9 ), 24 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, VIA_NODE_OFFSET + 27 ), 0 );
+
+    // Ids 32 and 63 are stack positions 31 and 62.  An unknown via style makes the importer
+    // take the via layers from the adjacent nodes.
+    writeDiptraceInt3( source, PREVIOUS_NODE_OFFSET + 8, 32 );
+    writeDiptraceInt3( source, VIA_NODE_OFFSET + 8, 63 );
+    writeDiptraceInt3( source, NEXT_NODE_OFFSET + 8, 63 );
+    writeDiptraceInt3( source, VIA_NODE_OFFSET + 27, 10000 );
+
+    std::vector<uint8_t> generated =
+            replaceDiptraceLayerSection( source, LAYER_COUNT_OFFSET, OLD_LAYER_SECTION_END, 64 );
+    GENERATED_DIPTRACE_FILE file;
+    BOOST_REQUIRE( file.Write( generated ) );
+
+    std::unique_ptr<BOARD> board = m_plugin.LoadBoard( file.Path() );
+
+    BOOST_REQUIRE_EQUAL( board->GetCopperLayerCount(), 64 );
+    BOOST_CHECK_EQUAL( board->GetLayerName( In62_Cu ), wxS( "Generated Inner 62" ) );
+
+    bool foundHighTrack = false;
+    bool foundDeepVia = false;
+
+    for( PCB_TRACK* item : board->Tracks() )
+    {
+        if( item->Type() == PCB_TRACE_T && item->GetLayer() == In62_Cu )
+            foundHighTrack = true;
+
+        if( item->Type() == PCB_VIA_T )
+        {
+            PCB_LAYER_ID top;
+            PCB_LAYER_ID bottom;
+            static_cast<PCB_VIA*>( item )->LayerPair( &top, &bottom );
+
+            if( top == In31_Cu && bottom == In62_Cu )
+                foundDeepVia = true;
+        }
+    }
+
+    BOOST_CHECK( foundHighTrack );
+    BOOST_CHECK( foundDeepVia );
+}
+
+
+/// A via inferred between In1.Cu and B.Cu on the four layer re-arm_pub.dip must stay blind.
+BOOST_AUTO_TEST_CASE( InferredBottomViaKeepsBlindSpanOnFourLayerBoard )
+{
+    static constexpr size_t  LAYER_COUNT_OFFSET = 0x176;
+    static constexpr size_t  CHAIN_OFFSET = 0x26A44;
+    static constexpr size_t  PREVIOUS_NODE_OFFSET = 0x26AF4;
+    static constexpr size_t  VIA_NODE_OFFSET = 0x26B1D;
+    static constexpr size_t  NEXT_NODE_OFFSET = 0x26B46;
+    static constexpr uint8_t CHAIN_MARKER[] = { 0x00, 0x00, 0x00, 0x0F, 0x42, 0x3F };
+
+    std::vector<uint8_t> source = readBinaryFile( GetTestDataDir() + "re-arm_pub.dip" );
+    BOOST_REQUIRE_GT( source.size(), NEXT_NODE_OFFSET + 41 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, LAYER_COUNT_OFFSET ), 4 );
+    BOOST_REQUIRE( std::equal( std::begin( CHAIN_MARKER ), std::end( CHAIN_MARKER ), source.begin() + CHAIN_OFFSET ) );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, CHAIN_OFFSET + 6 ), 10 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, CHAIN_OFFSET + 9 ), 24 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, VIA_NODE_OFFSET + 27 ), 0 );
+
+    // Put the previous node on In1.Cu and the via and next node on B.Cu.  An unknown via style
+    // makes the importer take the via layers from the adjacent nodes.
+    writeDiptraceInt3( source, PREVIOUS_NODE_OFFSET + 8, 1 );
+    writeDiptraceInt3( source, VIA_NODE_OFFSET + 8, 3 );
+    writeDiptraceInt3( source, NEXT_NODE_OFFSET + 8, 3 );
+    writeDiptraceInt3( source, VIA_NODE_OFFSET + 27, 10000 );
+
+    GENERATED_DIPTRACE_FILE file;
+    BOOST_REQUIRE( file.Write( source ) );
+
+    std::unique_ptr<BOARD> board = m_plugin.LoadBoard( file.Path() );
+
+    BOOST_REQUIRE_EQUAL( board->GetCopperLayerCount(), 4 );
+
+    bool foundBlindVia = false;
+
+    for( PCB_TRACK* item : board->Tracks() )
+    {
+        if( item->Type() != PCB_VIA_T )
+            continue;
+
+        PCB_VIA* via = static_cast<PCB_VIA*>( item );
+
+        PCB_LAYER_ID top;
+        PCB_LAYER_ID bottom;
+        via->LayerPair( &top, &bottom );
+
+        if( top == In1_Cu && bottom == B_Cu )
+        {
+            BOOST_CHECK( via->GetViaType() == VIATYPE::BLIND );
+            foundBlindVia = true;
+        }
+    }
+
+    BOOST_CHECK( foundBlindVia );
+}
+
+
+/// A layer count above the maximum is rejected before the board is changed.
+BOOST_AUTO_TEST_CASE( RejectsMoreThanMaximumCopperLayersBeforeRecords )
+{
+    static constexpr size_t LAYER_COUNT_OFFSET = 0x4E;
+
+    std::vector<uint8_t> source = readBinaryFile( GetTestDataDir() + "rotate.dip" );
+    BOOST_REQUIRE_GT( source.size(), LAYER_COUNT_OFFSET + 3 );
+    BOOST_REQUIRE_EQUAL( readDiptraceInt3( source, LAYER_COUNT_OFFSET ), 2 );
+
+    std::vector<uint8_t> generated( source.begin(), source.begin() + LAYER_COUNT_OFFSET );
+    appendDiptraceInt3( generated, 65 );
+
+    GENERATED_DIPTRACE_FILE file;
+    BOOST_REQUIRE( file.Write( generated ) );
+
+    std::unique_ptr<BOARD> board = std::make_unique<BOARD>();
+    BOOST_REQUIRE_EQUAL( board->GetCopperLayerCount(), 2 );
+
+    BOOST_CHECK_EXCEPTION( m_plugin.LoadAndAppendBoard( file.Path(), *board ), IO_ERROR,
+                           []( const IO_ERROR& aError )
+                           {
+                               return aError.What().Contains( wxS( "defines 65 copper layers" ) )
+                                      && aError.What().Contains( wxS( "maximum of 64" ) );
+                           } );
+
+    BOOST_CHECK_EQUAL( board->GetCopperLayerCount(), 2 );
+}
 
 
 /**

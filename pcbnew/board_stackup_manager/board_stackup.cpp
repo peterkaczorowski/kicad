@@ -700,13 +700,13 @@ void BOARD_STACKUP::BuildDefaultStackupList( const BOARD_DESIGN_SETTINGS* aSetti
     // Note: the m_TypeName string is made translatable using _HKI marker, but is not
     // translated when building the stackup.
     // It will be used as this in files, and can be translated only in dialog
-    // if aSettings == NULL, build a full stackup (with 32 copper layers)
+    // if aSettings == NULL, build a full stackup (with MAX_CU_LAYERS copper layers)
     LSET enabledLayer = aSettings ? aSettings->GetEnabledLayers() : StackupAllowedBrdLayers();
-    int copperLayerCount = aSettings ? aSettings->GetCopperLayerCount() : 32;
+    int  copperLayerCount = aSettings ? aSettings->GetCopperLayerCount() : MAX_CU_LAYERS;
 
     // We need to calculate a suitable dielectric layer thickness.
     // If no settings, and if aActiveCopperLayersCount is given, use it
-    // (If no settings, and no aActiveCopperLayersCount, the full 32 layers are used)
+    // (If no settings, and no aActiveCopperLayersCount, the full MAX_CU_LAYERS layers are used)
     int activeCuLayerCount = copperLayerCount;
 
     if( aSettings == nullptr && aActiveCopperLayersCount > 0 )
@@ -719,6 +719,12 @@ void BOARD_STACKUP::BuildDefaultStackupList( const BOARD_DESIGN_SETTINGS* aSetti
     int sm_count = ( enabledLayer & LSET( { F_Mask, B_Mask } ) ).count();
     diel_thickness -= BOARD_STACKUP_ITEM::GetMaskDefaultThickness() * sm_count;
     diel_thickness /= std::max( 1, activeCuLayerCount - 1 );
+
+    // The copper stack of a high layer count board can be thicker than the default
+    // board thickness, making the computed dielectric null or negative; fall back to
+    // MIN_DIELECTRIC_THICKNESS_MM, a reasonable minimum
+    if( diel_thickness <= 0 )
+        diel_thickness = pcbIUScale.mmToIU( MIN_DIELECTRIC_THICKNESS_MM );
 
     int dielectric_idx = 0;
 

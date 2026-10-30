@@ -337,4 +337,48 @@ BOOST_AUTO_TEST_CASE( RevertDocumentWithoutCommitPassesGuard )
 }
 
 
+BOOST_AUTO_TEST_CASE( SetBoardEnabledLayersRejectsTooManyCopperLayers )
+{
+    BOARD* board = loadBoard( wxS( "issue5830" ) );
+
+    kiapi::board::commands::SetBoardEnabledLayers command;
+    command.mutable_board()->set_type( kiapi::common::types::DocumentType::DOCTYPE_PCB );
+    command.mutable_board()->set_board_filename( wxFileName( board->GetFileName() ).GetFullName().ToStdString() );
+    command.set_copper_layer_count( MAX_CU_LAYERS + 2 );
+
+    kiapi::common::ApiRequest request;
+    request.mutable_header()->set_client_name( "kicad.qa" );
+    BOOST_REQUIRE( request.mutable_message()->PackFrom( command ) );
+
+    API_HANDLER_PCB handler( m_context );
+    API_RESULT      result = handler.Handle( request );
+
+    BOOST_REQUIRE( !result.has_value() );
+    BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+    BOOST_CHECK_EQUAL( result.error().error_message(), "copper_layer_count must be at most 64" );
+}
+
+
+BOOST_AUTO_TEST_CASE( GetBoardLayerNameRejectsUndefinedLayer )
+{
+    BOARD* board = loadBoard( wxS( "issue5830" ) );
+
+    kiapi::board::commands::GetBoardLayerName command;
+    command.mutable_board()->set_type( kiapi::common::types::DocumentType::DOCTYPE_PCB );
+    command.mutable_board()->set_board_filename( wxFileName( board->GetFileName() ).GetFullName().ToStdString() );
+    command.set_layer( kiapi::board::types::BL_UNDEFINED );
+
+    kiapi::common::ApiRequest request;
+    request.mutable_header()->set_client_name( "kicad.qa" );
+    BOOST_REQUIRE( request.mutable_message()->PackFrom( command ) );
+
+    API_HANDLER_PCB handler( m_context );
+    API_RESULT      result = handler.Handle( request );
+
+    BOOST_REQUIRE( !result.has_value() );
+    BOOST_CHECK_EQUAL( result.error().status(), kiapi::common::ApiStatusCode::AS_BAD_REQUEST );
+    BOOST_CHECK_EQUAL( result.error().error_message(), "Request contains an invalid layer" );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()

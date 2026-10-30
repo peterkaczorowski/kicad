@@ -36,7 +36,13 @@
 #include <pad.h>
 #include <pcb_track.h>
 #include <zone.h>
+#include <wx/filename.h>
 #include <wx/log.h>
+
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 
 
 struct CADSTAR_IMPORT_FIXTURE
@@ -50,6 +56,142 @@ struct CADSTAR_IMPORT_FIXTURE
     PCB_IO_CADSTAR_ARCHIVE cstarPlugin;
     PCB_IO_KICAD_SEXPR     kicadPlugin;
 };
+
+
+namespace
+{
+class TEMP_CADSTAR_FILE
+{
+public:
+    explicit TEMP_CADSTAR_FILE( const wxString& aPrefix ) :
+            m_path( std::string( wxFileName::CreateTempFileName( aPrefix ).ToUTF8() ) )
+    {
+    }
+
+    ~TEMP_CADSTAR_FILE()
+    {
+        std::error_code ec;
+        std::filesystem::remove( m_path, ec );
+    }
+
+    const std::filesystem::path& Path() const { return m_path; }
+    wxString                     WxPath() const { return wxString::FromUTF8( m_path.string() ); }
+
+private:
+    std::filesystem::path m_path;
+};
+
+
+void replaceOnce( std::string& aText, const std::string& aNeedle, const std::string& aReplacement )
+{
+    size_t pos = aText.find( aNeedle );
+
+    if( pos == std::string::npos )
+        throw std::runtime_error( "CADSTAR QA source marker not found" );
+
+    aText.replace( pos, aNeedle.size(), aReplacement );
+}
+
+
+void writeExpandedCadstarBoard( const std::filesystem::path& aSource, const std::filesystem::path& aDestination,
+                                int aCopperLayerCount, bool aAddBuriedVia )
+{
+    std::ifstream     input( aSource );
+    std::stringstream inputBuffer;
+    inputBuffer << input.rdbuf();
+    std::string archive = inputBuffer.str();
+
+    if( archive.empty() )
+        throw std::runtime_error( "Unable to read CADSTAR QA source archive" );
+
+    size_t stackStart = archive.find( "   (LAYERSTACK " );
+    size_t stackEnd = archive.find( "\n   )", stackStart );
+
+    if( stackStart == std::string::npos || stackEnd == std::string::npos )
+        throw std::runtime_error( "CADSTAR QA layer stack marker not found" );
+
+    std::stringstream layerStack;
+    layerStack << "   (LAYERSTACK LAY7 LAY14 LAY17 LAY18 LAY8 LAY12 LAY6";
+
+    for( int physicalLayer = 2; physicalLayer < aCopperLayerCount; ++physicalLayer )
+        layerStack << " LAY" << 100 + physicalLayer - 2;
+
+    layerStack << " LAY21 LAY19 LAY20 LAY10 LAY16 LAY15 LAY5\n   )";
+    archive.replace( stackStart, stackEnd + 5 - stackStart, layerStack.str() );
+
+    std::stringstream innerLayers;
+
+    for( int physicalLayer = 2; physicalLayer < aCopperLayerCount; ++physicalLayer )
+    {
+        int innerNumber = physicalLayer - 1;
+        int layerId = 100 + physicalLayer - 2;
+        innerLayers << "   (LAYER LAY" << layerId << " \"Inner " << innerNumber << "\"\n"
+                    << "    (ELEC " << physicalLayer << "\n"
+                    << "     (BIAS UNBIASED)\n"
+                    << "     (MAKE MTL1 10000)\n"
+                    << "    )\n"
+                    << "   )\n";
+    }
+
+    size_t bottomLayer = archive.find( "   (LAYER LAY10 \"PP1\"" );
+
+    if( bottomLayer == std::string::npos )
+        throw std::runtime_error( "CADSTAR QA bottom layer marker not found" );
+
+    archive.insert( bottomLayer, innerLayers.str() );
+    replaceOnce( archive, "    (POWER 32", "    (POWER " + std::to_string( aCopperLayerCount ) );
+
+    int         buriedStart = aCopperLayerCount - 2;
+    int         buriedEnd = aCopperLayerCount - 1;
+    std::string buriedLayerPair;
+
+    if( aAddBuriedVia )
+    {
+        buriedLayerPair = "\n   (LAYERPAIR LP1 \"Buried near bottom\" " + std::to_string( buriedStart ) + " "
+                          + std::to_string( buriedEnd )
+                          + "\n"
+                            "    (VIACODEREF VC0)\n"
+                            "   )";
+    }
+
+    replaceOnce( archive,
+                 "   (LAYERPAIR LP0 \"(Through Hole)\" 1 32\n"
+                 "    (VIACODEREF VC0)\n"
+                 "   )",
+                 "   (LAYERPAIR LP0 \"(Through Hole)\" 1 " + std::to_string( aCopperLayerCount )
+                         + "\n"
+                           "    (VIACODEREF VC0)\n"
+                           "   )"
+                         + buriedLayerPair );
+    replaceOnce( archive, "   (MAXPHYSLAYER 32)", "   (MAXPHYSLAYER " + std::to_string( aCopperLayerCount ) + ")" );
+
+    const std::string bottomNonelectricalMarker = "(NONELEC 32)";
+    size_t            bottomNonelectrical = 0;
+
+    while( ( bottomNonelectrical = archive.find( bottomNonelectricalMarker, bottomNonelectrical ) )
+           != std::string::npos )
+    {
+        archive.replace( bottomNonelectrical, bottomNonelectricalMarker.size(),
+                         "(NONELEC " + std::to_string( aCopperLayerCount ) + ")" );
+        ++bottomNonelectrical;
+    }
+
+    if( aAddBuriedVia )
+    {
+        replaceOnce( archive, "  (NET N0\n   (SIGNUM 11)",
+                     "  (NET N0\n   (SIGNUM 11)\n"
+                     "   (VIA V0 VC0 LP1\n"
+                     "    (PT 9000000 7000000)\n"
+                     "   )" );
+    }
+
+    std::ofstream output( aDestination, std::ios::binary | std::ios::trunc );
+    output << archive;
+
+    if( !output )
+        throw std::runtime_error( "Unable to write expanded CADSTAR QA archive" );
+}
+} // namespace
 
 
 BOOST_FIXTURE_TEST_SUITE( CadstarFootprintsImport, CADSTAR_IMPORT_FIXTURE )
@@ -149,6 +291,57 @@ BOOST_AUTO_TEST_CASE( CadstarRevision7FormatImport )
 
     // At least one track must take the route-code-derived width, proving the fallback was used
     BOOST_CHECK( foundRouteCodeWidth );
+}
+
+
+/// Expand the Revision 7 board to 64 copper layers with a buried via on physical layers 62 and 63.
+BOOST_AUTO_TEST_CASE( CadstarPhysicalLayerViaMappingBeyond32Layers )
+{
+    std::filesystem::path source = std::filesystem::path( KI_TEST::GetPcbnewTestDataDir() )
+                                   / "plugins/cadstar/route_offset/revision7_format_no_routewidth.cpa";
+    TEMP_CADSTAR_FILE expanded( wxT( "kicad_cadstar_64_layers_" ) );
+
+    BOOST_REQUIRE_NO_THROW( writeExpandedCadstarBoard( source, expanded.Path(), 64, true ) );
+
+    std::unique_ptr<BOARD> board;
+    BOOST_REQUIRE_NO_THROW( board = cstarPlugin.LoadBoard( expanded.WxPath() ) );
+    BOOST_REQUIRE( board );
+    BOOST_CHECK_EQUAL( board->GetCopperLayerCount(), 64 );
+
+    PCB_VIA* buriedVia = nullptr;
+    size_t   viaCount = 0;
+
+    for( PCB_TRACK* track : board->Tracks() )
+    {
+        if( PCB_VIA* via = dynamic_cast<PCB_VIA*>( track ) )
+        {
+            buriedVia = via;
+            ++viaCount;
+        }
+    }
+
+    BOOST_REQUIRE_EQUAL( viaCount, 1 );
+    BOOST_REQUIRE( buriedVia );
+    BOOST_CHECK_EQUAL( buriedVia->TopLayer(), In61_Cu );
+    BOOST_CHECK_EQUAL( buriedVia->BottomLayer(), In62_Cu );
+}
+
+
+/// A CADSTAR stack above the maximum is rejected before the board is changed.
+BOOST_AUTO_TEST_CASE( CadstarRejectsMoreThanMaximumCopperLayers )
+{
+    std::filesystem::path source = std::filesystem::path( KI_TEST::GetPcbnewTestDataDir() )
+                                   / "plugins/cadstar/route_offset/revision7_format_no_routewidth.cpa";
+    TEMP_CADSTAR_FILE      expanded( wxT( "kicad_cadstar_65_layers_" ) );
+    std::unique_ptr<BOARD> board = std::make_unique<BOARD>();
+
+    BOOST_REQUIRE_NO_THROW( writeExpandedCadstarBoard( source, expanded.Path(), 65, false ) );
+    BOOST_CHECK_EXCEPTION( cstarPlugin.LoadAndAppendBoard( expanded.WxPath(), *board ), IO_ERROR,
+                           []( const IO_ERROR& aError )
+                           {
+                               return aError.Problem().Contains( "defines 65 copper layers" );
+                           } );
+    BOOST_CHECK_EQUAL( board->GetCopperLayerCount(), 2 );
 }
 
 

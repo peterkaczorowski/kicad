@@ -27,6 +27,7 @@
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
 
+#include <layer_ids.h>
 #include <project.h>
 #include <project/project_local_settings.h>
 #include <settings/layer_settings_utils.h>
@@ -88,6 +89,97 @@ public:
 
 
 BOOST_FIXTURE_TEST_SUITE( ProjectLocalSettings, PROJECT_LOCAL_SETTINGS_FIXTURE )
+
+
+BOOST_AUTO_TEST_CASE( HighestCopperActiveLayerRoundTripsThroughPrl )
+{
+    constexpr PCB_LAYER_ID expectedLayer = In62_Cu;
+
+    const std::string projectName = "active_layer_roundtrip";
+    fs::path          projectDir = m_tempDir / projectName;
+    fs::path          proPath = projectDir / ( projectName + ".kicad_pro" );
+    fs::path          prlPath = projectDir / ( projectName + "." + FILEEXT::ProjectLocalSettingsFileExtension );
+
+    fs::create_directories( projectDir );
+
+    // The PRL under test is written by SaveProject()
+    {
+        std::ofstream proFile( proPath );
+        proFile << R"({"meta":{"filename":"active_layer_roundtrip.kicad_pro","version":3}})";
+    }
+
+    BOOST_REQUIRE( !fs::exists( prlPath ) );
+
+    {
+        SETTINGS_MANAGER writer;
+
+        BOOST_REQUIRE( writer.LoadProject( wxString( proPath.string() ) ) );
+
+        writer.Prj().GetLocalSettings().m_ActiveLayer = expectedLayer;
+
+        BOOST_REQUIRE( writer.SaveProject() );
+    }
+
+    BOOST_REQUIRE( fs::exists( prlPath ) );
+
+    {
+        SETTINGS_MANAGER reader;
+
+        BOOST_REQUIRE( reader.LoadProject( wxString( proPath.string() ) ) );
+        BOOST_CHECK_EQUAL( static_cast<int>( reader.Prj().GetLocalSettings().m_ActiveLayer ),
+                           static_cast<int>( expectedLayer ) );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( V8ActiveLayerUsesLegacyLayerIds )
+{
+    // Schema-3 PRLs, as KiCad 8 wrote them, hold the legacy layer ids: 39 is F.Mask, 17 is In17.Cu
+    {
+        std::string prlContent = R"({
+            "board": { "active_layer": 39 },
+            "meta": { "filename": "v8_front_mask_active.kicad_prl", "version": 3 },
+            "project": { "files": [] }
+        })";
+
+        SETTINGS_MANAGER settingsManager;
+        writeAndLoadProject( "v8_front_mask_active", prlContent, settingsManager );
+
+        BOOST_CHECK_EQUAL( static_cast<int>( settingsManager.Prj().GetLocalSettings().m_ActiveLayer ),
+                           static_cast<int>( F_Mask ) );
+    }
+
+    {
+        std::string prlContent = R"({
+            "board": { "active_layer": 17 },
+            "meta": { "filename": "v8_inner_17_active.kicad_prl", "version": 3 },
+            "project": { "files": [] }
+        })";
+
+        SETTINGS_MANAGER settingsManager;
+        writeAndLoadProject( "v8_inner_17_active", prlContent, settingsManager );
+
+        BOOST_CHECK_EQUAL( static_cast<int>( settingsManager.Prj().GetLocalSettings().m_ActiveLayer ),
+                           static_cast<int>( In17_Cu ) );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( CurrentUserActiveLayerUsesCurrentLayerIds )
+{
+    // A current-schema PRL stores the current layer id, 127 is User.45
+    std::string prlContent = R"({
+        "board": { "active_layer": 127 },
+        "meta": { "filename": "current_active_layer.kicad_prl", "version": 7 },
+        "project": { "files": [] }
+    })";
+
+    SETTINGS_MANAGER settingsManager;
+    writeAndLoadProject( "current_active_layer", prlContent, settingsManager );
+
+    BOOST_CHECK_EQUAL( static_cast<int>( settingsManager.Prj().GetLocalSettings().m_ActiveLayer ),
+                       static_cast<int>( User_45 ) );
+}
 
 
 /**

@@ -41,6 +41,7 @@
 #include <widgets/report_severity.h>
 
 // Board-specific
+#include <api/api_pcb_utils.h>
 #include <api/board/board_types.pb.h>
 #include <api/board/board_commands.pb.h>
 #include <api/board/board_jobs.pb.h>
@@ -74,6 +75,14 @@
 #include <zone_settings.h>
 
 using namespace kiapi::common;
+
+// BoardLayer values run past magic_enum's default reflection limit of 127
+template <>
+struct magic_enum::customize::enum_range<kiapi::board::types::BoardLayer>
+{
+    static constexpr int min = kiapi::board::types::BoardLayer_MIN;
+    static constexpr int max = kiapi::board::types::BoardLayer_MAX;
+};
 
 BOOST_AUTO_TEST_SUITE( ApiEnums )
 
@@ -111,6 +120,23 @@ BOOST_AUTO_TEST_CASE( BoardLayer )
 {
     testEnums<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( true );
 }
+
+
+BOOST_AUTO_TEST_CASE( BoardLayerSet )
+{
+    google::protobuf::RepeatedField<int> protoLayers;
+    protoLayers.Add( kiapi::board::types::BL_In60_Cu );
+    protoLayers.Add( kiapi::board::types::BL_In61_Cu );
+    protoLayers.Add( kiapi::board::types::BL_In62_Cu );
+
+    LSET layers = kiapi::board::UnpackLayerSet( protoLayers );
+
+    BOOST_CHECK_EQUAL( layers.count(), 3 );
+    BOOST_CHECK( layers.Contains( In60_Cu ) );
+    BOOST_CHECK( layers.Contains( In61_Cu ) );
+    BOOST_CHECK( layers.Contains( In62_Cu ) );
+}
+
 
 BOOST_AUTO_TEST_CASE( PadStackShape )
 {

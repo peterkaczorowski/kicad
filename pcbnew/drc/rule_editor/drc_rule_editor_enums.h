@@ -128,11 +128,13 @@ enum class DRC_LAYER_CATEGORY
  */
 enum DRC_LAYER_SELECTOR_ID : int
 {
+    // clang-format off
     LAYER_SEL_ANY    = -10,   ///< No layer filter (default "Any" selection)
     LAYER_SEL_OUTER  = -11,   ///< External copper layers (F_Cu + B_Cu)
-    LAYER_SEL_INNER  = -12,   ///< Internal copper layers (In1_Cu through In30_Cu)
+    LAYER_SEL_INNER  = -12,   ///< Internal copper layers (In1_Cu through In62_Cu)
     LAYER_SEL_TOP    = -13,   ///< Context-dependent front/top layer
     LAYER_SEL_BOTTOM = -14,   ///< Context-dependent back/bottom layer
+    // clang-format on
 };
 
 

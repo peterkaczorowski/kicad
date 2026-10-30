@@ -217,6 +217,22 @@ static int ReadInt4At( const uint8_t* aData, size_t aPos )
 }
 
 
+/// Map a copper stack position (0 is the top layer) on a board with aCopperCount copper layers.
+static PCB_LAYER_ID CopperOrdinalToKiCadLayer( size_t aOrdinal, int aCopperCount )
+{
+    if( aCopperCount < 2 || aOrdinal >= static_cast<size_t>( aCopperCount ) )
+        return UNDEFINED_LAYER;
+
+    if( aOrdinal == 0 )
+        return F_Cu;
+
+    if( aOrdinal == static_cast<size_t>( aCopperCount - 1 ) )
+        return B_Cu;
+
+    return InnerCopperLayer( static_cast<int>( aOrdinal ) );
+}
+
+
 /**
  * Recover a placed component's rotation, expressed in 90-degree quarter turns.
  *
@@ -1116,16 +1132,21 @@ PCB_LAYER_ID PCB_PARSER::MapCopperLayer( int aDipTraceLayer ) const
     int ordinal = it->second;
     int copperCount = std::max( 2, static_cast<int>( m_layers.size() ) );
 
-    if( ordinal <= 0 )
-        return F_Cu;
+    return CopperOrdinalToKiCadLayer( static_cast<size_t>( ordinal ), copperCount );
+}
 
-    if( ordinal >= copperCount - 1 )
-        return B_Cu;
 
-    if( ordinal > 30 )
+PCB_LAYER_ID PCB_PARSER::ResolveCopperLayer( int aDipTraceLayer ) const
+{
+    PCB_LAYER_ID layer = MapCopperLayer( aDipTraceLayer );
+
+    if( layer == UNDEFINED_LAYER )
+        layer = MapLayer( aDipTraceLayer );
+
+    if( !IsCopperLayer( layer ) )
         return UNDEFINED_LAYER;
 
-    return static_cast<PCB_LAYER_ID>( In1_Cu + ( ordinal - 1 ) * 2 );
+    return layer;
 }
 
 
@@ -1252,9 +1273,16 @@ void PCB_PARSER::ParseLayers()
 {
     int layerCount = m_reader.ReadInt3();
 
-    // Guard against a negative (huge size_t in reserve) or wild positive count before allocating.
-    if( layerCount < 0 || layerCount > 100000 )
+    // Guard against a negative count before converting it to size_t in reserve().
+    if( layerCount < 0 )
         THROW_IO_ERRORF( _( "DipTrace import: invalid layer count %d." ), layerCount );
+
+    if( layerCount > MAX_CU_LAYERS )
+    {
+        THROW_IO_ERRORF( _( "The DipTrace file defines %d copper layers, but KiCad supports "
+                            "a maximum of %d." ),
+                         layerCount, MAX_CU_LAYERS );
+    }
 
     m_layers.clear();
     m_copperLayerOrdinalById.clear();
@@ -3662,12 +3690,9 @@ void PCB_PARSER::ParseNetRouting( DT_NET& aNet )
                             | ( static_cast<int>( n[38] ) << 8 )
                             | static_cast<int>( n[39] ) ) - INT3_BIAS;
 
-            return x > -100000000 && x < 100000000
-                   && y > -100000000 && y < 100000000
-                   && layer >= 0 && layer <= 50
-                   && width > 0 && width <= 5000000
-                   && viaStyleIdx >= -1 && viaStyleIdx <= 10000
-                   && routeMode >= 0 && routeMode <= 10
+            return x > -100000000 && x < 100000000 && y > -100000000 && y < 100000000
+                   && ( ( layer >= 0 && layer <= 50 ) || ResolveCopperLayer( layer ) != UNDEFINED_LAYER ) && width > 0
+                   && width <= 5000000 && viaStyleIdx >= -1 && viaStyleIdx <= 10000 && routeMode >= 0 && routeMode <= 10
                    && n[40] <= 10;
         };
 
@@ -3773,7 +3798,7 @@ void PCB_PARSER::ParseNetRouting( DT_NET& aNet )
                 break;
             }
 
-            if( node.layer < 0 || node.layer > 50 )
+            if( ( node.layer < 0 || node.layer > 50 ) && ResolveCopperLayer( node.layer ) == UNDEFINED_LAYER )
             {
                 valid = false;
                 break;
@@ -5664,19 +5689,6 @@ void PCB_PARSER::CreateTracksAndVias()
         return key;
     };
 
-    auto resolveCopperLayer = [&]( int aDipTraceLayer ) -> PCB_LAYER_ID
-    {
-        PCB_LAYER_ID layer = MapCopperLayer( aDipTraceLayer );
-
-        if( layer == UNDEFINED_LAYER )
-            layer = MapLayer( aDipTraceLayer );
-
-        if( !IsCopperLayer( layer ) )
-            return UNDEFINED_LAYER;
-
-        return layer;
-    };
-
     std::unordered_map<POS_NET_KEY, std::set<int>, POS_NET_HASH> layersByNetPos;
     std::unordered_set<POS_NET_KEY, POS_NET_HASH>                createdVias;
     std::unordered_map<POS_KEY, std::set<int>, POS_HASH>         netsByPos;
@@ -5714,7 +5726,7 @@ void PCB_PARSER::CreateTracksAndVias()
             track->SetEnd( VECTOR2I( ToKiCadCoord( n1.x ), ToKiCadCoord( n1.y ) ) );
             int segWidth = ( n1.width > 0 ) ? n1.width : n0.width;
             track->SetWidth( ToKiCadCoord( segWidth ) );
-            PCB_LAYER_ID trackLayer = resolveCopperLayer( n1.layer );
+            PCB_LAYER_ID trackLayer = ResolveCopperLayer( n1.layer );
 
             if( trackLayer == UNDEFINED_LAYER )
             {
@@ -5771,8 +5783,8 @@ void PCB_PARSER::CreateTracksAndVias()
                 viaOuterDiam = viaStyle.outerDiameter;
                 viaDrillDiam = viaStyle.drillDiameter;
 
-                PCB_LAYER_ID l1 = resolveCopperLayer( viaStyle.layer1 );
-                PCB_LAYER_ID l2 = resolveCopperLayer( viaStyle.layer2 );
+                PCB_LAYER_ID l1 = ResolveCopperLayer( viaStyle.layer1 );
+                PCB_LAYER_ID l2 = ResolveCopperLayer( viaStyle.layer2 );
 
                 if( l1 != UNDEFINED_LAYER && l2 != UNDEFINED_LAYER && l1 != l2 )
                 {
@@ -5819,51 +5831,42 @@ void PCB_PARSER::CreateTracksAndVias()
             if( viaDrillIU > 0 )
                 via->SetDrill( viaDrillIU );
 
-            auto ordinalToLayer =
-                    [&]( size_t aOrdinal ) -> PCB_LAYER_ID
-                    {
-                        int copperCount = m_board->GetCopperLayerCount();
-
-                        if( aOrdinal == 0 )
-                            return F_Cu;
-
-                        if( aOrdinal >= static_cast<size_t>( copperCount - 1 ) )
-                            return B_Cu;
-
-                        int innerIdx = static_cast<int>( aOrdinal ) - 1;
-
-                        if( innerIdx < 0 || innerIdx > 29 )
-                            return UNDEFINED_LAYER;
-
-                        return static_cast<PCB_LAYER_ID>( In1_Cu + innerIdx * 2 );
-                    };
+            auto ordinalToLayer = [&]( size_t aOrdinal ) -> PCB_LAYER_ID
+            {
+                return CopperOrdinalToKiCadLayer( aOrdinal, m_board->GetCopperLayerCount() );
+            };
 
             bool haveLayerRange = false;
             size_t minOrd = 0;
             size_t maxOrd = 0;
 
-            auto accumulateDipLayer =
-                    [&]( int aDipLayer )
-                    {
-                        PCB_LAYER_ID layer = resolveCopperLayer( aDipLayer );
+            auto accumulateDipLayer = [&]( int aDipLayer )
+            {
+                PCB_LAYER_ID layer = ResolveCopperLayer( aDipLayer );
 
-                        if( layer == UNDEFINED_LAYER )
-                            return;
+                if( layer == UNDEFINED_LAYER )
+                    return;
 
-                        size_t ord = CopperLayerToOrdinal( layer );
+                // CopperLayerToOrdinal() puts B_Cu at MAX_CU_LAYERS - 1, not at this board's bottom
+                size_t ord;
 
-                        if( !haveLayerRange )
-                        {
-                            minOrd = ord;
-                            maxOrd = ord;
-                            haveLayerRange = true;
-                        }
-                        else
-                        {
-                            minOrd = std::min( minOrd, ord );
-                            maxOrd = std::max( maxOrd, ord );
-                        }
-                    };
+                if( layer == B_Cu )
+                    ord = static_cast<size_t>( m_board->GetCopperLayerCount() - 1 );
+                else
+                    ord = CopperLayerToOrdinal( layer );
+
+                if( !haveLayerRange )
+                {
+                    minOrd = ord;
+                    maxOrd = ord;
+                    haveLayerRange = true;
+                }
+                else
+                {
+                    minOrd = std::min( minOrd, ord );
+                    maxOrd = std::max( maxOrd, ord );
+                }
+            };
 
             accumulateDipLayer( node.layer );
 
@@ -5899,14 +5902,15 @@ void PCB_PARSER::CreateTracksAndVias()
                 }
             }
 
-            via->SetLayerPair( viaLayerA, viaLayerB );
-
             if( viaLayerA == F_Cu && viaLayerB == B_Cu )
                 via->SetViaType( VIATYPE::THROUGH );
             else if( viaLayerA == F_Cu || viaLayerB == B_Cu )
                 via->SetViaType( VIATYPE::BLIND );
             else
                 via->SetViaType( VIATYPE::BURIED );
+
+            // SetLayerPair() sanitizes against the current via type, so the type must be set first.
+            via->SetLayerPair( viaLayerA, viaLayerB );
 
             if( net )
                 via->SetNet( net );

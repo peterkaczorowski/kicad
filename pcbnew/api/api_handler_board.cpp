@@ -1131,6 +1131,14 @@ HANDLER_RESULT<PadShapeAsPolygonResponse> API_HANDLER_BOARD::handleGetPadShapeAs
     PadShapeAsPolygonResponse response;
     PCB_LAYER_ID layer = FromProtoEnum<PCB_LAYER_ID, board::types::BoardLayer>( aCtx.Request.layer() );
 
+    if( layer < 0 )
+    {
+        ApiResponseStatus e;
+        e.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        e.set_error_message( "Request contains an invalid layer" );
+        return tl::unexpected( e );
+    }
+
     for( const types::KIID& padRequest : aCtx.Request.pads() )
     {
         KIID id( padRequest.value() );
@@ -1167,17 +1175,7 @@ HANDLER_RESULT<PadstackPresenceResponse> API_HANDLER_BOARD::handleCheckPadstackP
 
     PadstackPresenceResponse response;
 
-    LSET layers;
-
-    for( const int layer : aCtx.Request.layers() )
-    {
-        PCB_LAYER_ID pcbLayer = FromProtoEnum<PCB_LAYER_ID, BoardLayer>( static_cast<BoardLayer>( layer ) );
-
-        if( pcbLayer < 0 || pcbLayer >= PCB_LAYER_ID_COUNT )
-            continue;
-
-        layers.set( pcbLayer );
-    }
+    LSET layers = board::UnpackLayerSet( aCtx.Request.layers() );
 
     for( const types::KIID& padRequest : aCtx.Request.items() )
     {

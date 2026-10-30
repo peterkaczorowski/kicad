@@ -260,7 +260,7 @@ LSEQ LSET::CuStack() const
 {
     LSEQ ret;
 
-    ret.reserve( 32 );
+    ret.reserve( MAX_CU_LAYERS );
 
     for( auto it = copper_layers_begin(); it != copper_layers_end(); ++it )
         ret.push_back( *it );
@@ -572,11 +572,14 @@ const LSET& LSET::BackAssembly()
 
 const LSET& LSET::InternalCuMask()
 {
-    static LSET saved( { In1_Cu,  In2_Cu,  In3_Cu,  In4_Cu,  In5_Cu,  In6_Cu,
-                         In7_Cu,  In8_Cu,  In9_Cu,  In10_Cu, In11_Cu, In12_Cu,
-                         In13_Cu, In14_Cu, In15_Cu, In16_Cu, In17_Cu, In18_Cu,
-                         In19_Cu, In20_Cu, In21_Cu, In22_Cu, In23_Cu, In24_Cu,
-                         In25_Cu, In26_Cu, In27_Cu, In28_Cu, In29_Cu, In30_Cu } );
+    static LSET saved = []()
+    {
+        LSET mask = AllCuMask();
+        mask.reset( F_Cu );
+        mask.reset( B_Cu );
+        return mask;
+    }();
+
     return saved;
 }
 

@@ -133,7 +133,7 @@ PARAM_LAYER_PRESET_3D::PARAM_LAYER_PRESET_3D( const std::string& aPath,
     LAYER( "off_board_silk",      LAYER_3D_OFF_BOARD_SILK    );
     LAYER( "3d_axes", LAYER_GRID_AXES );
 
-    for( int layer = LAYER_3D_COPPER_INNER_1; layer <= LAYER_3D_COPPER_INNER_30; ++layer )
+    for( int layer = LAYER_3D_COPPER_INNER_1; layer <= LAYER_3D_COPPER_INNER_62; ++layer )
     {
         const int innerLayerIdx = layer - LAYER_3D_COPPER_INNER_1 + 1;
         wxString name = wxString::Format( wxS( "copper_inner_%d" ), innerLayerIdx );
@@ -450,7 +450,7 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "render.show_copper_bottom",
                                             &m_Render.show_copper_top, true ) );
 
-    for( int layer = LAYER_3D_COPPER_INNER_1; layer <= LAYER_3D_COPPER_INNER_30; ++layer )
+    for( int layer = LAYER_3D_COPPER_INNER_1; layer <= LAYER_3D_COPPER_INNER_62; ++layer )
     {
         const int innerLayerIndex = layer - LAYER_3D_COPPER_INNER_1;
         m_params.emplace_back( new PARAM<bool>( fmt::format( "render.show_copper_inner{}", innerLayerIndex + 1 ),

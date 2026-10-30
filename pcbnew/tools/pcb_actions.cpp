@@ -2313,6 +2313,38 @@ TOOL_ACTION* PCB_ACTIONS::LayerIDToAction( PCB_LAYER_ID aLayer )
     case In28_Cu:   return &PCB_ACTIONS::layerInner28;
     case In29_Cu:   return &PCB_ACTIONS::layerInner29;
     case In30_Cu:   return &PCB_ACTIONS::layerInner30;
+    case In31_Cu:   return &PCB_ACTIONS::layerInner31;
+    case In32_Cu:   return &PCB_ACTIONS::layerInner32;
+    case In33_Cu:   return &PCB_ACTIONS::layerInner33;
+    case In34_Cu:   return &PCB_ACTIONS::layerInner34;
+    case In35_Cu:   return &PCB_ACTIONS::layerInner35;
+    case In36_Cu:   return &PCB_ACTIONS::layerInner36;
+    case In37_Cu:   return &PCB_ACTIONS::layerInner37;
+    case In38_Cu:   return &PCB_ACTIONS::layerInner38;
+    case In39_Cu:   return &PCB_ACTIONS::layerInner39;
+    case In40_Cu:   return &PCB_ACTIONS::layerInner40;
+    case In41_Cu:   return &PCB_ACTIONS::layerInner41;
+    case In42_Cu:   return &PCB_ACTIONS::layerInner42;
+    case In43_Cu:   return &PCB_ACTIONS::layerInner43;
+    case In44_Cu:   return &PCB_ACTIONS::layerInner44;
+    case In45_Cu:   return &PCB_ACTIONS::layerInner45;
+    case In46_Cu:   return &PCB_ACTIONS::layerInner46;
+    case In47_Cu:   return &PCB_ACTIONS::layerInner47;
+    case In48_Cu:   return &PCB_ACTIONS::layerInner48;
+    case In49_Cu:   return &PCB_ACTIONS::layerInner49;
+    case In50_Cu:   return &PCB_ACTIONS::layerInner50;
+    case In51_Cu:   return &PCB_ACTIONS::layerInner51;
+    case In52_Cu:   return &PCB_ACTIONS::layerInner52;
+    case In53_Cu:   return &PCB_ACTIONS::layerInner53;
+    case In54_Cu:   return &PCB_ACTIONS::layerInner54;
+    case In55_Cu:   return &PCB_ACTIONS::layerInner55;
+    case In56_Cu:   return &PCB_ACTIONS::layerInner56;
+    case In57_Cu:   return &PCB_ACTIONS::layerInner57;
+    case In58_Cu:   return &PCB_ACTIONS::layerInner58;
+    case In59_Cu:   return &PCB_ACTIONS::layerInner59;
+    case In60_Cu:   return &PCB_ACTIONS::layerInner60;
+    case In61_Cu:   return &PCB_ACTIONS::layerInner61;
+    case In62_Cu:   return &PCB_ACTIONS::layerInner62;
     case B_Cu:      return &PCB_ACTIONS::layerBottom;
     default:        return nullptr;
     }
@@ -2581,6 +2613,262 @@ TOOL_ACTION PCB_ACTIONS::layerInner30( TOOL_ACTION_ARGS()
         .FriendlyName( _( "Switch to Inner Layer 30" ) )
         .Flags( AF_NOTIFY )
         .Parameter( In30_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner31( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner31" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 31" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In31_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner32( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner32" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 32" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In32_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner33( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner33" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 33" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In33_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner34( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner34" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 34" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In34_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner35( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner35" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 35" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In35_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner36( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner36" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 36" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In36_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner37( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner37" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 37" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In37_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner38( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner38" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 38" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In38_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner39( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner39" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 39" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In39_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner40( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner40" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 40" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In40_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner41( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner41" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 41" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In41_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner42( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner42" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 42" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In42_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner43( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner43" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 43" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In43_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner44( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner44" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 44" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In44_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner45( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner45" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 45" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In45_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner46( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner46" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 46" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In46_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner47( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner47" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 47" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In47_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner48( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner48" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 48" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In48_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner49( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner49" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 49" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In49_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner50( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner50" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 50" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In50_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner51( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner51" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 51" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In51_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner52( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner52" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 52" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In52_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner53( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner53" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 53" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In53_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner54( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner54" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 54" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In54_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner55( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner55" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 55" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In55_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner56( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner56" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 56" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In56_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner57( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner57" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 57" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In57_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner58( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner58" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 58" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In58_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner59( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner59" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 59" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In59_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner60( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner60" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 60" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In60_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner61( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner61" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 61" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In61_Cu ) );
+
+TOOL_ACTION PCB_ACTIONS::layerInner62( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.Control.layerInner62" )
+        .Scope( AS_GLOBAL )
+        .Group( PCB_ACTIONS::layerDirectSwitchActions() )
+        .FriendlyName( _( "Switch to Inner Layer 62" ) )
+        .Flags( AF_NOTIFY )
+        .Parameter( In62_Cu ) );
 
 TOOL_ACTION PCB_ACTIONS::layerBottom( TOOL_ACTION_ARGS()
         .Name( "pcbnew.Control.layerBottom" )

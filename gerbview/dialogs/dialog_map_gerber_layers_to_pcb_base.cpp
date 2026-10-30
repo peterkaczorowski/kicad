@@ -83,6 +83,22 @@ DIALOG_MAP_GERBER_LAYERS_TO_PCB_BASE::DIALOG_MAP_GERBER_LAYERS_TO_PCB_BASE( wxWi
 	m_comboCopperLayersCount->Append( _("28 Layers") );
 	m_comboCopperLayersCount->Append( _("30 Layers") );
 	m_comboCopperLayersCount->Append( _("32 Layers") );
+	m_comboCopperLayersCount->Append( _("34 Layers") );
+	m_comboCopperLayersCount->Append( _("36 Layers") );
+	m_comboCopperLayersCount->Append( _("38 Layers") );
+	m_comboCopperLayersCount->Append( _("40 Layers") );
+	m_comboCopperLayersCount->Append( _("42 Layers") );
+	m_comboCopperLayersCount->Append( _("44 Layers") );
+	m_comboCopperLayersCount->Append( _("46 Layers") );
+	m_comboCopperLayersCount->Append( _("48 Layers") );
+	m_comboCopperLayersCount->Append( _("50 Layers") );
+	m_comboCopperLayersCount->Append( _("52 Layers") );
+	m_comboCopperLayersCount->Append( _("54 Layers") );
+	m_comboCopperLayersCount->Append( _("56 Layers") );
+	m_comboCopperLayersCount->Append( _("58 Layers") );
+	m_comboCopperLayersCount->Append( _("60 Layers") );
+	m_comboCopperLayersCount->Append( _("62 Layers") );
+	m_comboCopperLayersCount->Append( _("64 Layers") );
 	bSizerLyrCnt->Add( m_comboCopperLayersCount, 0, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 

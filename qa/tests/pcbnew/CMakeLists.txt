@@ -40,6 +40,7 @@ set( QA_PCBNEW_SRCS
     test_board_design_settings.cpp
     test_board_item_index.cpp
     test_board_loader.cpp
+    test_board_stackup.cpp
     test_board_item.cpp
     test_drill_chart.cpp
     test_board_commit.cpp
@@ -108,6 +109,7 @@ set( QA_PCBNEW_SRCS
     test_odb_drill_tools.cpp
     test_odb_soldermask_shape_export.cpp
     test_issue25074_odb_knockout_textbox.cpp
+    test_pcb_actions.cpp
     test_pcb_control_rehatch.cpp
     test_pcb_handle_key.cpp
     test_pns_basics.cpp
@@ -286,6 +288,7 @@ set( QA_PCBNEW_SRCS
     pcb_io/pads/test_pads_arc_structures.cpp
     pcb_io/pads/test_pads_part_structures.cpp
     pcb_io/geda/test_geda_pcb_import.cpp
+    pcb_io/pcad/test_pcad_import.cpp
     pcb_io/sprint_layout/test_sprint_layout_import.cpp
 
     pcb_io/kicad_sexpr/test_kicad_sexpr.cpp
