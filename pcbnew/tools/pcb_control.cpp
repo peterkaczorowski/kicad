@@ -3574,7 +3574,11 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     wxString msg;
 
     if( extractedCount > 0 )
-        msg = wxString::Format( _( "%d 3D model(s) extracted to '%s'." ), extractedCount, modelDir.GetPath() );
+    {
+        msg = wxString::Format( wxPLURAL( "Extracted %d 3D model.", "Extracted %d 3D models.", extractedCount ),
+                                extractedCount );
+        msg << wxS( " " ) << wxString::Format( _( "They are in '%s'." ), modelDir.GetPath() );
+    }
     else if( failed.empty() )
         msg = _( "The board has no embedded 3D models." );
     else
