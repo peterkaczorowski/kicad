@@ -3355,16 +3355,30 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     const wxString prefix = FILEEXT::KiCadUriPrefix + "://";
 
-    // Nothing to do is not worth a warning, a folder chooser and a new folder.
-    bool anyEmbedded = false;
+    std::set<wxString> pending;
+    long long          pendingBytes = 0;
 
     for( FOOTPRINT* fp : brd->Footprints() )
     {
         for( const FP_3DMODEL& model : fp->Models() )
-            anyEmbedded |= model.m_Filename.StartsWith( prefix );
+        {
+            if( !model.m_Filename.StartsWith( prefix ) )
+                continue;
+
+            wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
+
+            if( name.IsEmpty() || !pending.insert( name ).second )
+                continue;
+
+            if( EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd ) )
+            {
+                if( EMBEDDED_FILES::EMBEDDED_FILE* file = store->GetEmbeddedFile( name ) )
+                    pendingBytes += file->decompressedData.size();
+            }
+        }
     }
 
-    if( !anyEmbedded )
+    if( pending.empty() )
     {
         m_frame->GetInfoBar()->ShowMessageFor( _( "The board has no embedded 3D models." ), 5000 );
         return 0;
@@ -3375,23 +3389,16 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     wxFileName modelDir( projectPath, wxEmptyString );
     modelDir.AppendDir( wxT( "3dmodels" ) );
 
-    // Clearing the history below takes the user's other undo steps with it.  Say so first.
-    KIDIALOG confirm( m_frame,
-                      _( "Extracting writes the embedded 3D models to files and removes them "
-                         "from the board.  This cannot be undone, and the undo history is "
-                         "cleared.\n\nCollect And Embed 3D Models puts them back." ),
-                      _( "Extract Embedded 3D Models" ), wxOK | wxCANCEL | wxICON_WARNING );
+    wxString ask = wxString::Format(
+            wxPLURAL( "Write %d 3D model (%s) here.", "Write %d 3D models (%s) here.", (int) pending.size() ),
+            (int) pending.size(), wxFileName::GetHumanReadableSize( wxULongLong( pendingBytes ) ) );
 
-    confirm.SetOKLabel( _( "Extract" ) );
-    confirm.DoNotShowCheckbox( __FILE__, __LINE__ );
-
-    if( confirm.ShowModal() != wxID_OK )
-        return 0;
+    ask << wxS( " " ) << _( "The copies in the board are removed, which cannot be undone." );
 
     // The chooser falls back to the parent when the folder is missing.
     PATHS::EnsurePathExists( modelDir.GetPath() );
 
-    wxDirDialog dirDlg( m_frame, _( "Write the 3D models to" ), modelDir.GetPath(), wxDD_DEFAULT_STYLE );
+    wxDirDialog dirDlg( m_frame, ask, modelDir.GetPath(), wxDD_DEFAULT_STYLE );
 
     if( dirDlg.ShowModal() != wxID_OK )
         return 0;
@@ -3435,7 +3442,6 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     }
 
     BOARD_COMMIT commit( m_frame );
-    int          extractedCount = 0;
 
     std::map<wxString, wxString> written;   // embedded name -> the path footprints now use
     std::set<wxString>           extracted; // every name written out, companions included
@@ -3594,11 +3600,10 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
             model.m_Filename = it->second;
             fpModified = true;
-            extractedCount++;
         }
     }
 
-    if( extractedCount > 0 )
+    if( !extracted.empty() )
     {
         // Another footprint can hold a different file under the same name.
         for( const auto& [store, names] : owners )
@@ -3619,6 +3624,8 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     }
 
     wxString msg;
+
+    const int extractedCount = (int) extracted.size();
 
     if( extractedCount > 0 )
     {
