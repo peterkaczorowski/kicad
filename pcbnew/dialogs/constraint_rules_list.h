@@ -25,13 +25,17 @@
 #include <utility>
 #include <vector>
 
+#include <optional>
+
 #include <drc/rule_editor/drc_rule_editor_enums.h>
 
 #include "constraint_rules_list_base.h"
+#include "panel_setup_constraint_rules.h"
 
 class BOARD;
 class DRC_RE_BASE_CONSTRAINT_DATA;
 class DRC_RULE_DOCUMENT;
+class NETCLASS;
 class PANEL_DRC_RULE_EDITOR;
 class PCB_EDIT_FRAME;
 class UNITS_PROVIDER;
@@ -49,6 +53,14 @@ public:
                            DRC_RULE_EDITOR_CONSTRAINT_NAME aType, const wxString& aTitle );
 
     void RefreshRules();
+
+    /**
+     * Lists the net class values for this constraint above the rules, where a class can set one.
+     *
+     * DRC reads a net class value before any rule the user writes here, so the values belong in
+     * the same list, in the order they are read.
+     */
+    void SetNetclasses( std::function<std::optional<int>( const NETCLASS& )> aValue, NETCLASS_CONSTRAINT_PART aPart );
 
     /**
      * A window whose label is the section title. The list appends the rule count to it.
@@ -133,6 +145,9 @@ private:
 
     void showOverrideNote();
 
+    /// Fills the leading rows with the net class values, and returns how many it added
+    int addNetclassRows();
+
     static wxString layersText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
     static wxString severityText( const DRC_RE_LOADED_PANEL_ENTRY& aEntry );
     static wxString inUserUnits( const wxString& aClause, UNITS_PROVIDER* aUnits );
@@ -152,7 +167,14 @@ private:
     bool                                         m_refreshing = false;
     int                                          m_fittedWidth = -1;
 
+    std::function<std::optional<int>( const NETCLASS& )> m_netclassValue;
+    NETCLASS_CONSTRAINT_PART                             m_netclassPart = NETCLASS_CONSTRAINT_PART::MINIMUM;
+
+    /// The document index each row shows, or NETCLASS_ROW where the row is a net class value
     std::vector<int> m_rowToIndex;
+
+    /// What m_rowToIndex holds for a row that is not a rule of this document
+    static constexpr int NETCLASS_ROW = -1;
 };
 
 #endif // CONSTRAINT_RULES_LIST_H

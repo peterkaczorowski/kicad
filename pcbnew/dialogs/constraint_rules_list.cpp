@@ -35,6 +35,10 @@
 #include <drc/rule_editor/drc_rule_document.h>
 #include <drc/rule_editor/drc_rule_editor_utils.h>
 #include <drc/rule_editor/panel_drc_rule_editor.h>
+#include <netclass.h>
+#include <project.h>
+#include <project/net_settings.h>
+#include <project/project_file.h>
 #include <tool/actions.h>
 #include <tool/tool_manager.h>
 #include <tools/drc_tool.h>
@@ -117,6 +121,21 @@ CONSTRAINT_RULES_LIST::CONSTRAINT_RULES_LIST( wxWindow* aParent, PCB_EDIT_FRAME*
 
                       updateButtons();
                   } );
+    m_list->Bind( wxEVT_LIST_ITEM_ACTIVATED,
+                  [this]( wxListEvent& aEvent )
+                  {
+                      long row = aEvent.GetIndex();
+
+                      if( row >= 0 && row < (long) m_rowToIndex.size() && m_rowToIndex[row] == NETCLASS_ROW )
+                      {
+                          if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+                              dialog->ShowPage( _( "Net Classes" ) );
+
+                          return;
+                      }
+
+                      aEvent.Skip();
+                  } );
     m_list->Bind( wxEVT_LIST_ITEM_DESELECTED,
                   [this]( wxListEvent& )
                   {
@@ -153,7 +172,9 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
     m_list->DeleteAllItems();
     m_rowToIndex.clear();
 
-    int row = 0;
+    // A net class value is read before any rule written here, so it is listed above them
+    int row = addNetclassRows();
+    int rules = 0;
 
     if( blocker.IsEmpty() )
     {
@@ -161,7 +182,7 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
         {
             const DRC_RE_LOADED_PANEL_ENTRY& entry = m_document->Entries()[index];
 
-            long item = m_list->InsertItem( row, wxString::Format( wxS( "%d" ), row + 1 ) );
+            long item = m_list->InsertItem( row, wxString::Format( wxS( "%d" ), ++rules ) );
             m_list->SetItem( item, 1, entry.ruleName );
             m_list->SetItem( item, 2, entry.condition );
             m_list->SetItem( item, 3, layersText( entry ) );
@@ -174,25 +195,24 @@ void CONSTRAINT_RULES_LIST::RefreshRules()
         }
     }
 
-    bool any = !m_rowToIndex.empty();
+    bool anyRows = !m_rowToIndex.empty();
+    bool anyRules = rules > 0;
 
+    // The count is of the rules this page writes. A net class value is listed, not written here.
     if( m_titleWindow )
-    {
-        m_titleWindow->SetLabel( any ? wxString::Format( wxS( "%s (%d)" ), m_title, (int) m_rowToIndex.size() )
-                                     : m_title );
-    }
+        m_titleWindow->SetLabel( anyRules ? wxString::Format( wxS( "%s (%d)" ), m_title, rules ) : m_title );
 
     m_emptyLabel->SetLabel( blocker.IsEmpty() ? _( "No rules yet." ) : blocker );
 
-    m_list->Show( any );
-    m_emptyLabel->Show( !any );
+    m_list->Show( anyRows );
+    m_emptyLabel->Show( !anyRows );
     m_editorHost->Show( blocker.IsEmpty() );
     m_primaryBtn->Show( blocker.IsEmpty() );
     m_newBtn->Show( blocker.IsEmpty() );
-    m_upBtn->Show( any );
-    m_downBtn->Show( any );
-    m_duplicateBtn->Show( any );
-    m_removeBtn->Show( any );
+    m_upBtn->Show( anyRules );
+    m_downBtn->Show( anyRules );
+    m_duplicateBtn->Show( anyRules );
+    m_removeBtn->Show( anyRules );
 
     if( editingIndex() >= 0 )
     {
@@ -255,6 +275,61 @@ void CONSTRAINT_RULES_LIST::fitColumns()
                  + m_list->GetColumnWidth( 4 );
 
     m_list->SetColumnWidth( 2, std::max( client - others, 160 ) );
+}
+
+
+void CONSTRAINT_RULES_LIST::SetNetclasses( std::function<std::optional<int>( const NETCLASS& )> aValue,
+                                           NETCLASS_CONSTRAINT_PART                             aPart )
+{
+    m_netclassValue = std::move( aValue );
+    m_netclassPart = aPart;
+}
+
+
+int CONSTRAINT_RULES_LIST::addNetclassRows()
+{
+    if( !m_netclassValue )
+        return 0;
+
+    const NET_SETTINGS& netSettings = *m_frame->Prj().GetProjectFile().NetSettings();
+    int                 row = 0;
+
+    // The default class first, then the rest, which is the order DRC builds them in
+    std::vector<std::shared_ptr<NETCLASS>> classes = { netSettings.GetDefaultNetclass() };
+
+    for( const auto& [name, netclass] : netSettings.GetNetclasses() )
+        classes.push_back( netclass );
+
+    for( const std::shared_ptr<NETCLASS>& netclass : classes )
+    {
+        if( !netclass )
+            continue;
+
+        std::optional<int> value = m_netclassValue( *netclass );
+
+        if( !value )
+            continue;
+
+        // The condition DRC gives the rule it builds for the class, so the row reads like a rule
+        wxString condition = wxString::Format( wxS( "A.hasExactNetclass('%s')" ), netclass->GetName() );
+
+        // A class raises the minimum for some constraints and asks for a value in others, and
+        // the row has to say which, since only the first displaces the board default
+        wxString constraint = wxString::Format( m_netclassPart == NETCLASS_CONSTRAINT_PART::MINIMUM ? wxS( "min %s" )
+                                                                                                    : wxS( "opt %s" ),
+                                                m_frame->StringFromValue( *value, true ) );
+
+        long item = m_list->InsertItem( row, wxEmptyString );
+        m_list->SetItem( item, 1, wxString::Format( _( "Net class '%s'" ), netclass->GetName() ) );
+        m_list->SetItem( item, 2, condition );
+        m_list->SetItem( item, 3, _( "Any" ) );
+        m_list->SetItem( item, 4, constraint );
+
+        m_rowToIndex.push_back( NETCLASS_ROW );
+        row++;
+    }
+
+    return row;
 }
 
 
@@ -372,6 +447,13 @@ int CONSTRAINT_RULES_LIST::selectedIndex() const
 
 void CONSTRAINT_RULES_LIST::selectIndex( int aIndex )
 {
+    // NETCLASS_ROW would match a row that is not a rule of this document
+    if( aIndex < 0 )
+    {
+        updateButtons();
+        return;
+    }
+
     for( size_t row = 0; row < m_rowToIndex.size(); ++row )
     {
         if( m_rowToIndex[row] == aIndex )

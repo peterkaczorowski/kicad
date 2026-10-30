@@ -55,6 +55,17 @@ struct CONSTRAINT_DEFAULT_FIELD
 };
 
 
+/// What a net class value does to a constraint, which is not always raise its minimum
+enum class NETCLASS_CONSTRAINT_PART
+{
+    /// Raises the minimum, as a net class clearance does
+    MINIMUM,
+
+    /// Asks for a value without raising the minimum, as a net class track width does
+    OPTIMUM
+};
+
+
 /**
  * One constraint on a Design Rules page: its board default, the net class values that apply
  * to it, and the rules that override it.
@@ -68,6 +79,9 @@ struct CONSTRAINT_SECTION
 
     /// The group this section's defaults are imported with.
     wxString settingsPage = wxEmptyString;
+
+    /// What a net class value does to this constraint, where a class can set one.
+    NETCLASS_CONSTRAINT_PART netclassPart = NETCLASS_CONSTRAINT_PART::MINIMUM;
 };
 
 
@@ -139,7 +153,6 @@ private:
     static std::optional<CONSTRAINT_SECTION> sectionForSetting( const wxString& aSetting );
 
     void buildSection();
-    void updateNetclassLabels();
     void wrapLabels();
     void showPage( const wxString& aTitle );
 
@@ -172,8 +185,6 @@ private:
 
     CONSTRAINT_SECTION         m_section;
     std::vector<DEFAULT_FIELD> m_defaults;
-    wxStaticText*              m_netclassLabel;
-    wxString                   m_netclassText;
     wxStaticText*              m_note;
     wxString                   m_noteText;
     wxTimer                    m_validationTimer;

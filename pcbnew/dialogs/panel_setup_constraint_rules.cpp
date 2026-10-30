@@ -43,33 +43,6 @@
 #include "constraint_rules_list.h"
 
 
-/**
- * The classes that set their own value through aValue, grouped so classes sharing a value read
- * as one entry.
- */
-static std::map<int, std::vector<wxString>>
-groupByValue( const std::function<std::optional<int>( const NETCLASS& )>& aValue, const NET_SETTINGS& aNetSettings )
-{
-    std::map<int, std::vector<wxString>> byValue;
-
-    auto collect = [&]( const std::shared_ptr<NETCLASS>& aNetclass )
-    {
-        if( !aNetclass )
-            return;
-
-        if( std::optional<int> value = aValue( *aNetclass ) )
-            byValue[*value].push_back( aNetclass->GetName() );
-    };
-
-    collect( aNetSettings.GetDefaultNetclass() );
-
-    for( const auto& [name, netclass] : aNetSettings.GetNetclasses() )
-        collect( netclass );
-
-    return byValue;
-}
-
-
 PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, PCB_EDIT_FRAME* aFrame,
                                                             DRC_RULE_DOCUMENT*        aDocument,
                                                             const CONSTRAINT_SECTION& aSection ) :
@@ -78,7 +51,6 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
         m_settings( &aFrame->GetBoard()->GetDesignSettings() ),
         m_document( aDocument ),
         m_section( aSection ),
-        m_netclassLabel( nullptr ),
         m_note( nullptr ),
         m_validationTimer( this ),
         m_list( nullptr )
@@ -94,7 +66,7 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
     if( m_section.ruleType )
     {
         m_noteText = _( "The rules below are read from top to bottom and the last one that matches "
-                        "decides the value." );
+                        "decides the value. A value a net class sets is read before any of them." );
 
         m_note = new wxStaticText( m_scrolled, wxID_ANY, m_noteText );
         m_note->SetFont( KIUI::GetInfoFont( this ).Italic() );
@@ -179,12 +151,10 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
 
     if( m_section.netclassValue )
     {
+        // The values themselves are listed with the rules they are read before
         wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
-        wxStaticText*    label = new wxStaticText( parent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
-                                                   wxST_ELLIPSIZE_END );
         wxHyperlinkCtrl* link = new wxHyperlinkCtrl( parent, wxID_ANY, _( "Edit net classes" ), wxEmptyString );
 
-        label->SetFont( KIUI::GetInfoFont( this ) );
         link->SetFont( KIUI::GetInfoFont( this ) );
         link->Bind( wxEVT_HYPERLINK,
                     [this]( wxHyperlinkEvent& )
@@ -192,12 +162,9 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
                         showPage( _( "Net Classes" ) );
                     } );
 
-        label->SetMinSize( wxSize( 1, -1 ) );
-        row->Add( label, 1, wxALIGN_CENTER_VERTICAL );
+        row->AddStretchSpacer();
         row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
         settings->Add( row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
-
-        m_netclassLabel = label;
     }
 
     if( m_section.ruleType )
@@ -237,6 +204,9 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
             list->SetDefaults( std::move( defaults ) );
         }
 
+        if( m_section.netclassValue )
+            list->SetNetclasses( m_section.netclassValue, m_section.netclassPart );
+
         list->SetChangeCallback(
                 [this]()
                 {
@@ -245,58 +215,6 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
         box->Add( list, 1, wxEXPAND | wxALL, 8 );
         m_list = list;
     }
-}
-
-
-void PANEL_SETUP_CONSTRAINT_RULES::updateNetclassLabels()
-{
-    if( m_netclassLabel )
-    {
-        std::shared_ptr<NET_SETTINGS>& netSettings = m_frame->Prj().GetProjectFile().NetSettings();
-
-        std::map<int, std::vector<wxString>> byValue = groupByValue( m_section.netclassValue, *netSettings );
-
-        wxString text;
-        wxString fullText;
-
-        for( const auto& [value, names] : byValue )
-        {
-            if( !text.IsEmpty() )
-            {
-                text << wxS( "    " );
-                fullText << wxS( "\n" );
-            }
-
-            text << m_frame->StringFromValue( value, true ) << wxS( ": " );
-            fullText << m_frame->StringFromValue( value, true ) << wxS( ": " );
-
-            const size_t shown = 5;
-
-            for( size_t n = 0; n < names.size(); ++n )
-            {
-                fullText << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
-
-                if( n < shown )
-                    text << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
-            }
-
-            if( names.size() > shown )
-                text << wxString::Format( _( " and %zu more" ), names.size() - shown );
-        }
-
-        if( text.IsEmpty() )
-        {
-            m_netclassText = _( "Net classes: no class sets this value" );
-            m_netclassLabel->SetToolTip( wxEmptyString );
-        }
-        else
-        {
-            m_netclassText = _( "Net classes:  " ) + text;
-            m_netclassLabel->SetToolTip( fullText );
-        }
-    }
-
-    wrapLabels();
 }
 
 
@@ -309,21 +227,14 @@ void PANEL_SETUP_CONSTRAINT_RULES::showPage( const wxString& aTitle )
 
 void PANEL_SETUP_CONSTRAINT_RULES::wrapLabels()
 {
-    int width = m_scrolled->GetClientSize().x - 180;
-
-    if( width < 200 )
+    // The page has not been laid out yet while it is this narrow
+    if( m_scrolled->GetClientSize().x - 180 < 200 )
         return;
 
     if( m_note )
     {
         m_note->SetLabel( m_noteText );
         m_note->Wrap( GetClientSize().x - 32 );
-    }
-
-    if( m_netclassLabel )
-    {
-        m_netclassLabel->SetLabel( m_netclassText );
-        m_netclassLabel->Wrap( width );
     }
 
     m_scrolled->Layout();
@@ -446,8 +357,6 @@ bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataToWindow()
 
 void PANEL_SETUP_CONSTRAINT_RULES::RefreshFromDocument()
 {
-    updateNetclassLabels();
-
     if( m_list )
         m_list->RefreshRules();
 }
@@ -592,7 +501,9 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
         return { { _( "Minimum track width" ),
                    { { _( "Board default:" ), &BDS::m_TrackMinWidth, wxS( "min_track_width" ) } },
                    ROUTING_WIDTH,
-                   trackWidth },
+                   trackWidth,
+                   wxEmptyString,
+                   NETCLASS_CONSTRAINT_PART::OPTIMUM },
                  { _( "Minimum connection width" ),
                    { { _( "Board default:" ), &BDS::m_MinConn, wxS( "min_connection" ) } },
                    MINIMUM_CONNECTION_WIDTH,
@@ -604,7 +515,9 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                  { _( "Minimum via diameter" ),
                    { { _( "Board default:" ), &BDS::m_ViasMinSize, wxS( "min_via_diameter" ) } },
                    MINIMUM_VIA_DIAMETER,
-                   viaDiameter },
+                   viaDiameter,
+                   wxEmptyString,
+                   NETCLASS_CONSTRAINT_PART::OPTIMUM },
                  { _( "Via style" ), {}, VIA_STYLE, {} },
                  { _( "Maximum via count" ), {}, MAXIMUM_VIA_COUNT, {} } };
 
@@ -612,7 +525,9 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
         return { { _( "Minimum drill size" ),
                    { { _( "Board default:" ), &BDS::m_MinThroughDrill, wxS( "min_through_hole_diameter" ) } },
                    MINIMUM_DRILL_SIZE,
-                   viaDrill },
+                   viaDrill,
+                   wxEmptyString,
+                   NETCLASS_CONSTRAINT_PART::OPTIMUM },
                  { _( "Hole size" ), {}, HOLE_SIZE, {} },
                  { _( "Hole to hole clearance" ),
                    { { _( "Board default:" ), &BDS::m_HoleToHoleMin, wxS( "min_hole_to_hole" ) } },
