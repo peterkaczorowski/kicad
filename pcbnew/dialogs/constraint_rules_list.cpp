@@ -49,6 +49,7 @@
 #include <wx/button.h>
 #include <wx/dcclient.h>
 #include <wx/regex.h>
+#include <wx/settings.h>
 #include <wx/listctrl.h>
 #include <wx/scrolwin.h>
 #include <wx/sizer.h>
@@ -325,6 +326,9 @@ int CONSTRAINT_RULES_LIST::addNetclassRows()
         m_list->SetItem( item, 2, condition );
         m_list->SetItem( item, 3, _( "Any" ) );
         m_list->SetItem( item, 4, constraint );
+
+        // The row is not a rule of this document and cannot be edited here, so it is muted
+        m_list->SetItemTextColour( item, wxSystemSettings::GetColour( wxSYS_COLOUR_GRAYTEXT ) );
 
         m_rowToIndex.push_back( NETCLASS_ROW );
         row++;
