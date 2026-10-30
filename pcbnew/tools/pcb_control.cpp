@@ -3355,6 +3355,21 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     const wxString prefix = FILEEXT::KiCadUriPrefix + "://";
 
+    // Nothing to do is not worth a warning, a folder chooser and a new folder.
+    bool anyEmbedded = false;
+
+    for( FOOTPRINT* fp : brd->Footprints() )
+    {
+        for( const FP_3DMODEL& model : fp->Models() )
+            anyEmbedded |= model.m_Filename.StartsWith( prefix );
+    }
+
+    if( !anyEmbedded )
+    {
+        m_frame->GetInfoBar()->ShowMessageFor( _( "The board has no embedded 3D models." ), 5000 );
+        return 0;
+    }
+
     const wxString projectPath = m_frame->Prj().GetProjectPath();
 
     wxFileName modelDir( projectPath, wxEmptyString );
@@ -3611,8 +3626,6 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                                 extractedCount );
         msg << wxS( " " ) << wxString::Format( _( "They are in '%s'." ), modelDir.GetPath() );
     }
-    else if( failed.empty() )
-        msg = _( "The board has no embedded 3D models." );
     else
         msg = _( "No 3D models could be extracted." );
 
