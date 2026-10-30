@@ -3357,6 +3357,19 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     wxFileName modelDir( m_frame->Prj().GetProjectPath(), wxEmptyString );
     modelDir.AppendDir( wxT( "3dmodels" ) );
 
+    // Clearing the history below takes the user's other undo steps with it.  Say so first.
+    KIDIALOG confirm( m_frame,
+                      _( "Extracting writes the embedded 3D models to files and removes them "
+                         "from the board.  This cannot be undone, and the undo history is "
+                         "cleared.\n\nCollect And Embed 3D Models puts them back." ),
+                      _( "Extract Embedded 3D Models" ), wxOK | wxCANCEL | wxICON_WARNING );
+
+    confirm.SetOKLabel( _( "Extract" ) );
+    confirm.DoNotShowCheckbox( __FILE__, __LINE__ );
+
+    if( confirm.ShowModal() != wxID_OK )
+        return 0;
+
     if( wxFileName::FileExists( modelDir.GetPath() ) )
     {
         DisplayErrorMessage( m_frame, _( "Cannot extract the 3D models." ),
