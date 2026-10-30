@@ -77,6 +77,8 @@
 #include <filename_resolver.h>
 #include <3d_cache/3d_cache.h>
 #include <embedded_files.h>
+#include <paths.h>
+#include <wx/wfstream.h>
 #include <zone.h>
 #include <confirm.h>
 #include <kidialog.h>
@@ -3323,6 +3325,153 @@ int PCB_CONTROL::CollectAndEmbed3DModels( const TOOL_EVENT& aEvent )
 }
 
 
+/**
+ * A footprint's own embedded models shadow the board's.
+ */
+static EMBEDDED_FILES* findEmbeddedStore( const wxString& aName, FOOTPRINT* aFootprint, BOARD* aBoard )
+{
+    if( aFootprint->GetEmbeddedFiles()->HasFile( aName ) )
+        return aFootprint->GetEmbeddedFiles();
+
+    if( aBoard->GetEmbeddedFiles()->HasFile( aName ) )
+        return aBoard->GetEmbeddedFiles();
+
+    return nullptr;
+}
+
+
+int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
+{
+    BOARD* brd = board();
+
+    if( !brd )
+        return 0;
+
+    const wxString prefix = FILEEXT::KiCadUriPrefix + "://";
+
+    wxFileName modelDir( m_frame->Prj().GetProjectPath(), wxEmptyString );
+    modelDir.AppendDir( wxT( "3dmodels" ) );
+
+    BOARD_COMMIT commit( m_frame );
+    int          extractedCount = 0;
+    int          failedCount = 0;
+
+    std::map<wxString, wxString> written;
+    std::set<wxString>           failed;
+
+    for( FOOTPRINT* fp : brd->Footprints() )
+    {
+        bool fpModified = false;
+
+        for( FP_3DMODEL& model : fp->Models() )
+        {
+            if( !model.m_Filename.StartsWith( prefix ) )
+                continue;
+
+            wxString name = model.m_Filename.Mid( prefix.length() );
+
+            if( failed.count( name ) )
+                continue;
+
+            auto it = written.find( name );
+
+            if( it == written.end() )
+            {
+                EMBEDDED_FILES*                store = findEmbeddedStore( name, fp, brd );
+                EMBEDDED_FILES::EMBEDDED_FILE* file = store ? store->GetEmbeddedFile( name ) : nullptr;
+
+                if( !file || !file->Validate() )
+                {
+                    failed.insert( name );
+                    failedCount++;
+                    continue;
+                }
+
+                if( !PATHS::EnsurePathExists( modelDir.GetPath() ) )
+                {
+                    failed.insert( name );
+                    failedCount++;
+                    continue;
+                }
+
+                wxFileName          target( modelDir.GetPath(), name );
+                wxFFileOutputStream out( target.GetFullPath() );
+
+                if( !out.IsOk() )
+                {
+                    failed.insert( name );
+                    failedCount++;
+                    continue;
+                }
+
+                out.Write( file->decompressedData.data(), file->decompressedData.size() );
+                out.Close();
+
+                it = written.emplace( name, wxT( "${KIPRJMOD}/3dmodels/" ) + name ).first;
+            }
+
+            if( !fpModified )
+                commit.Modify( fp );
+
+            model.m_Filename = it->second;
+            fpModified = true;
+            extractedCount++;
+        }
+    }
+
+    if( extractedCount > 0 )
+    {
+        // Drop the blobs now that nothing points at them, so the board stops carrying them.
+        for( const auto& [name, path] : written )
+        {
+            bool stillUsed = false;
+
+            for( FOOTPRINT* fp : brd->Footprints() )
+            {
+                for( const FP_3DMODEL& model : fp->Models() )
+                    stillUsed |= model.m_Filename == prefix + name;
+            }
+
+            if( stillUsed )
+                continue;
+
+            for( FOOTPRINT* fp : brd->Footprints() )
+                fp->GetEmbeddedFiles()->RemoveFile( name, true );
+
+            brd->GetEmbeddedFiles()->RemoveFile( name, true );
+        }
+
+        // Embedded files are not staged in any commit, so undo cannot restore them.
+        commit.Push( _( "Extract 3D Models" ), SKIP_UNDO );
+        m_frame->ClearUndoRedoList();
+    }
+
+    wxString msg;
+
+    if( extractedCount > 0 && failedCount > 0 )
+    {
+        msg = wxString::Format( _( "%d 3D model(s) extracted to '%s'.  %d could not be read." ), extractedCount,
+                                modelDir.GetPath(), failedCount );
+    }
+    else if( extractedCount > 0 )
+    {
+        msg = wxString::Format( _( "%d 3D model(s) extracted to '%s'." ), extractedCount, modelDir.GetPath() );
+    }
+    else if( failedCount > 0 )
+    {
+        msg = wxString::Format( _( "No 3D models could be extracted.  %d could not be read." ), failedCount );
+    }
+    else
+    {
+        msg = _( "The board has no embedded 3D models." );
+    }
+
+    m_frame->GetInfoBar()->ShowMessageFor( msg, 5000 );
+
+    return 0;
+}
+
+
 // clang-format off
 void PCB_CONTROL::setTransitions()
 {
@@ -3412,6 +3561,7 @@ void PCB_CONTROL::setTransitions()
     // Miscellaneous
     Go( &PCB_CONTROL::InteractiveDelete,       ACTIONS::deleteTool.MakeEvent() );
     Go( &PCB_CONTROL::CollectAndEmbed3DModels, PCB_ACTIONS::collect3DModels.MakeEvent() );
+    Go( &PCB_CONTROL::ExtractEmbedded3DModels, PCB_ACTIONS::extract3DModels.MakeEvent() );
 
     // Append control
     Go( &PCB_CONTROL::AppendDesignBlock,    PCB_ACTIONS::placeDesignBlock.MakeEvent() );

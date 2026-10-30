@@ -634,6 +634,7 @@ public:
     static TOOL_ACTION compareBoardWithHistory;
     static TOOL_ACTION showFootprintAssociations;
     static TOOL_ACTION collect3DModels;
+    static TOOL_ACTION extract3DModels;
 
     // Appearance controls
     static TOOL_ACTION clearHighlight;          // Turns off highlight and resets previous highlight

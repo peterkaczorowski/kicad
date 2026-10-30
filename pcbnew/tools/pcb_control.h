@@ -120,6 +120,7 @@ public:
     int ShowDrillGroups( const TOOL_EVENT& aEvent );
 
     int CollectAndEmbed3DModels( const TOOL_EVENT& aEvent );
+    int ExtractEmbedded3DModels( const TOOL_EVENT& aEvent );
 
     int FlipPcbView( const TOOL_EVENT& aEvent );
 
