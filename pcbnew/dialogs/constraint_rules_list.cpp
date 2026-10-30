@@ -313,10 +313,11 @@ int CONSTRAINT_RULES_LIST::addNetclassRows()
         // The condition DRC gives the rule it builds for the class, so the row reads like a rule
         wxString condition = wxString::Format( wxS( "A.hasExactNetclass('%s')" ), netclass->GetName() );
 
-        // A class raises the minimum for some constraints and asks for a value in others, and
-        // the row has to say which, since only the first displaces the board default
-        wxString constraint = wxString::Format( m_netclassPart == NETCLASS_CONSTRAINT_PART::MINIMUM ? wxS( "min %s" )
-                                                                                                    : wxS( "opt %s" ),
+        // A class raises the minimum for some constraints and asks for a value in others, and the
+        // row has to say which, since only the first displaces the board default. The clause is
+        // written the way the rule rows below it write theirs.
+        wxString constraint = wxString::Format( m_netclassPart == NETCLASS_CONSTRAINT_PART::MINIMUM ? wxS( "(min %s)" )
+                                                                                                    : wxS( "(opt %s)" ),
                                                 m_frame->StringFromValue( *value, true ) );
 
         long item = m_list->InsertItem( row, wxEmptyString );
