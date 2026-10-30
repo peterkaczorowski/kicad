@@ -82,6 +82,7 @@
 #include <zone.h>
 #include <confirm.h>
 #include <kidialog.h>
+#include <wx/dirdlg.h>
 #include <connectivity/connectivity_data.h>
 #include <core/kicad_algo.h>
 #include <dialogs/hotkey_cycle_popup.h>
@@ -3354,7 +3355,9 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     const wxString prefix = FILEEXT::KiCadUriPrefix + "://";
 
-    wxFileName modelDir( m_frame->Prj().GetProjectPath(), wxEmptyString );
+    const wxString projectPath = m_frame->Prj().GetProjectPath();
+
+    wxFileName modelDir( projectPath, wxEmptyString );
     modelDir.AppendDir( wxT( "3dmodels" ) );
 
     // Clearing the history below takes the user's other undo steps with it.  Say so first.
@@ -3369,6 +3372,32 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     if( confirm.ShowModal() != wxID_OK )
         return 0;
+
+    wxDirDialog dirDlg( m_frame, _( "Write the 3D models to" ), modelDir.GetPath(), wxDD_DEFAULT_STYLE );
+
+    if( dirDlg.ShowModal() != wxID_OK )
+        return 0;
+
+    modelDir = wxFileName( dirDlg.GetPath(), wxEmptyString );
+
+    // ${KIPRJMOD} only reaches inside the project.
+    wxFileName relative( modelDir );
+    relative.MakeRelativeTo( projectPath );
+
+    wxString relativeDir = relative.GetPath( wxPATH_NO_SEPARATOR, wxPATH_UNIX );
+    wxString linkPrefix;
+
+    if( relativeDir.StartsWith( wxT( ".." ) ) || wxFileName( relativeDir ).IsAbsolute() )
+    {
+        linkPrefix = modelDir.GetPathWithSep( wxPATH_UNIX );
+    }
+    else
+    {
+        linkPrefix = wxT( "${KIPRJMOD}/" );
+
+        if( !relativeDir.IsEmpty() )
+            linkPrefix += relativeDir + wxT( "/" );
+    }
 
     if( wxFileName::FileExists( modelDir.GetPath() ) )
     {
@@ -3539,7 +3568,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                     }
                 }
 
-                it = written.emplace( name, wxT( "${KIPRJMOD}/3dmodels/" ) + placed ).first;
+                it = written.emplace( name, linkPrefix + placed ).first;
             }
 
             if( !fpModified )
