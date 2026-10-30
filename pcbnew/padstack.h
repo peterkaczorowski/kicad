@@ -103,6 +103,8 @@ enum class PAD_ATTRIB
                 ///<   Used for edgecard connectors for instance
     NPTH,       ///< like PAD_PTH, but not plated
                 ///<   mechanical use only, no connection allowed
+    CU_ONLY,    ///< Copper only pad, no hole.  Mask and paste are optional on outer layers.
+                ///<   For example, net-ties or embedded component terminals.
 };
 
 

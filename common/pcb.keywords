@@ -92,6 +92,7 @@ constant
 constraint
 copperpour
 copper_finish
+copper_only
 crossbar
 cross_hatch
 curve_points
