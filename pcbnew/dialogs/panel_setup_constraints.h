@@ -92,6 +92,9 @@ public:
 private:
     PCB_EDIT_FRAME*               m_Frame;
     BOARD_DESIGN_SETTINGS*        m_BrdSettings;
+
+    /// The rule page that sets the spoke count, which is a spin control rather than a bound field
+    wxString                      m_spokeCountPage;
     std::vector<CONSTRAINT_FIELD> m_fields;
     wxTimer                       m_validationTimer;
 };

@@ -74,8 +74,17 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
 
     m_stCircleToPolyWarning->SetFont( KIUI::GetSmallInfoFont( this ).Italic() );
 
+    // The spoke count is a spin control, so it is not one of the bound fields below
+    m_spokeCountPage = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_resolved_spokes" ) );
+
     wxSize ctrlSize = m_minResolvedSpokeCountCtrl->GetSize();
     ctrlSize.x = KIUI::GetTextSize( wxT( "XXX" ), m_minResolvedSpokeCountCtrl ).x;
+
+    // The link sits inside the field, and this one is otherwise only as wide as its count
+    if( !m_spokeCountPage.IsEmpty() )
+        ctrlSize.x = m_minResolvedSpokeCountCtrl->GetBestSize().x + FromDIP( 24 );
+
+    m_minResolvedSpokeCountCtrl->SetMinSize( ctrlSize );
     m_minResolvedSpokeCountCtrl->SetSize( ctrlSize );
 
     if( !ADVANCED_CFG::GetCfg().m_EnableCreepageSlot )
@@ -127,6 +136,9 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
                                 aEvent.Skip();
                             } );
     }
+
+    if( !m_spokeCountPage.IsEmpty() )
+        PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( m_minResolvedSpokeCountCtrl, m_spokeCountPage, 0 );
 
     Bind( wxEVT_TIMER,
           [this]( wxTimerEvent& )
@@ -183,7 +195,10 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataFromWindow()
 
     applyValues( temp );
 
-    std::map<wxString, wxWindow*> fieldToControl = { { wxS( "min_resolved_spokes" ), m_minResolvedSpokeCountCtrl } };
+    std::map<wxString, wxWindow*> fieldToControl;
+
+    if( m_spokeCountPage.IsEmpty() )
+        fieldToControl[wxS( "min_resolved_spokes" )] = m_minResolvedSpokeCountCtrl;
 
     for( const CONSTRAINT_FIELD& field : m_fields )
     {
@@ -212,7 +227,9 @@ void PANEL_SETUP_CONSTRAINTS::applyValues( BOARD_DESIGN_SETTINGS& aSettings ) co
 {
     aSettings.m_UseHeightForLengthCalcs = m_useHeightForLengthCalcs->GetValue();
     aSettings.m_ZoneKeepExternalFillets = m_allowExternalFilletsOpt->GetValue();
-    aSettings.m_MinResolvedSpokes = m_minResolvedSpokeCountCtrl->GetValue();
+
+    if( m_spokeCountPage.IsEmpty() )
+        aSettings.m_MinResolvedSpokes = m_minResolvedSpokeCountCtrl->GetValue();
 
     for( const CONSTRAINT_FIELD& field : m_fields )
     {
@@ -231,6 +248,9 @@ void PANEL_SETUP_CONSTRAINTS::RefreshDefaults()
         if( !field.m_EditedOn.IsEmpty() )
             field.m_Binder->SetValue( m_BrdSettings->*( field.m_Member ) );
     }
+
+    if( !m_spokeCountPage.IsEmpty() )
+        m_minResolvedSpokeCountCtrl->SetValue( m_BrdSettings->m_MinResolvedSpokes );
 
     updateWarnings();
 }

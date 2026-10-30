@@ -109,8 +109,6 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
 
     if( !m_section.defaults.empty() )
     {
-        // The value every rule here is read against, so it is edited here rather than on a page
-        // of its own
         wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 3, 4, 8 );
 
         for( const CONSTRAINT_DEFAULT_FIELD& field : m_section.defaults )
@@ -136,6 +134,10 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
             entry.warning = new FIELD_WARNING_ICON( value );
             entry.binder = std::make_unique<UNIT_BINDER>( m_frame, label, value, units );
             entry.editedOn = field.editedOn;
+
+            // UNIT_BINDER leaves an unscaled field alone through a change of units
+            if( field.value == CONSTRAINT_VALUE::COUNT )
+                entry.binder->SetUnits( EDA_UNITS::UNSCALED );
 
             if( entry.editedOn.IsEmpty() )
             {
@@ -544,7 +546,11 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                    {} },
                  { _( "Physical clearance" ), {}, PHYSICAL_CLEARANCE, {} },
                  { _( "Creepage distance" ), {}, CREEPAGE_DISTANCE, {} },
-                 { _( "Minimum thermal relief spoke count" ), {}, MINIMUM_THERMAL_RELIEF_SPOKE_COUNT, {} } };
+                 { _( "Minimum thermal relief spoke count" ),
+                   { { _( "Board default:" ), &BDS::m_MinResolvedSpokes, wxS( "min_resolved_spokes" ), wxEmptyString,
+                       CONSTRAINT_VALUE::COUNT } },
+                   MINIMUM_THERMAL_RELIEF_SPOKE_COUNT,
+                   {} } };
 
     case FAMILY::TRACKS_AND_VIAS:
         return { { _( "Minimum track width" ),
@@ -562,7 +568,8 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                    MINIMUM_ANNULAR_WIDTH,
                    {} },
                  { _( "Minimum via diameter" ),
-                   { { _( "Board default:" ), &BDS::m_ViasMinSize, wxS( "min_via_diameter" ) } },
+                   { { _( "Board default:" ), &BDS::m_ViasMinSize, wxS( "min_via_diameter" ) },
+                     { _( "Microvia default:" ), &BDS::m_MicroViasMinSize, wxS( "min_microvia_diameter" ) } },
                    MINIMUM_VIA_DIAMETER,
                    viaDiameter,
                    wxEmptyString,
@@ -572,7 +579,8 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
 
     case FAMILY::HOLES:
         return { { _( "Minimum drill size" ),
-                   { { _( "Board default:" ), &BDS::m_MinThroughDrill, wxS( "min_through_hole_diameter" ) } },
+                   { { _( "Board default:" ), &BDS::m_MinThroughDrill, wxS( "min_through_hole_diameter" ) },
+                     { _( "Microvia default:" ), &BDS::m_MicroViasMinDrill, wxS( "min_microvia_drill" ) } },
                    MINIMUM_DRILL_SIZE,
                    viaDrill,
                    wxEmptyString,

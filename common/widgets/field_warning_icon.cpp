@@ -30,6 +30,7 @@
 #include <wx/combo.h>
 #include <wx/combobox.h>
 #include <wx/settings.h>
+#include <wx/spinctrl.h>
 
 
 FIELD_WARNING_ICON::FIELD_WARNING_ICON( wxWindow* aField, BITMAPS aIcon, int aSlot ) :
@@ -121,10 +122,10 @@ void FIELD_WARNING_ICON::Reposition()
     const wxSize fieldSize = m_field->GetSize();
     int          buttonWidth = 0;
 
-    // A dropdown button is about as wide as the field is tall, except on Windows where it has the width of a
-    // scrollbar
+    // A dropdown button, or a spin control's arrows, is about as wide as the field is tall, except on Windows
+    // where it has the width of a scrollbar
     if( dynamic_cast<wxComboBox*>( m_field ) || dynamic_cast<wxChoice*>( m_field )
-        || dynamic_cast<wxComboCtrl*>( m_field ) )
+        || dynamic_cast<wxComboCtrl*>( m_field ) || dynamic_cast<wxSpinCtrl*>( m_field ) )
     {
 #ifdef __WXMSW__
         buttonWidth = wxSystemSettings::GetMetric( wxSYS_VSCROLL_X, m_field );

@@ -655,11 +655,24 @@ BOOST_AUTO_TEST_CASE( ADefaultHeldWithAnotherValueStaysOnItsOwnPage )
     BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_expansion" ) ).IsEmpty() );
     BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_min_width" ) ).IsEmpty() );
 
-    // A value without rules of its own is still set on the page it has always been set on
+    // Max error is a geometry tolerance and the groove width feeds the creepage search, so
+    // neither is a constraint a rule page could hold
     BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "max_error" ) ).IsEmpty() );
     BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_groove_width" ) ).IsEmpty() );
-    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_diameter" ) ).IsEmpty() );
-    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_drill" ) ).IsEmpty() );
+}
+
+
+BOOST_AUTO_TEST_CASE( AConditionedDefaultSitsWithTheConstraintItNarrows )
+{
+    // A microvia carries its own minimum for two constraints that are not microvia specific, so
+    // those two values belong on the page holding the rules for the constraint they narrow
+    BOOST_CHECK_EQUAL( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_diameter" ) ),
+                       PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_via_diameter" ) ) );
+    BOOST_CHECK_EQUAL( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_drill" ) ),
+                       PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_through_hole_diameter" ) ) );
+
+    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_diameter" ) ).IsEmpty() );
+    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_resolved_spokes" ) ).IsEmpty() );
 }
 
 

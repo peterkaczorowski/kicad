@@ -45,6 +45,17 @@ class NET_SETTINGS;
 class PCB_EDIT_FRAME;
 
 
+/// What a board default measures, which decides how its field is read and written
+enum class CONSTRAINT_VALUE
+{
+    /// A distance in board units, shown in the user's units
+    LENGTH,
+
+    /// A plain number, which no change of units rescales
+    COUNT
+};
+
+
 // MSVC sizes a member pointer by what it knows of the class, so BOARD_DESIGN_SETTINGS must be
 // complete here or this struct has a different layout in different files
 struct CONSTRAINT_DEFAULT_FIELD
@@ -55,6 +66,8 @@ struct CONSTRAINT_DEFAULT_FIELD
 
     /// The page that edits this value, where it is not edited with the rules read against it
     wxString editedOn = {};
+
+    CONSTRAINT_VALUE value = CONSTRAINT_VALUE::LENGTH;
 };
 
 

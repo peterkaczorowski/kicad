@@ -31,11 +31,14 @@ class wxWindowDestroyEvent;
 /**
  * A warning icon drawn inside the right edge of a field, left of its dropdown button when it has
  * one, with the warnings as its tooltip.  The icon is shown only while there is something to warn
- * about.  It marks a combo box, a choice or a text control.
+ * about.  It marks a combo box, a choice, a spin control or a text control.
  *
  * The icon is a sibling of the field, since native combo boxes cannot host child windows on every
  * port, and follows the field when it moves or changes size.  Like any child window it belongs to the
  * field's parent, which destroys it.
+ *
+ * A field that carries a button of its own at that edge, a combo box or a spin control, is given
+ * room for it.
  */
 class KICOMMON_API FIELD_WARNING_ICON : public wxGenericStaticBitmap
 {
