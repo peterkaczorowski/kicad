@@ -615,4 +615,52 @@ BOOST_AUTO_TEST_CASE( EveryBoardConstraintWithRulesResolvesToAPage )
 }
 
 
+BOOST_AUTO_TEST_CASE( EveryBoardDefaultIsWrittenByOnePageOnly )
+{
+    const std::vector<std::pair<wxString, CONSTRAINT_DEFAULT_FIELD>> edited =
+            PANEL_SETUP_CONSTRAINT_RULES::EditedDefaults();
+
+    // Two pages writing one value would make the result depend on which was left last
+    for( size_t i = 0; i < edited.size(); ++i )
+    {
+        for( size_t j = i + 1; j < edited.size(); ++j )
+        {
+            BOOST_CHECK_MESSAGE( edited[i].second.settingName != edited[j].second.settingName,
+                                 "two rule pages edit " << edited[i].second.settingName.ToStdString() );
+            BOOST_CHECK_MESSAGE( edited[i].second.member != edited[j].second.member,
+                                 "two rule pages write the member behind "
+                                         << edited[i].second.settingName.ToStdString() );
+        }
+    }
+
+    // A value a rule page edits names that page, so the page it left can link to it
+    for( const auto& [group, field] : edited )
+    {
+        BOOST_CHECK_MESSAGE( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( field.settingName ).IsEmpty(),
+                             "no page edits " << field.settingName.ToStdString() );
+    }
+}
+
+
+BOOST_AUTO_TEST_CASE( ADefaultHeldWithAnotherValueStaysOnItsOwnPage )
+{
+    // One control on Solder Mask/Paste holds the paste clearance together with its ratio, so the
+    // rule page shows that value rather than writing it
+    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_paste_margin" ) ).IsEmpty() );
+
+    for( const auto& [group, field] : PANEL_SETUP_CONSTRAINT_RULES::EditedDefaults() )
+        BOOST_CHECK( field.settingName != wxS( "solder_paste_margin" ) );
+
+    // Its neighbours on that page did move
+    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_expansion" ) ).IsEmpty() );
+    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_min_width" ) ).IsEmpty() );
+
+    // A value without rules of its own is still set on the page it has always been set on
+    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "max_error" ) ).IsEmpty() );
+    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_groove_width" ) ).IsEmpty() );
+    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_diameter" ) ).IsEmpty() );
+    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "min_microvia_drill" ) ).IsEmpty() );
+}
+
+
 BOOST_AUTO_TEST_SUITE_END()
