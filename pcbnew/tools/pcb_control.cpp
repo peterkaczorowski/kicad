@@ -3360,8 +3360,39 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     int          extractedCount = 0;
     int          failedCount = 0;
 
-    std::map<wxString, wxString> written;
+    std::map<wxString, wxString> written;   // embedded name -> the path footprints now use
+    std::set<wxString>           extracted; // every name written out, companions included
     std::set<wxString>           failed;
+
+    // Write one embedded file into the models folder, confirming that all of it landed.
+    auto writeOut = [&]( EMBEDDED_FILES::EMBEDDED_FILE* aFile, const wxString& aName ) -> bool
+    {
+        if( !aFile || !aFile->Validate() )
+            return false;
+
+        if( !PATHS::EnsurePathExists( modelDir.GetPath() ) )
+            return false;
+
+        wxFileName          target( modelDir.GetPath(), aName );
+        wxFFileOutputStream out( target.GetFullPath() );
+
+        if( !out.IsOk() )
+            return false;
+
+        const size_t size = aFile->decompressedData.size();
+
+        out.Write( aFile->decompressedData.data(), size );
+
+        // Close() is where a full disk or a failing network share finally reports itself,
+        // and the blob is about to be the only copy that is gone.
+        bool ok = out.IsOk() && out.LastWrite() == size;
+        ok &= out.Close();
+
+        if( !ok )
+            wxRemoveFile( target.GetFullPath() );
+
+        return ok;
+    };
 
     for( FOOTPRINT* fp : brd->Footprints() )
     {
@@ -3381,47 +3412,36 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
             if( it == written.end() )
             {
-                EMBEDDED_FILES*                store = findEmbeddedStore( name, fp, brd );
-                EMBEDDED_FILES::EMBEDDED_FILE* file = store ? store->GetEmbeddedFile( name ) : nullptr;
+                EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd );
 
-                if( !file || !file->Validate() )
+                if( !store || !writeOut( store->GetEmbeddedFile( name ), name ) )
                 {
                     failed.insert( name );
                     failedCount++;
                     continue;
                 }
 
-                if( !PATHS::EnsurePathExists( modelDir.GetPath() ) )
+                extracted.insert( name );
+
+                // Embedding also takes a VRML model's STEP companion, which no footprint names.
+                const wxString base = name.BeforeLast( '.' );
+
+                if( !base.IsEmpty() )
                 {
-                    failed.insert( name );
-                    failedCount++;
-                    continue;
-                }
+                    for( const auto& [companion, entry] : store->EmbeddedFileMap() )
+                    {
+                        if( companion == name || extracted.count( companion ) )
+                            continue;
 
-                wxFileName          target( modelDir.GetPath(), name );
-                wxFFileOutputStream out( target.GetFullPath() );
+                        if( entry->type != EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL )
+                            continue;
 
-                if( !out.IsOk() )
-                {
-                    failed.insert( name );
-                    failedCount++;
-                    continue;
-                }
+                        if( companion.BeforeLast( '.' ) != base )
+                            continue;
 
-                const size_t size = file->decompressedData.size();
-
-                out.Write( file->decompressedData.data(), size );
-
-                // Close() is where a full disk reports itself.
-                bool written_ok = out.IsOk() && out.LastWrite() == size;
-                written_ok &= out.Close();
-
-                if( !written_ok )
-                {
-                    wxRemoveFile( target.GetFullPath() );
-                    failed.insert( name );
-                    failedCount++;
-                    continue;
+                        if( writeOut( entry.get(), companion ) )
+                            extracted.insert( companion );
+                    }
                 }
 
                 it = written.emplace( name, wxT( "${KIPRJMOD}/3dmodels/" ) + name ).first;
@@ -3439,7 +3459,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     if( extractedCount > 0 )
     {
         // Drop the blobs now that nothing points at them, so the board stops carrying them.
-        for( const auto& [name, path] : written )
+        for( const wxString& name : extracted )
         {
             bool stillUsed = false;
 
