@@ -146,6 +146,9 @@ message SchematicImage
   kiapi.common.types.LockedState locked = 6;
 
   repeated kiapi.common.types.CustomProperty custom_properties = 7;
+
+  kiapi.common.types.Angle orientation = 8;
+  double opacity = 9;
 }
 
 enum SchematicLabelShape
@@ -627,6 +630,9 @@ message SchematicSymbolInstance
 
   SchematicSymbol definition = 6;
 
+  // The reference as shown on this sheet path, which includes the path's reference suffix.  On a
+  // create or update request a trailing suffix of this path is stripped, and a suffix that belongs
+  // to another instance of the same sheet file is refused.
   SchematicField reference_field = 7;
   SchematicField value_field = 8;
   SchematicField footprint_field = 9;

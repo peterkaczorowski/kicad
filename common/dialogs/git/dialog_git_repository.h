@@ -23,6 +23,7 @@
 #include "dialog_git_repository_base.h"
 
 #include <git/kicad_git_common.h>
+#include <git/kigit_ssh_keys.h>
 #include <git2.h>
 
 class DIALOG_GIT_REPOSITORY : public DIALOG_GIT_REPOSITORY_BASE
@@ -59,8 +60,9 @@ public:
     void     SetPassword( const wxString& aPassword ) { m_txtPassword->SetValue( aPassword ); }
     wxString GetPassword() const { return m_txtPassword->GetValue(); }
 
-    void     SetRepoSSHPath( const wxString& aPath ) { m_fpSSHKey->SetFileName( aPath ); m_prevFile = aPath; }
-    wxString GetRepoSSHPath() const { return m_fpSSHKey->GetFileName().GetFullPath(); }
+    void SetRepoSSHPath( const wxString& aPath ) { m_fpSSHKey->SetFileName( aPath ); }
+    /// The private key, also when its .pub was picked.
+    wxString GetRepoSSHPath() const { return KIGIT::PrivateKeyPath( m_fpSSHKey->GetFileName().GetFullPath() ); }
 
     void     SetEncrypted( bool aEncrypted = true );
 
@@ -89,14 +91,15 @@ private:
 
     void setDefaultSSHKey( const wxString& aHost );
 
+    /// Show why the chosen SSH key cannot be used. False when there is no such problem.
+    bool reportUnusableKey();
+
     void updateAuthControls();
     void updateURLData();
     bool extractClipboardData();
 
     git_repository* m_repository;
     wxString        m_incomeURL;
-
-    wxString        m_prevFile;
 
     bool            m_tempRepo;
     wxString        m_tempPath;

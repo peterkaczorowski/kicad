@@ -67,6 +67,8 @@ public:
      */
     virtual void SetUnits( EDA_UNITS aUnits );
 
+    EDA_UNITS GetUnits() const { return m_units; }
+
     bool UnitsInvariant() const
     {
         return m_units == EDA_UNITS::UNSCALED || m_units == EDA_UNITS::DEGREES || m_units == EDA_UNITS::PERCENT;
@@ -203,8 +205,7 @@ public:
      * @param aDataType the measurement type governing conversion power and units label.
      */
     static RANGE_BOUND ConvertRangeBound( const EDA_IU_SCALE& aIuScale, EDA_UNITS aBoundUnits,
-                                          double aBound, EDA_UNITS aDisplayUnits,
-                                          EDA_DATA_TYPE aDataType );
+                                          double aBound, EDA_UNITS aDisplayUnits, EDA_DATA_TYPE aDataType );
 
     void SetLabel( const wxString& aLabel );
 

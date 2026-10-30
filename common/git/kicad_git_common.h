@@ -342,6 +342,11 @@ public:
     /// key file can be offered.
     wxString GetFirstOfferedSSHKey() const;
 
+    /// The encrypted key the server last accepted for this remote, so the credential prompt asks for the
+    /// right passphrase. Empty when no server has accepted one.
+    wxString GetAcceptedSSHKey() const;
+    void     SetAcceptedSSHKey( const wxString& aKey );
+
     /// The remote the credential prompt was opened for. Read as one, so a transfer syncing the
     /// URL on another thread cannot leave the fields describing two remotes.
     struct CREDENTIAL_IDENTITY
@@ -566,11 +571,12 @@ public:
     /// The command that trusts a repository another user owns, when that is why attaching failed.
     const wxString& GetAttachTrustCommand() const { return m_attachTrustCommand; }
 
-    void ResetNextKey()
-    {
-        std::lock_guard<std::mutex> lock( m_credentialsMutex );
-        m_nextPublicKey = 0;
-    }
+    /// Start the next attempt from the first key, with the key that last connected to the current
+    /// remote moved up.
+    void ResetNextKey();
+
+    /// Remember the key that connected for @p aAttempt, so the next connection offers it first.
+    void RememberWorkingSSHKey( const KIGIT_AUTH_ATTEMPT& aAttempt );
 
     /// By value, so the caller never holds a pointer into the vector.
     wxString GetNextPublicKey();
@@ -582,6 +588,7 @@ public:
             m_remote = aRemote;
             m_password.clear();
             m_secretFetched = false;
+            m_acceptedSSHKey.clear();
             updateConnectionTypeUnlocked();
         }
 
@@ -739,8 +746,9 @@ private:
 
     void updatePublicKeys();
 
-    /// Rebuild m_publicKeys as the project key, when offerable, then the discovered keys, and restart
-    /// from the first. The caller holds m_credentialsMutex.
+    /// Rebuild m_publicKeys as the project key, when offerable, then the key that last connected to
+    /// m_remote, then the discovered keys, and restart from the first. The caller holds
+    /// m_credentialsMutex.
     void rebuildPublicKeysUnlocked();
     void updateConnectionType();
 
@@ -751,6 +759,7 @@ private:
     std::vector<wxString> m_publicKeys;
     wxString m_publicKeysHost; // The host m_publicKeys was gathered for
     wxString m_projectSSHKey;  // Kept when its file is missing, so the setting is not lost
+    wxString              m_acceptedSSHKey; // An encrypted key the server took for m_remote, still to be unlocked
     int m_nextPublicKey;
     bool m_secretFetched;
 
@@ -804,6 +813,12 @@ namespace KIGIT
  * recognised as a private key is reported as unencrypted.
  */
 APIEXPORT bool IsPrivateKeyEncrypted( const wxString& aKeyText );
+
+/// IsPrivateKeyEncrypted for the key file @p aKey. A file that cannot be read is reported as unencrypted.
+APIEXPORT bool IsPrivateKeyFileEncrypted( const wxString& aKey );
+
+/// git's core.sshCommand for @p aRepo, or from the user's git config when @p aRepo is null. Empty when unset.
+APIEXPORT wxString ConfiguredSSHCommand( git_repository* aRepo );
 
 
 /**

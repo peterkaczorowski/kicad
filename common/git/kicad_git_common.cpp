@@ -32,6 +32,7 @@
 #include <git2.h>
 #include <wx/arrstr.h>
 #include <wx/base64.h>
+#include <wx/ffile.h>
 #include <wx/filename.h>
 #include <wx/log.h>
 #include <wx/utils.h>
@@ -86,6 +87,7 @@ KIGIT_COMMON::KIGIT_COMMON( const KIGIT_COMMON& aOther ) :
         m_publicKeys( aOther.m_publicKeys ),
         m_publicKeysHost( aOther.m_publicKeysHost ),
         m_projectSSHKey( aOther.m_projectSSHKey ),
+        m_acceptedSSHKey( aOther.m_acceptedSSHKey ),
         m_nextPublicKey( aOther.m_nextPublicKey ),
         m_secretFetched( aOther.m_secretFetched )
 {
@@ -1018,6 +1020,10 @@ std::vector<wxString> KIGIT_COMMON::GetRecentCommitMessages( size_t aMax ) const
         KIGIT::GitCommitPtr commitPtr( commit );
         wxString            message;
 
+        // git writes a merge's message, so it is no message the user would start from
+        if( git_commit_parentcount( commit ) > 1 )
+            continue;
+
         if( const char* text = git_commit_message( commit ) )
             message = KIGIT::DecodeRepoText( text );
 
@@ -1918,6 +1924,20 @@ wxString KIGIT_COMMON::GetFirstOfferedSSHKey() const
 }
 
 
+wxString KIGIT_COMMON::GetAcceptedSSHKey() const
+{
+    std::lock_guard<std::mutex> lock( m_credentialsMutex );
+    return m_acceptedSSHKey;
+}
+
+
+void KIGIT_COMMON::SetAcceptedSSHKey( const wxString& aKey )
+{
+    std::lock_guard<std::mutex> lock( m_credentialsMutex );
+    m_acceptedSSHKey = aKey;
+}
+
+
 KIGIT_COMMON::CREDENTIAL_IDENTITY KIGIT_COMMON::GetCredentialIdentity() const
 {
     std::lock_guard<std::mutex> lock( m_credentialsMutex );
@@ -1987,11 +2007,43 @@ void KIGIT_COMMON::rebuildPublicKeysUnlocked()
     else if( !m_projectSSHKey.IsEmpty() )
         wxLogTrace( traceGit, "Not offering project SSH key %s, it or its .pub is missing", m_projectSSHKey );
 
+    // A refused key still counts toward the server's limit on attempts, and the right one can come too late.
+    // Only a key still found for the host moves up, so one dropped from the ssh config stays dropped
+    wxString remembered = KIGIT::RememberedSSHKey( m_remote );
+
+    bool current = std::any_of( m_discoveredKeys.begin(), m_discoveredKeys.end(),
+                                [&]( const wxString& aKey )
+                                {
+                                    return KIGIT::IsSameSSHKey( aKey, remembered );
+                                } );
+
+    if( !current || KIGIT::IsSameSSHKey( remembered, m_projectSSHKey ) )
+        remembered.clear();
+    else
+        m_publicKeys.push_back( remembered );
+
     for( const wxString& key : m_discoveredKeys )
     {
-        if( !KIGIT::IsSameSSHKey( key, m_projectSSHKey ) )
+        if( !KIGIT::IsSameSSHKey( key, m_projectSSHKey ) && !KIGIT::IsSameSSHKey( key, remembered ) )
             m_publicKeys.push_back( key );
     }
+}
+
+
+void KIGIT_COMMON::ResetNextKey()
+{
+    std::lock_guard<std::mutex> lock( m_credentialsMutex );
+    rebuildPublicKeysUnlocked();
+}
+
+
+void KIGIT_COMMON::RememberWorkingSSHKey( const KIGIT_AUTH_ATTEMPT& aAttempt )
+{
+    // libgit2 asks for nothing more once a credential works, so the last key offered is the one that did
+    if( aAttempt.connType != GIT_CONN_TYPE::GIT_CONN_SSH || aAttempt.keysTried.empty() )
+        return;
+
+    KIGIT::RememberSSHKey( GetRemote(), aAttempt.keysTried.back() );
 }
 
 
@@ -2035,7 +2087,8 @@ void KIGIT_COMMON::updatePublicKeys()
     // first for that reason.
     std::lock_guard<std::mutex> lock( m_credentialsMutex );
 
-    m_discoveredKeys = KIGIT::DefaultSSHKeyCandidates( KIGIT::HomeDir(), m_hostname );
+    m_discoveredKeys =
+            KIGIT::DefaultSSHKeyCandidates( KIGIT::HomeDir(), m_hostname, KIGIT::ConfiguredSSHCommand( m_repo ) );
     m_publicKeysHost = m_hostname;
     rebuildPublicKeysUnlocked();
 }
@@ -2087,6 +2140,10 @@ void KIGIT_COMMON::SyncRemoteUrl( const wxString& aRawUrl )
             m_username = parsed.username;
             m_password = parsed.password;
             m_secretFetched = !m_password.IsEmpty();
+            m_acceptedSSHKey.clear();
+
+            // Another address on the same host can have a different key remembered for it
+            rebuildPublicKeysUnlocked();
         }
 
         // SetRemote can move the host without gathering keys, so compare against the gathered list
@@ -2540,6 +2597,27 @@ void KIGIT_COMMON::updateConnectionTypeUnlocked()
 }
 
 
+// The server accepted the key's public half. Refusing to sign ends the request before any login is tried.
+// Recorded here because the server may disconnect before libgit2 asks for another credential
+extern "C" int ssh_probe_sign_cb( LIBSSH2_SESSION*, unsigned char**, size_t*, const unsigned char*, size_t,
+                                  void** aAbstract )
+{
+    if( !aAbstract || !*aAbstract )
+        return -1;
+
+    KIGIT_AUTH_ATTEMPT* attempt = static_cast<KIGIT_AUTH_ATTEMPT*>( *aAbstract );
+    attempt->lastKeyRefused = false;
+
+    if( attempt->acceptedKey.IsEmpty() )
+    {
+        attempt->acceptedKey = attempt->probing;
+        attempt->passphraseGiven = false;
+    }
+
+    return -1;
+}
+
+
 int KIGIT_COMMON::HandleSSHKeyAuthentication( git_cred** aOut, const wxString& aUsername, KIGIT_AUTH_ATTEMPT& aAttempt )
 {
     if( !( m_testedTypes & KIGIT_CREDENTIAL_SSH_AGENT ) )
@@ -2553,7 +2631,13 @@ int KIGIT_COMMON::HandleSSHKeyAuthentication( git_cred** aOut, const wxString& a
         // Agent unavailable or has no matching key; fall through to configured key.
     }
 
-    // SSH key authentication with password
+    if( !aAttempt.probing.IsEmpty() )
+    {
+        wxLogTrace( traceGit, aAttempt.lastKeyRefused ? "Server refuses %s" : "Server accepts %s", aAttempt.probing );
+        aAttempt.probing.clear();
+    }
+
+    wxString password = GetPassword();
     wxString sshKey = GetNextPublicKey();
 
     if( sshKey.IsEmpty() )
@@ -2563,8 +2647,26 @@ int KIGIT_COMMON::HandleSSHKeyAuthentication( git_cred** aOut, const wxString& a
         return GIT_PASSTHROUGH;
     }
 
-    wxString sshPubKey = sshKey + ".pub";
-    wxString password = GetPassword();
+    // Without a passphrase no encrypted key can sign, so asking the server first is the only way to learn which
+    // one it takes. With one, the probe's extra round would cost a counted attempt for nothing
+    if( password.IsEmpty() && KIGIT::IsPrivateKeyFileEncrypted( sshKey ) )
+    {
+        const std::string blob = KIGIT::PublicKeyBlob( sshKey );
+
+        if( !blob.empty()
+            && git_credential_ssh_custom_new( aOut, aUsername.mbc_str(), blob.data(), blob.size(), ssh_probe_sign_cb,
+                                              &aAttempt )
+                       == GIT_OK )
+        {
+            wxLogTrace( traceGit, "Asking whether the server takes %s", sshKey );
+            aAttempt.probing = sshKey;
+            aAttempt.lastKeyRefused = true;
+            aAttempt.keysTried.push_back( sshKey );
+            return GIT_OK;
+        }
+    }
+
+    wxString sshPubKey = KIGIT::PublicKeyPath( sshKey );
 
     wxLogTrace( traceGit, "Testing %s\n", sshKey );
 
@@ -2578,6 +2680,8 @@ int KIGIT_COMMON::HandleSSHKeyAuthentication( git_cred** aOut, const wxString& a
 
     // libssh2 reads the file only once authentication starts, so a load failure names this key
     aAttempt.keysTried.push_back( sshKey );
+    aAttempt.lastKeyRefused = false;
+    aAttempt.passphraseGiven = !password.IsEmpty();
     return GIT_OK;
 }
 
@@ -2966,6 +3070,37 @@ bool IsPrivateKeyEncrypted( const wxString& aKeyText )
     std::string cipher( reinterpret_cast<const char*>( data + magicLen + 4 ), nameLen );
 
     return cipher != "none";
+}
+
+
+bool IsPrivateKeyFileEncrypted( const wxString& aKey )
+{
+    // wxFFile reports an unopenable file to the user, and a key that is gone is simply not encrypted
+    if( aKey.IsEmpty() || !wxFileName::IsFileReadable( aKey ) )
+        return false;
+
+    wxFFile  file( aKey, wxS( "rb" ) );
+    wxString text;
+
+    return file.IsOpened() && file.ReadAll( &text ) && IsPrivateKeyEncrypted( text );
+}
+
+
+wxString ConfiguredSSHCommand( git_repository* aRepo )
+{
+    git_config* config = nullptr;
+
+    if( ( aRepo ? git_repository_config( &config, aRepo ) : git_config_open_default( &config ) ) != 0 )
+        return wxEmptyString;
+
+    GitConfigPtr      configPtr( config );
+    git_config_entry* entry = nullptr;
+
+    if( git_config_get_entry( &entry, config, "core.sshCommand" ) != 0 )
+        return wxEmptyString;
+
+    GitConfigEntryPtr entryPtr( entry );
+    return wxString::FromUTF8( entry->value );
 }
 
 

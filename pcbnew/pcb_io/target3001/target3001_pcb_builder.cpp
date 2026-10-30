@@ -29,6 +29,7 @@
 #include <eda_units.h>
 #include <footprint.h>
 #include <geometry/shape_ellipse.h>
+#include <geometry/shape_rect.h>
 #include <ki_exception.h>
 #include <macros.h>
 #include <netinfo.h>
@@ -105,6 +106,50 @@ std::vector<VECTOR2I> parsePolyPad( const std::string& aValue )
     return pts;
 }
 
+
+/// The value counted most often, the smallest one on a tie
+int mostCommon( const std::map<int, int>& aCounts )
+{
+    auto it = std::max_element( aCounts.begin(), aCounts.end(),
+                                []( const auto& a, const auto& b )
+                                {
+                                    return a.second < b.second;
+                                } );
+
+    return it->first;
+}
+
+
+/// Distance from a pad to the fill around it, 0 when the pad touches it or nothing lies within reach
+int padFillGap( const PAD& aPad, PCB_LAYER_ID aLayer, const SHAPE_POLY_SET& aFill, int aReach )
+{
+    int         gap = 0;
+    ::PAD_SHAPE shape = aPad.GetShape( aLayer );
+
+    // The vendor may knock out an octagon around a rectangular pad, so only side midpoints agree; round
+    // knockouts are polygons around the pad that touch it only at their tangent points
+    if( shape != ::PAD_SHAPE::RECTANGLE && shape != ::PAD_SHAPE::ROUNDRECT && shape != ::PAD_SHAPE::CHAMFERED_RECT )
+        return aFill.Collide( aPad.GetEffectiveShape( aLayer ).get(), aReach, &gap ) ? gap : 0;
+
+    VECTOR2I half = aPad.GetSize( aLayer ) / 2;
+    int      best = 0;
+
+    for( VECTOR2I side :
+         { VECTOR2I( half.x, 0 ), VECTOR2I( -half.x, 0 ), VECTOR2I( 0, half.y ), VECTOR2I( 0, -half.y ) } )
+    {
+        RotatePoint( side, aPad.GetOrientation() );
+
+        SHAPE_RECT probe( aPad.ShapePos( aLayer ) + side, 1, 1 );
+
+        if( !aFill.Collide( &probe, aReach, &gap ) || gap <= 0 )
+            continue;
+
+        best = best ? std::min( best, gap ) : gap;
+    }
+
+    return best;
+}
+
 } // namespace
 
 
@@ -125,8 +170,11 @@ void TARGET3001_PCB_BUILDER::Build()
     buildSignalCopper();
     buildFreeItems();
     buildPourAreas();
+    buildPolygonPours();
     buildAreaClearanceRules();
     buildAuraRules();
+    buildPolygonRules();
+    buildThermalGaps();
 
     // A pour runs up to a contour stroke without clearance; KiCad has one edge clearance per board
     if( m_contourCarvesNothing )
@@ -171,9 +219,9 @@ static wxString ruleMm( int aValue )
 
 
 /// An expression string literal, whose only escape is \', inside a quoted rules file string
-static wxString ruleNetLiteral( const wxString& aNetName )
+static wxString ruleLiteral( const wxString& aValue )
 {
-    wxString text = aNetName;
+    wxString text = aValue;
     text.Replace( wxS( "\\" ), wxS( "\\\\" ) );
     text.Replace( wxS( "'" ), wxS( "\\\\'" ) );
     text.Replace( wxS( "\"" ), wxS( "\\\"" ) );
@@ -183,17 +231,8 @@ static wxString ruleNetLiteral( const wxString& aNetName )
 
 void TARGET3001_PCB_BUILDER::buildAreaClearanceRules()
 {
-    if( m_pourLayers.empty() )
+    if( m_pourLayers.empty() && !m_hasPolygonPours )
         return;
-
-    auto mostCommon = []( const std::map<int, int>& aCounts )
-    {
-        return std::max_element( aCounts.begin(), aCounts.end(),
-                                 []( const auto& a, const auto& b )
-                                 {
-                                     return a.second < b.second;
-                                 } )->first;
-    };
 
     std::map<int, int>                   boardCounts;
     std::map<int, std::vector<wxString>> netsByClearance;
@@ -238,7 +277,7 @@ void TARGET3001_PCB_BUILDER::buildAreaClearanceRules()
             if( !condition.IsEmpty() )
                 condition += wxS( " || " );
 
-            condition += wxS( "B.NetName == " ) + ruleNetLiteral( name );
+            condition += wxS( "B.NetName == " ) + ruleLiteral( name );
         }
 
         addRule( wxS( "TARGET 3001! copper areas to " ) + ruleMm( clearance ) + wxS( " signals" ), clearance,
@@ -257,14 +296,15 @@ void TARGET3001_PCB_BUILDER::buildAuraRules()
 
     // Later rules win, so the NO_AURA layers come last
     m_designRules += wxS( "\n(rule \"TARGET 3001! areas join own pads and vias\"\n"
-                          "    (condition \"A.hasCustomProperty('TARGET3001_AURA') && B.Type == 'Zone'\")\n"
+                          "    (condition \"A.hasCustomProperty('TARGET3001_AURA') "
+                          "&& B.hasCustomProperty('TARGET3001_AREA')\")\n"
                           "    (constraint zone_connection solid))\n" );
 
     for( int aura : m_auraValues )
     {
         m_designRules += wxString::Format( wxS( "\n(rule \"TARGET 3001! aura %s\"\n"
                                                 "    (condition \"A.customProperty('TARGET3001_AURA') == '%d' "
-                                                "&& B.Type == 'Zone'\")\n"
+                                                "&& B.hasCustomProperty('TARGET3001_AREA')\")\n"
                                                 "    (constraint zone_connection none)\n"
                                                 "    (constraint physical_clearance (min %s)))\n" ),
                                            ruleMm( aura ), aura, ruleMm( aura ) );
@@ -277,7 +317,7 @@ void TARGET3001_PCB_BUILDER::buildAuraRules()
         m_designRules += wxString::Format( wxS( "\n(rule \"TARGET 3001! no aura on %s\"\n"
                                                 "    (layer \"%s\")\n"
                                                 "    (condition \"A.customProperty('TARGET3001_NO_AURA') == '*,%s,*' "
-                                                "&& B.Type == 'Zone'\")\n"
+                                                "&& B.hasCustomProperty('TARGET3001_AREA')\")\n"
                                                 "    (constraint zone_connection solid)\n"
                                                 "    (constraint physical_clearance (min 0mm)))\n" ),
                                            name, name, name );
@@ -491,6 +531,17 @@ std::optional<PCB_LAYER_ID> TARGET3001_PCB_BUILDER::pourCopperLayer( int aLayer 
 }
 
 
+std::optional<PCB_LAYER_ID> TARGET3001_PCB_BUILDER::polygonLayer( const TARGET3001::POLYGON_POUR& aPoly ) const
+{
+    std::optional<PCB_LAYER_ID> layer = mapLayer( aPoly.layer );
+
+    if( !layer || !IsCopperLayer( *layer ) || aPoly.outline.size() < 3 )
+        return std::nullopt;
+
+    return layer;
+}
+
+
 void TARGET3001_PCB_BUILDER::buildNets()
 {
     for( size_t i = 0; i < m_project.signals.size(); i++ )
@@ -591,11 +642,30 @@ void TARGET3001_PCB_BUILDER::buildSignalCopper()
         if( e.type != ELEMENT_TYPE::SIGNAL || !e.signal )
             continue;
 
+        std::set<int64_t> polygons;
+
+        for( const TARGET3001::POLYGON_POUR& poly : e.signal->polygons )
+        {
+            if( polygonLayer( poly ) )
+                polygons.insert( poly.id );
+        }
+
         for( const ELEMENT& t : e.signal->tracks )
         {
             // Thermal spokes are generated by the vendor area fill; KiCad zones make their own
             if( t.base.FlagProp( "THERMAL_SNIPPET" ) )
                 continue;
+
+            // A polygon's stored fill becomes the fill of its zone
+            if( std::optional<int64_t> id = t.base.PolygonId(); id && polygons.count( *id ) )
+            {
+                bool spoke = t.base.FlagProp( "THERMAL_LIGAMENT" );
+
+                if( !( t.base.flags & 1 ) )
+                    elementOutline( t, spoke ? m_polygonSpokes[*id] : m_polygonFills[*id] );
+
+                continue;
+            }
 
             addItem( t, m_board, nullptr, true );
         }
@@ -655,6 +725,7 @@ void TARGET3001_PCB_BUILDER::buildPourAreas()
             // Each foreign element carves the fill by its own clearance, which only rules can hold; a zero
             // local clearance defers to them
             zone->SetLocalClearance( 0 );
+            zone->SetCustomProperty( wxS( "TARGET3001_AREA" ), wxS( "1" ) );
             m_pourLayers.insert( key );
 
             // Keep holes; a ring of edge strokes must not become a solid area
@@ -680,6 +751,241 @@ void TARGET3001_PCB_BUILDER::buildPourAreas()
             *zone->Outline() = SHAPE_POLY_SET( keepout.Polygon( i ) );
             m_board->Add( zone, ADD_MODE::APPEND );
         }
+    }
+}
+
+
+void TARGET3001_PCB_BUILDER::buildPolygonPours()
+{
+    for( const ELEMENT& e : m_project.signals )
+    {
+        if( e.type != ELEMENT_TYPE::SIGNAL || !e.signal )
+            continue;
+
+        for( const TARGET3001::POLYGON_POUR& poly : e.signal->polygons )
+        {
+            std::optional<PCB_LAYER_ID> layer = polygonLayer( poly );
+
+            if( !layer )
+                continue;
+
+            ZONE* zone = new ZONE( m_board );
+            zone->SetLayer( *layer );
+            zone->SetNet( net( e.base.signal ) );
+            zone->Outline()->NewOutline();
+
+            // The outline repeats its first vertex at the end; KiCad closes it implicitly
+            size_t count = poly.outline.size();
+
+            if( poly.outline.front() == poly.outline.back() )
+                count--;
+
+            for( size_t i = 0; i < count; i++ )
+                zone->Outline()->Append( toKi( poly.outline[i].first, poly.outline[i].second ) );
+
+            // An unset stroke width falls back to the vendor default
+            int width = poly.width > 0 ? poly.width : pcbIUScale.mmToIU( 0.15 );
+
+            zone->SetMinThickness( width );
+            zone->SetThermalReliefSpokeWidth( 2 * width );
+            zone->SetPadConnection( poly.thermals ? ZONE_CONNECTION::THERMAL : ZONE_CONNECTION::FULL );
+            zone->SetIslandRemovalMode( poly.removeIslands ? ISLAND_REMOVAL_MODE::ALWAYS : ISLAND_REMOVAL_MODE::NEVER );
+            zone->SetAssignedPriority( unsigned( std::max( 0, poly.rank ) ) );
+            zone->SetLocalClearance( 0 );
+
+            if( poly.edgeClearance > 0 )
+            {
+                zone->SetCustomProperty( wxS( "TARGET3001_EDGE_CLEARANCE" ),
+                                         wxString::Format( wxS( "%d" ), poly.edgeClearance ) );
+                m_polygonEdgeClearances.insert( poly.edgeClearance );
+            }
+
+            if( poly.aura > 0 )
+            {
+                zone->SetCustomProperty( wxS( "TARGET3001_POLYGON_AURA" ), wxString::Format( wxS( "%d" ), poly.aura ) );
+                m_polygonAuras.insert( poly.aura );
+            }
+
+            // The stored fill shows the board as the vendor left it until the zones are refilled
+            SHAPE_POLY_SET& body = m_polygonFills[poly.id];
+            SHAPE_POLY_SET& spokes = m_polygonSpokes[poly.id];
+
+            if( !body.IsEmpty() )
+            {
+                body.Simplify();
+                spokes.Simplify();
+
+                SHAPE_POLY_SET fill = body;
+                fill.BooleanAdd( spokes );
+                fill.Fracture();
+                zone->SetFilledPolysList( *layer, fill );
+                zone->SetIsFilled( true );
+                zone->SetNeedRefill( false );
+            }
+
+            if( poly.thermals )
+                m_polygonZones.emplace_back( zone, poly.id );
+
+            m_hasPolygonPours = true;
+            m_board->Add( zone, ADD_MODE::APPEND );
+        }
+    }
+}
+
+
+void TARGET3001_PCB_BUILDER::buildThermalGaps()
+{
+    // Vendor knockouts stand off a pad by a few um more than its gap, well below any gap a designer enters
+    const int step = pcbIUScale.mmToIU( 0.01 );
+    const int reach = pcbIUScale.mmToIU( 5 );
+
+    std::map<PAD*, std::map<ZONE*, int>> padGaps;
+    std::map<ZONE*, std::map<int, int>>  zoneCounts;
+    std::map<int, int>                   boardCounts;
+
+    for( const auto& [zone, id] : m_polygonZones )
+    {
+        const SHAPE_POLY_SET& body = m_polygonFills[id];
+        const SHAPE_POLY_SET& spokes = m_polygonSpokes[id];
+        PCB_LAYER_ID          layer = zone->GetLayer();
+
+        for( FOOTPRINT* fp : m_board->Footprints() )
+        {
+            for( PAD* pad : fp->Pads() )
+            {
+                if( pad->GetNetCode() != zone->GetNetCode() || !pad->FlashLayer( layer )
+                    || !zone->Outline()->Contains( pad->GetPosition() ) )
+                {
+                    continue;
+                }
+
+                // Only a pad the fill reaches through spokes shows its thermal gap
+                if( !spokes.Collide( pad->GetEffectiveShape( layer ).get() ) )
+                    continue;
+
+                int gap = KiROUND( double( padFillGap( *pad, layer, body, reach ) ) / step ) * step;
+
+                if( gap <= 0 )
+                    continue;
+
+                padGaps[pad][zone] = gap;
+                zoneCounts[zone][gap]++;
+                boardCounts[gap]++;
+            }
+        }
+    }
+
+    if( boardCounts.empty() )
+        return;
+
+    // A zone without spoked pads takes the board's gap, so a refill treats its pads alike
+    for( const auto& [zone, id] : m_polygonZones )
+    {
+        auto it = zoneCounts.find( zone );
+        zone->SetThermalReliefGap( mostCommon( it != zoneCounts.end() ? it->second : boardCounts ) );
+    }
+
+    std::map<wxString, int> references;
+
+    for( FOOTPRINT* fp : m_board->Footprints() )
+        references[fp->GetReference()]++;
+
+    std::map<int, std::vector<wxString>> footprintsByGap;
+
+    for( FOOTPRINT* fp : m_board->Footprints() )
+    {
+        std::map<PAD*, int> overrides;
+        std::set<int>       gaps;
+
+        for( PAD* pad : fp->Pads() )
+        {
+            auto it = padGaps.find( pad );
+
+            if( it == padGaps.end() )
+                continue;
+
+            std::map<int, int> counts;
+            bool               differs = false;
+
+            for( const auto& [zone, gap] : it->second )
+            {
+                counts[gap]++;
+                gaps.insert( gap );
+                differs |= gap != zone->GetThermalReliefGap();
+            }
+
+            if( differs )
+                overrides[pad] = mostCommon( counts );
+        }
+
+        if( overrides.empty() )
+            continue;
+
+        // A footprint rule needs one gap for all its measured pads and a reference no other footprint shares
+        const wxString& ref = fp->GetReference();
+
+        if( gaps.size() == 1 && !ref.IsEmpty() && references[ref] == 1 )
+        {
+            footprintsByGap[*gaps.begin()].push_back( ref );
+            continue;
+        }
+
+        for( const auto& [pad, gap] : overrides )
+            pad->SetLocalThermalGapOverride( gap );
+    }
+
+    if( footprintsByGap.empty() )
+        return;
+
+    if( m_designRules.IsEmpty() )
+        m_designRules = wxS( "(version 1)\n" );
+
+    // Pads inherit a thermal gap rule that matches their footprint
+    for( const auto& [gap, refs] : footprintsByGap )
+    {
+        wxString condition;
+
+        for( const wxString& ref : refs )
+        {
+            if( !condition.IsEmpty() )
+                condition += wxS( " || " );
+
+            condition += wxS( "A.Reference == " ) + ruleLiteral( ref );
+        }
+
+        m_designRules += wxString::Format( wxS( "\n(rule \"TARGET 3001! thermal gap %s\"\n"
+                                                "    (condition \"A.Type == 'Footprint' && (%s)\")\n"
+                                                "    (constraint thermal_relief_gap (min %s)))\n" ),
+                                           ruleMm( gap ), condition, ruleMm( gap ) );
+    }
+}
+
+
+void TARGET3001_PCB_BUILDER::buildPolygonRules()
+{
+    if( m_polygonEdgeClearances.empty() && m_polygonAuras.empty() )
+        return;
+
+    if( m_designRules.IsEmpty() )
+        m_designRules = wxS( "(version 1)\n" );
+
+    for( int clearance : m_polygonEdgeClearances )
+    {
+        m_designRules += wxString::Format( wxS( "\n(rule \"TARGET 3001! polygon contour distance %s\"\n"
+                                                "    (condition \"A.customProperty('TARGET3001_EDGE_CLEARANCE') "
+                                                "== '%d'\")\n"
+                                                "    (constraint edge_clearance (min %s)))\n" ),
+                                           ruleMm( clearance ), clearance, ruleMm( clearance ) );
+    }
+
+    // The larger aura of two polygons wins, so larger values come later
+    for( int aura : m_polygonAuras )
+    {
+        m_designRules += wxString::Format( wxS( "\n(rule \"TARGET 3001! polygon aura %s\"\n"
+                                                "    (condition \"A.customProperty('TARGET3001_POLYGON_AURA') "
+                                                "== '%d' && B.Type == 'Zone'\")\n"
+                                                "    (constraint clearance (min %s)))\n" ),
+                                           ruleMm( aura ), aura, ruleMm( aura ) );
     }
 }
 

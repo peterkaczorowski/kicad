@@ -38,12 +38,10 @@
 #include <wx/stdpaths.h>
 
 
-DIALOG_GIT_REPOSITORY::DIALOG_GIT_REPOSITORY( wxWindow* aParent, git_repository* aRepository,
-                                              wxString aURL ) :
+DIALOG_GIT_REPOSITORY::DIALOG_GIT_REPOSITORY( wxWindow* aParent, git_repository* aRepository, wxString aURL ) :
         DIALOG_GIT_REPOSITORY_BASE( aParent ),
         m_repository( aRepository ),
         m_incomeURL( aURL ),
-        m_prevFile( wxEmptyString ),
         m_tempRepo( false )
 {
     OptOut( this );
@@ -56,11 +54,17 @@ DIALOG_GIT_REPOSITORY::DIALOG_GIT_REPOSITORY( wxWindow* aParent, git_repository*
         m_tempRepo = true;
         m_tempPath = wxFileName::CreateTempFileName( "kicadtestrepo" );
 
+        // CreateTempFileName leaves a file at the path, where git cannot make a repository
+        wxRemoveFile( m_tempPath );
+
         git_repository_init_options options;
         git_repository_init_init_options( &options, GIT_REPOSITORY_INIT_OPTIONS_VERSION );
         options.flags = GIT_REPOSITORY_INIT_MKPATH | GIT_REPOSITORY_INIT_NO_REINIT;
         git_repository_init_ext( &m_repository, m_tempPath.ToStdString().c_str(), &options );
     }
+
+    // Otherwise the picker opens wherever the last file dialog was, far from any key
+    m_fpSSHKey->SetInitialDirectory( KIGIT::SSHKeyFolder() );
 
     SetupStandardButtons( { { wxID_HELP, _( "Test Connection" ) } } );
     Layout();
@@ -118,7 +122,8 @@ bool DIALOG_GIT_REPOSITORY::extractClipboardData()
 
 void DIALOG_GIT_REPOSITORY::setDefaultSSHKey( const wxString& aHost )
 {
-    std::vector<wxString> keys = KIGIT::DefaultSSHKeyCandidates( KIGIT::HomeDir(), aHost );
+    std::vector<wxString> keys =
+            KIGIT::DefaultSSHKeyCandidates( KIGIT::HomeDir(), aHost, KIGIT::ConfiguredSSHCommand( m_repository ) );
 
     if( keys.empty() )
         return;
@@ -230,7 +235,7 @@ void DIALOG_GIT_REPOSITORY::OnTestClick( wxCommandEvent& event )
 {
     wxString url = GetRepoURL();
 
-    if( wxString( url ).Trim().Trim( false ).IsEmpty() )
+    if( wxString( url ).Trim().Trim( false ).IsEmpty() || reportUnusableKey() )
         return;
 
     wxString error;
@@ -251,8 +256,8 @@ void DIALOG_GIT_REPOSITORY::OnTestClick( wxCommandEvent& event )
     // keychain's secret instead of the one just typed.
     common.SetUsername( GetUsername() );
     common.SetPassword( m_txtPassword->GetValue() );
-    common.SetSSHKey( m_fpSSHKey->GetFileName().GetFullPath() );
-    
+    common.SetSSHKey( GetRepoSSHPath() );
+
     KIGIT_REPO_MIXIN repoMixin( &common );
     callbacks.payload = &repoMixin;
     callbacks.credentials = credentials_cb;
@@ -281,6 +286,7 @@ void DIALOG_GIT_REPOSITORY::OnTestClick( wxCommandEvent& event )
 
             if( result == GIT_OK )
             {
+                repoMixin.RememberWorkingSSHKey();
                 git_remote_disconnect( remote );
                 success = true;
                 break;
@@ -328,53 +334,120 @@ void DIALOG_GIT_REPOSITORY::OnTestClick( wxCommandEvent& event )
 }
 
 
-void DIALOG_GIT_REPOSITORY::OnFileUpdated( wxFileDirPickerEvent& aEvent )
+// False with aError and aDetails set when aPath is not a private key with its .pub beside it
+static bool checkSSHKey( wxString aPath, wxString& aError, wxString& aDetails, bool& aEncrypted )
 {
-    wxString file = aEvent.GetPath();
+    if( aPath.ends_with( wxS( ".pub" ) ) )
+        aPath = aPath.Left( aPath.size() - 4 );
 
-    if( file.ends_with( wxS( ".pub" ) ) )
-        file = file.Left( file.size() - 4 );
-
-    std::ifstream ifs( file.fn_str() );
+    std::ifstream ifs( aPath.fn_str() );
 
     if( !ifs.good() || !ifs.is_open() )
     {
-        DisplayErrorMessage( this, wxString::Format( _( "Could not open private key '%s'" ), file ),
-                             wxString::Format( "%s: %d", std::strerror( errno ), errno ) );
-        return;
+        aError = wxString::Format( _( "Could not open private key '%s'" ), aPath );
+        aDetails = wxString::Format( "%s: %d", std::strerror( errno ), errno );
+        return false;
     }
 
     std::string keyText( ( std::istreambuf_iterator<char>( ifs ) ), std::istreambuf_iterator<char>() );
-
-    ifs.close();
-
-    wxString key = wxString::FromUTF8( keyText );
+    wxString    key = wxString::FromUTF8( keyText );
 
     if( !key.BeforeFirst( '\n' ).Contains( wxS( "PRIVATE KEY" ) ) )
     {
-        DisplayErrorMessage( this, _( "Invalid SSH Key" ),
-                             _( "The selected file is not a valid SSH private key" ) );
-        CallAfter( [this] { SetRepoSSHPath( m_prevFile ); } );
-        return;
+        aError = _( "Invalid SSH Key" );
+        aDetails = _( "The selected file is not a valid SSH private key" );
+        return false;
     }
 
-    SetEncrypted( KIGIT::IsPrivateKeyEncrypted( key ) );
-
-    wxString      pubFile = file + wxS( ".pub" );
-    std::ifstream pubIfs( pubFile.fn_str() );
-
-    if( !pubIfs.good() || !pubIfs.is_open() )
+    if( KIGIT::EnsurePublicKeyFile( aPath ).IsEmpty() )
     {
-        DisplayErrorMessage( this, wxString::Format( _( "Could not open public key '%s'" ),
-                                                     file + ".pub" ),
-                             wxString::Format( "%s: %d", std::strerror( errno ), errno ) );
-        aEvent.SetPath( wxEmptyString );
-        CallAfter( [this] { SetRepoSSHPath( m_prevFile ); } );
-        return;
+        aError = wxString::Format( _( "Could not open public key '%s'" ), aPath + wxS( ".pub" ) );
+        aDetails = _( "Put the key's .pub file beside it, or pick a key in OpenSSH format" );
+        return false;
     }
 
-    m_prevFile = file;
-    pubIfs.close();
+    aEncrypted = KIGIT::IsPrivateKeyEncrypted( key );
+    return true;
+}
+
+
+void DIALOG_GIT_REPOSITORY::OnFileUpdated( wxFileDirPickerEvent& aEvent )
+{
+    wxString error;
+    wxString details;
+    bool     encrypted = false;
+
+    // The picker fires on every keystroke, so a half-typed path is not an error until OK
+    if( checkSSHKey( aEvent.GetPath(), error, details, encrypted ) )
+        SetEncrypted( encrypted );
+}
+
+
+bool DIALOG_GIT_REPOSITORY::reportUnusableKey()
+{
+    if( GetRepoType() != KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_SSH || !m_cbCustom->IsChecked()
+        || GetRepoSSHPath().IsEmpty() )
+    {
+        return false;
+    }
+
+    wxString error;
+    wxString details;
+    bool     encrypted = false;
+
+    if( checkSSHKey( GetRepoSSHPath(), error, details, encrypted ) )
+        return false;
+
+    DisplayErrorMessage( this, error, details );
+    return true;
+}
+
+
+// Empty when the address is one git can try; otherwise says what is wrong with it
+static wxString describeUnusableURL( git_repository* aRepo, const wxString& aURL )
+{
+    git_remote* rawRemote = nullptr;
+
+    if( git_remote_create_anonymous( &rawRemote, aRepo, aURL.utf8_str() ) != GIT_OK )
+        return wxString::Format( _( "'%s' is not a repository address." ), aURL );
+
+    KIGIT::GitRemotePtr remote( rawRemote );
+
+    // A url.insteadOf alias is judged by the address it expands to
+    wxString effective = wxString::FromUTF8( git_remote_url( remote.get() ) );
+    wxString checked = effective;
+
+    // The parser has no git:// case, so its server part is checked the way an HTTPS one is
+    if( checked.Lower().StartsWith( wxS( "git://" ) ) )
+        checked = wxS( "https://" ) + checked.Mid( 6 );
+
+    KIGIT_COMMON::REMOTE_URL parsed = KIGIT_COMMON::ParseRemoteURL( checked );
+
+    if( parsed.connType != KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_LOCAL )
+    {
+        const wxString& host = parsed.hostname;
+        wxString        authority = checked.AfterFirst( ':' ).Mid( 2 ).BeforeFirst( '/' );
+
+        // The parser drops an unclosed IPv6 bracket, so look for it in the address itself
+        if( host.IsEmpty() || host.find_first_of( wxS( " \t" ) ) != wxString::npos
+            || ( checked.Contains( wxS( "://" ) ) && authority.Contains( wxS( "[" ) )
+                 && !authority.Contains( wxS( "]" ) ) ) )
+        {
+            return wxString::Format( _( "'%s' does not name a server." ), aURL );
+        }
+
+        if( parsed.port < 0 )
+            return wxString::Format( _( "The port in '%s' is not a number." ), aURL );
+
+        return wxEmptyString;
+    }
+
+    wxString lower = effective.Lower();
+
+    if( lower.Contains( wxS( "://" ) ) && !lower.StartsWith( wxS( "file://" ) ) )
+        return wxString::Format( _( "'%s' is not an HTTPS, SSH or folder address." ), aURL );
+
+    return wxEmptyString;
 }
 
 
@@ -388,6 +461,19 @@ void DIALOG_GIT_REPOSITORY::OnOKClick( wxCommandEvent& event )
                             _( "Please enter a URL for the repository" ) );
         return;
     }
+
+    wxString problem = describeUnusableURL( m_repository, GetRepoURL() );
+
+    if( !problem.IsEmpty() )
+    {
+        DisplayErrorMessage( this, problem,
+                             _( "Use an address such as https://server/owner/project.git or "
+                                "git@server:owner/project.git, or the path of a repository folder." ) );
+        return;
+    }
+
+    if( reportUnusableKey() )
+        return;
 
     EndModal( wxID_OK );
 }

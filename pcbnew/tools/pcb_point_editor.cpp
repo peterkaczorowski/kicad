@@ -2056,6 +2056,8 @@ void PCB_POINT_EDITOR::Reset( RESET_REASON aReason )
             view->Remove( &m_preview );
     }
 
+    m_editedPoint = nullptr;
+    m_hoveredPoint = nullptr;
     m_angleItem.reset();
     m_editPoints.reset();
     m_altConstraint.reset();
@@ -3168,6 +3170,8 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 if( m_angleItem && getView()->HasItem( m_angleItem.get() ) )
                     getView()->Remove( m_angleItem.get() );
 
+                m_editedPoint = nullptr;
+                m_hoveredPoint = nullptr;
                 m_editPoints = makePoints( item );
 
                 if( m_angleItem )
@@ -3215,6 +3219,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         if( m_angleItem && getView()->HasItem( m_angleItem.get() ) )
             getView()->Remove( m_angleItem.get() );
 
+        m_hoveredPoint = nullptr;
         m_editPoints.reset();
         m_angleItem.reset();
     }
@@ -3285,27 +3290,8 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT& aCommit )
     // Re-derive any geometry constrained to the dragged segment endpoint (issue #2329).  The
     // behavior above has already moved the dragged point to the cursor, so its current endpoint
     // position is the pin target for the solver.
-    auto anyConstraints =
-            [&]() -> bool
-            {
-                if( !board() )
-                    return false;
-
-                if( !board()->Constraints().empty() )
-                    return true;
-
-                // In the footprint editor the constraints live on the footprint, not the board.
-                for( FOOTPRINT* fp : board()->Footprints() )
-                {
-                    if( !fp->Constraints().empty() )
-                        return true;
-                }
-
-                return false;
-            };
-
     if( auto* groupBehavior = dynamic_cast<SHAPE_GROUP_POINT_EDIT_BEHAVIOR*>( m_editorBehavior.get() );
-        groupBehavior && anyConstraints() )
+        groupBehavior && BoardHasConstraints( board() ) )
     {
         // A group edit writes its own shapes, so the neighbours still need re-solving
         std::vector<PCB_SHAPE*> modified;
@@ -3319,7 +3305,7 @@ void PCB_POINT_EDITOR::updateItem( BOARD_COMMIT& aCommit )
         for( PCB_SHAPE* neighbor : modified )
             updatedItems.push_back( neighbor );
     }
-    else if( item->Type() == PCB_SHAPE_T && m_editedPoint && anyConstraints() )
+    else if( item->Type() == PCB_SHAPE_T && m_editedPoint && BoardHasConstraints( board() ) )
     {
         PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
         SHAPE_T    type = shape->GetShape();
@@ -3582,6 +3568,7 @@ void PCB_POINT_EDITOR::updatePoints()
         if( getView()->HasItem( m_editPoints.get() ) )
             getView()->Remove( m_editPoints.get() );
 
+        m_hoveredPoint = nullptr;
         m_editPoints = makePoints( item );
         getView()->Add( m_editPoints.get() );
     }

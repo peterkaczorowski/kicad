@@ -485,6 +485,7 @@ set( PCBNEW_CLASS_SRCS
     pcbplot.cpp
     plot_board_layers.cpp
     plot_brditems_plotter.cpp
+    ref_suffix_split.cpp
     specctra_import_export/specctra.cpp
     specctra_import_export/specctra_export.cpp
     specctra_import_export/specctra_import.cpp
@@ -572,6 +573,8 @@ set( PCBNEW_CLASS_SRCS
     widgets/net_inspector_panel.cpp
     widgets/pcb_net_inspector_panel.cpp
     widgets/vertex_editor_pane.cpp
+    widgets/via_cross_section_geometry.cpp
+    widgets/via_cross_section_preview.cpp
 
     component_classes/component_class.cpp
     component_classes/component_class_cache_proxy.cpp

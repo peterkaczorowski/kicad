@@ -92,7 +92,7 @@ std::optional<CONSTRAINT_ANCHOR_POINT> ConstraintShapeVertex( const PCB_SHAPE* a
 std::vector<PCB_SHAPE*> CollectConstraintShapes( const BOARD* aBoard, PCB_LAYER_ID aLayer = UNDEFINED_LAYER );
 
 
-/// Every constrainable item on a visible layer -- shapes plus dimensions -- for board-wide anchor picking.
+/// Every constrainable item on a visible layer -- shapes, dimensions and pads -- for board-wide anchor picking.
 /// @p aLayer narrows the walk to one layer; UNDEFINED_LAYER keeps every visible layer.
 std::vector<BOARD_ITEM*> CollectConstrainableItems( const BOARD* aBoard, PCB_LAYER_ID aLayer = UNDEFINED_LAYER );
 
@@ -151,13 +151,14 @@ std::optional<CONSTRAINT_MEMBER> NearestConstraintAnchor( const BOARD* aBoard, c
 
 
 /**
- * The board item a constraint may reference: a PCB_SHAPE or a dimension, or nullptr for anything
- * else (or a deleted item).  Constraints bind these two families; everything else is unconstrainable.
+ * The board item a constraint may reference: a PCB_SHAPE, a dimension or a pad, or nullptr for
+ * anything else (or a deleted item).  A pad exposes only its centre and never moves on its own; it
+ * travels with its footprint.
  */
 BOARD_ITEM* ResolveConstrainableItem( const BOARD* aBoard, const KIID& aId );
 
 
-/// True when @p aItem is one ResolveConstrainableItem() accepts: a PCB_SHAPE or a dimension.
+/// True when @p aItem is one ResolveConstrainableItem() accepts: a PCB_SHAPE, a dimension or a pad.
 bool IsConstrainableItem( const BOARD_ITEM* aItem );
 
 
@@ -222,14 +223,15 @@ std::vector<AUTO_CONSTRAINT> SelectShapeAutoConstraints( const BOARD* aBoard, co
                                                          BOARD_ITEM* aParent, bool aAxisConstraint );
 
 
-/// True if the board or one of its footprints already carries an equal constraint
+/// True if a resolved constraint (see CollectResolvedConstraints()) already equals @p aConstraint
 bool ConstraintIsDuplicateOnBoard( const BOARD* aBoard, const PCB_CONSTRAINT* aConstraint );
 
 
 /**
  * The constraint anchors an item exposes.  Delegates to ConstraintShapeAnchors for a shape; for a
  * dimension it returns the measured feature points (START/END for aligned/orthogonal/radial, START
- * only for leader/center -- their other point is a control point, not a feature).
+ * only for leader/center -- their other point is a control point, not a feature).  A pad exposes
+ * only its CENTER.
  */
 std::vector<CONSTRAINT_ANCHOR_POINT> ConstraintItemAnchors( const BOARD_ITEM* aItem );
 
@@ -263,17 +265,25 @@ std::optional<KIID> NearestConstrainedShape( const BOARD* aBoard, const std::vec
 
 
 /**
- * The ids of every item on @p aBoard a constraint member can resolve to (shapes, dimensions and
- * table cells), gathered in one board walk.  Check members against it before BOARD::ResolveItem(),
+ * The ids of every item on @p aBoard a constraint member can resolve to (shapes, dimensions, pads
+ * and table cells), gathered in one board walk.  Check members against it before BOARD::ResolveItem(),
  * which scans the whole board for an id that is not on it.
  */
 std::unordered_set<KIID> CollectMemberCandidateIds( const BOARD* aBoard );
 
 
 /**
- * The member ids of every board and footprint constraint that are on @p aBoard, in first reference
- * order: the candidate set for NearestConstrainedShape(), which the hover test scans on every mouse
- * move.
+ * The constraints the editor resolves on @p aBoard.  A footprint's own constraints are saved with
+ * the footprint but solved, diagnosed and drawn only in the footprint editor; on a board the
+ * footprint is placed as authored, so only the board's constraints apply there.
+ */
+std::vector<PCB_CONSTRAINT*> CollectResolvedConstraints( const BOARD* aBoard );
+
+
+/**
+ * The member ids of every resolved constraint (see CollectResolvedConstraints()) that are on
+ * @p aBoard, in first reference order: the candidate set for NearestConstrainedShape(), which the
+ * hover test scans on every mouse move.
  */
 std::vector<KIID> ConstrainedShapeIds( const BOARD* aBoard );
 
@@ -317,8 +327,8 @@ bool DimensionHasValueMode( const PCB_DIMENSION_BASE* aDimension );
 /**
  * Self FIXED_LENGTH constraint whose members are exactly @p aDimension START and END or nullptr
  * the driving length constraint the value mode owns
- * Scans board level and footprint parented constraints since SetDimensionValueMode parents to
- * the owning dimension footprint not necessarily the first
+ * Scans the resolved constraints, so in the footprint editor that includes the ones
+ * SetDimensionValueMode parents to the owning dimension footprint
  */
 PCB_CONSTRAINT* FindDimensionLengthConstraint( const BOARD* aBoard, const PCB_DIMENSION_BASE* aDimension );
 
@@ -371,7 +381,7 @@ PCB_CONSTRAINT* SetDimensionValueMode( BOARD* aBoard, PCB_DIMENSION_BASE* aDimen
  * arity so its whole constraint retires through @p aBeforeRemove a constraint about to be
  * reindexed is staged through @p aBeforeModify first Callers pass the geometry commit Modify and
  * Remove so undo restores outline indices and retired constraints together across board and
- * footprints mirroring DimensionEndpointsBound
+ * footprints, since a footprint's saved constraints must stay valid even where they are not resolved
  */
 void RemapPolygonVertexMembers( BOARD* aBoard, const KIID& aPoly, int aChangedIndex, int aDelta,
                                 const std::function<void( BOARD_ITEM* )>& aBeforeModify,

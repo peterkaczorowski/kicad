@@ -21,6 +21,7 @@
 
 #include <diff_merge/diff_scene.h>
 #include <git/kigit_failure.h>
+#include <git/kigit_ssh_keys.h>
 #include <kiplatform/ui.h>
 
 #include <wx/dcclient.h>
@@ -64,6 +65,9 @@ DIALOG_GIT_CREDENTIALS::DIALOG_GIT_CREDENTIALS( wxWindow* aParent, const wxStrin
         m_urlUsername = KIGIT_COMMON::ParseRemoteURL( aUrl ).username;
 
     m_userCtrl->SetValue( m_urlUsername.IsEmpty() ? aDefaultUsername : m_urlUsername );
+
+    // Otherwise the picker opens wherever the last file dialog was, far from any key
+    m_keyPicker->SetInitialDirectory( KIGIT::SSHKeyFolder() );
 
     if( !aDefaultSSHKey.IsEmpty() )
         m_keyPicker->SetFileName( wxFileName( aDefaultSSHKey ) );
@@ -136,7 +140,7 @@ wxString DIALOG_GIT_CREDENTIALS::GetPassword() const
 
 wxString DIALOG_GIT_CREDENTIALS::GetSSHKey() const
 {
-    return m_keyPicker->GetFileName().GetFullPath();
+    return KIGIT::PrivateKeyPath( m_keyPicker->GetFileName().GetFullPath() );
 }
 
 

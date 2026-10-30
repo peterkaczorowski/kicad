@@ -46,6 +46,7 @@ class PAD;
 class PCB_SHAPE;
 class PCB_TEXT;
 class REPORTER;
+class ZONE;
 
 
 /**
@@ -75,6 +76,10 @@ private:
     void buildSignalCopper();
     void buildFreeItems();
     void buildPourAreas();
+    void buildPolygonPours();
+
+    /// Thermal gaps the stored fill leaves around spoked pads, as zone defaults and pad or footprint overrides
+    void buildThermalGaps();
 
     void addFootprint( const TARGET3001::ELEMENT& aComponent );
 
@@ -102,6 +107,9 @@ private:
     /// Copper layer that an area or deletion layer applies to
     std::optional<PCB_LAYER_ID> pourCopperLayer( int aLayer ) const;
 
+    /// Copper layer of a signal polygon that can become a zone
+    std::optional<PCB_LAYER_ID> polygonLayer( const TARGET3001::POLYGON_POUR& aPoly ) const;
+
     bool isCopper( int aLayer ) const;
 
     /// Clearance rules between copper areas and each signal's tracks and vias
@@ -109,6 +117,9 @@ private:
 
     /// Rules that keep areas the aura distance from pads and vias, except on their NO_AURA layers
     void buildAuraRules();
+
+    /// Rules for the board contour and foreign polygon distances each signal polygon keeps
+    void buildPolygonRules();
 
     /// Tag a pad or via with its aura so the aura rules can match it
     void tagAura( BOARD_CONNECTED_ITEM& aItem, const TARGET3001::ELEMENT_BASE& aBase, int aAura );
@@ -151,6 +162,12 @@ private:
     BOX2I                                    m_contourBox;
     bool                                     m_contourCarvesNothing = false; ///< a contour stroke has no clearance
     std::map<int, SHAPE_POLY_SET>            m_pourKeepouts;    ///< KiCad layer -> pour keepout
+    std::map<int64_t, SHAPE_POLY_SET>        m_polygonFills;    ///< POLYGONID -> stored fill without spokes
+    std::map<int64_t, SHAPE_POLY_SET>        m_polygonSpokes;   ///< POLYGONID -> stored thermal spokes
+    std::vector<std::pair<ZONE*, int64_t>>   m_polygonZones;    ///< thermal polygon zones and their POLYGONID
+    std::set<int>                            m_polygonEdgeClearances;
+    std::set<int>                            m_polygonAuras;
+    bool                                     m_hasPolygonPours = false;
 
     /// Track and via clearances counted per signal, then per clearance value
     std::map<uint16_t, std::map<int, int>>   m_signalClearances;

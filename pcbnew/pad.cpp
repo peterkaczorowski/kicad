@@ -871,129 +871,37 @@ void PAD::SetPrimaryDrillEndLayer( PCB_LAYER_ID aLayer )
 
 bool PAD::IsBackdrilledOrPostMachined( PCB_LAYER_ID aLayer ) const
 {
-    if( !IsCopperLayer( aLayer ) )
-        return false;
+    return GetBackdrillOrPostMachiningKnockout( aLayer ) > 0;
+}
 
+
+bool PAD::HasCopperRemoved( PCB_LAYER_ID aLayer ) const
+{
+    int knockout = GetBackdrillOrPostMachiningKnockout( aLayer );
+
+    return knockout > 0 && knockout >= 2LL * GetBoundingRadius();
+}
+
+
+int PAD::GetBackdrillOrPostMachiningKnockout( PCB_LAYER_ID aLayer ) const
+{
     const BOARD* board = GetBoard();
 
-    if( !board )
-        return false;
+    if( !IsCopperLayer( aLayer ) || !board )
+        return 0;
 
-    // Check secondary drill (backdrill from top)
-    const PADSTACK::DRILL_PROPS& secondaryDrill = m_padStack.SecondaryDrill();
-
-    if( secondaryDrill.size.x > 0 && secondaryDrill.start != UNDEFINED_LAYER && secondaryDrill.end != UNDEFINED_LAYER )
-    {
-        if( LAYER_RANGE::Contains( secondaryDrill.start, secondaryDrill.end, aLayer ) )
-            return true;
-    }
-
-    // Check tertiary drill (backdrill from bottom)
-    const PADSTACK::DRILL_PROPS& tertiaryDrill = m_padStack.TertiaryDrill();
-
-    if( tertiaryDrill.size.x > 0 && tertiaryDrill.start != UNDEFINED_LAYER && tertiaryDrill.end != UNDEFINED_LAYER )
-    {
-        if( LAYER_RANGE::Contains( tertiaryDrill.start, tertiaryDrill.end, aLayer ) )
-            return true;
-    }
-
-    // Check if the layer is affected by post-machining
-    if( GetPostMachiningKnockout( aLayer ) > 0 )
-        return true;
-
-    return false;
+    return m_padStack.MachiningKnockout( *board, aLayer );
 }
 
 
 int PAD::GetPostMachiningKnockout( PCB_LAYER_ID aLayer ) const
 {
-    if( !IsCopperLayer( aLayer ) )
-        return 0;
-
     const BOARD* board = GetBoard();
 
-    if( !board )
+    if( !IsCopperLayer( aLayer ) || !board )
         return 0;
 
-    const BOARD_STACKUP& stackup = board->GetDesignSettings().GetStackupDescriptor();
-
-    // Check front post-machining (counterbore/countersink from top)
-    const PADSTACK::POST_MACHINING_PROPS& frontPM = m_padStack.FrontPostMachining();
-
-    if( frontPM.mode.has_value() && *frontPM.mode != PAD_DRILL_POST_MACHINING_MODE::NOT_POST_MACHINED
-            && *frontPM.mode != PAD_DRILL_POST_MACHINING_MODE::UNKNOWN && frontPM.size > 0 )
-    {
-        int pmDepth = frontPM.depth;
-
-        // For countersink without explicit depth, calculate from diameter and angle
-        if( pmDepth <= 0 && *frontPM.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK && frontPM.angle > 0 )
-        {
-            double halfAngleRad = ( frontPM.angle / 10.0 ) * M_PI / 180.0 / 2.0;
-            pmDepth = static_cast<int>( ( frontPM.size / 2.0 ) / tan( halfAngleRad ) );
-        }
-
-        if( pmDepth > 0 )
-        {
-            // Calculate distance from F_Cu to aLayer
-            int layerDist = stackup.GetLayerDistance( F_Cu, aLayer );
-
-            if( layerDist < pmDepth )
-            {
-                // For countersink, diameter decreases with depth
-                if( *frontPM.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK && frontPM.angle > 0 )
-                {
-                    double halfAngleRad = ( frontPM.angle / 10.0 ) * M_PI / 180.0 / 2.0;
-                    int diameterAtLayer = frontPM.size - static_cast<int>( 2.0 * layerDist * tan( halfAngleRad ) );
-                    return std::max( 0, diameterAtLayer );
-                }
-                else
-                {
-                    // Counterbore - constant diameter
-                    return frontPM.size;
-                }
-            }
-        }
-    }
-
-    // Check back post-machining (counterbore/countersink from bottom)
-    const PADSTACK::POST_MACHINING_PROPS& backPM = m_padStack.BackPostMachining();
-
-    if( backPM.mode.has_value() && *backPM.mode != PAD_DRILL_POST_MACHINING_MODE::NOT_POST_MACHINED
-            && *backPM.mode != PAD_DRILL_POST_MACHINING_MODE::UNKNOWN && backPM.size > 0 )
-    {
-        int pmDepth = backPM.depth;
-
-        // For countersink without explicit depth, calculate from diameter and angle
-        if( pmDepth <= 0 && *backPM.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK && backPM.angle > 0 )
-        {
-            double halfAngleRad = ( backPM.angle / 10.0 ) * M_PI / 180.0 / 2.0;
-            pmDepth = static_cast<int>( ( backPM.size / 2.0 ) / tan( halfAngleRad ) );
-        }
-
-        if( pmDepth > 0 )
-        {
-            // Calculate distance from B_Cu to aLayer
-            int layerDist = stackup.GetLayerDistance( B_Cu, aLayer );
-
-            if( layerDist < pmDepth )
-            {
-                // For countersink, diameter decreases with depth
-                if( *backPM.mode == PAD_DRILL_POST_MACHINING_MODE::COUNTERSINK && backPM.angle > 0 )
-                {
-                    double halfAngleRad = ( backPM.angle / 10.0 ) * M_PI / 180.0 / 2.0;
-                    int diameterAtLayer = backPM.size - static_cast<int>( 2.0 * layerDist * tan( halfAngleRad ) );
-                    return std::max( 0, diameterAtLayer );
-                }
-                else
-                {
-                    // Counterbore - constant diameter
-                    return backPM.size;
-                }
-            }
-        }
-    }
-
-    return 0;
+    return m_padStack.PostMachiningKnockout( board->GetDesignSettings().GetStackupDescriptor(), aLayer );
 }
 
 
@@ -1635,6 +1543,8 @@ const BOX2I PAD::GetBoundingBox() const
 // Thermal spokes are built on the bounding box, so we must have a layer-specific version
 const BOX2I PAD::GetBoundingBox( PCB_LAYER_ID aLayer ) const
 {
+    std::lock_guard<std::mutex> RAII_lock( m_dataMutex );
+
     return buildEffectiveShape( aLayer ).BBox();
 }
 
@@ -1870,52 +1780,26 @@ VECTOR2I PAD::ShapePos( PCB_LAYER_ID aLayer ) const
 }
 
 
-void PAD::SwapShapePositions( PAD* aLhs, PAD* aRhs )
+void PAD::SwapShapePositions( PAD* aLhs, PAD* aRhs, PCB_LAYER_ID aActiveLayer )
 {
     wxCHECK( aLhs && aRhs, /* void */ );
 
-    LSET uniqueLayerUnion;
+    // This routine favours the center of the visual copper over the center of the hole.
+    // The downside is that said center is ill-defined when there is more than one shape
+    // (ie: for complex padstackes).  In that case we swap based on the active layer's
+    // copper shape, following the principle of least surprise.
 
-    aLhs->Padstack().ForEachUniqueLayer(
-            [&]( PCB_LAYER_ID layer )
-            {
-                uniqueLayerUnion.set( layer );
-            } );
+    VECTOR2I lhsShapePos = aLhs->ShapePos( aActiveLayer );
+    VECTOR2I rhsShapePos = aRhs->ShapePos( aActiveLayer );
 
-    aRhs->Padstack().ForEachUniqueLayer(
-            [&]( PCB_LAYER_ID layer )
-            {
-                uniqueLayerUnion.set( layer );
-            } );
+    VECTOR2I lhsOffset = aLhs->GetOffset( aActiveLayer );
+    VECTOR2I rhsOffset = aRhs->GetOffset( aActiveLayer );
 
-    std::map<PCB_LAYER_ID, std::pair<VECTOR2I, VECTOR2I>> positions;
+    RotatePoint( lhsOffset, aLhs->GetOrientation() );
+    RotatePoint( rhsOffset, aRhs->GetOrientation() );
 
-    for( PCB_LAYER_ID layer : uniqueLayerUnion.Seq() )
-    {
-        VECTOR2I lhsShapePos = aLhs->ShapePos( layer );
-        VECTOR2I rhsShapePos = aRhs->ShapePos( layer );
-
-        VECTOR2I lhsOffset = aLhs->GetOffset( layer );
-        VECTOR2I rhsOffset = aRhs->GetOffset( layer );
-
-        RotatePoint( lhsOffset, aLhs->GetOrientation() );
-        RotatePoint( rhsOffset, aRhs->GetOrientation() );
-
-        positions[layer].first = rhsShapePos - lhsOffset;
-        positions[layer].second = lhsShapePos - rhsOffset;
-    }
-
-    aLhs->Padstack().ForEachUniqueLayer(
-            [&]( PCB_LAYER_ID layer )
-            {
-                aLhs->SetPosition( positions[layer].first );
-            } );
-
-    aRhs->Padstack().ForEachUniqueLayer(
-            [&]( PCB_LAYER_ID layer )
-            {
-                aRhs->SetPosition( positions[layer].second );
-            } );
+    aLhs->SetPosition( rhsShapePos - lhsOffset );
+    aRhs->SetPosition( lhsShapePos - rhsOffset );
 }
 
 

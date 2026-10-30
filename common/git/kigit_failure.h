@@ -36,6 +36,10 @@ struct KIGIT_AUTH_ATTEMPT
     KIGIT_COMMON::GIT_CONN_TYPE connType = KIGIT_COMMON::GIT_CONN_TYPE::GIT_CONN_LOCAL;
     std::vector<wxString>       keysTried;          ///< Key files offered, in order.
     bool                        agentTried = false; ///< The SSH agent was offered before any key file.
+    bool                        passphraseGiven = false; ///< A passphrase went with the last key file offered.
+    wxString                    acceptedKey;             ///< An encrypted key whose public half the server accepted.
+    bool                        lastKeyRefused = false;  ///< The server refused the last key's public half.
+    wxString                    probing; ///< The encrypted key whose public half is out to the server now.
 };
 
 
@@ -104,6 +108,8 @@ struct KIGIT_OWNERSHIP_REFUSAL
     wxString trustCommand; ///< Kept apart from the summary so it can be shown in full and copied. Empty when
                            ///< no safe command exists for the folder, such as a name the shell could act on or
                            ///< one git reads as a wildcard.
+    bool     coversHome = false; ///< The repository's folder is the home folder or above it. It is not the
+                                 ///< project's own, and trusting it would take in every project below it.
 };
 
 

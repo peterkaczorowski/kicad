@@ -31,6 +31,7 @@
 #include "kicad_git_common.h"
 #include "kicad_git_memory.h"
 #include "kigit_failure.h"
+#include "kigit_ssh_keys.h"
 #include "trace_helpers.h"
 
 #include "kicad_git_compat.h"
@@ -38,7 +39,9 @@
 #include <wx/filename.h>
 #include <wx/log.h>
 #include <gestfich.h>
+#include <paths.h>
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -52,6 +55,10 @@
 void LIBGIT_BACKEND::Init()
 {
     git_libgit2_init();
+
+    KIGIT::SetRememberedSSHKeyStore(
+            wxFileName( PATHS::GetUserCachePath(), wxS( "git_ssh_keys.json" ) ).GetFullPath() );
+    KIGIT::SetDerivedPublicKeyFolder( wxFileName( PATHS::GetUserCachePath(), wxS( "ssh_public_keys" ) ).GetFullPath() );
 
     // libgit2 sets no timeout of its own, so an unreachable remote parks a fetch in connect()
     // or recv() for as long as the OS allows.  SSH remotes stay bounded only by libssh2.
@@ -207,6 +214,7 @@ bool LIBGIT_BACKEND::Clone( GIT_CLONE_HANDLER* aHandler )
         return false;
     }
 
+    aHandler->RememberWorkingSSHKey();
     common->SetRepo( newRepo );
 
     return true;
@@ -864,6 +872,184 @@ CommitResult LIBGIT_BACKEND::Amend( GIT_COMMIT_HANDLER* aHandler, const std::vec
 }
 
 
+// 1 when a remote-tracking branch already holds aCommit, naming one in aRemoteRef, 0 when none does, negative on a
+// libgit2 error
+static int reachableFromRemote( git_repository* aRepo, const git_oid& aCommit, wxString& aRemoteRef )
+{
+    git_reference_iterator* rawIter = nullptr;
+
+    if( int rc = git_reference_iterator_glob_new( &rawIter, aRepo, "refs/remotes/*" ); rc != GIT_OK )
+        return rc;
+
+    KIGIT::GitReferenceIteratorPtr iter( rawIter );
+    std::vector<git_oid>           tips;
+    std::vector<wxString>          names;
+    git_reference*                 rawRef = nullptr;
+    int                            rc = GIT_OK;
+
+    while( ( rc = git_reference_next( &rawRef, iter.get() ) ) == GIT_OK )
+    {
+        KIGIT::GitReferencePtr ref( rawRef );
+
+        // origin/HEAD names a branch this loop visits anyway, and may dangle
+        if( git_reference_type( ref.get() ) == GIT_REFERENCE_SYMBOLIC )
+            continue;
+
+        git_object* rawTip = nullptr;
+
+        if( int peel = git_reference_peel( &rawTip, ref.get(), GIT_OBJECT_COMMIT ); peel != GIT_OK )
+            return peel;
+
+        KIGIT::GitObjectPtr tip( rawTip );
+        tips.push_back( *git_object_id( tip.get() ) );
+        names.push_back( wxString::FromUTF8( git_reference_shorthand( ref.get() ) ) );
+    }
+
+    if( rc != GIT_ITEROVER )
+        return rc;
+
+    if( tips.empty() )
+        return 0;
+
+    if( int reachable = git_graph_reachable_from_any( aRepo, &aCommit, tips.data(), tips.size() ); reachable <= 0 )
+        return reachable;
+
+    // One walk answers the common unpublished case, so only a published commit pays to find which branch holds it
+    for( size_t ii = 0; ii < tips.size(); ++ii )
+    {
+        int reachable = git_graph_reachable_from_any( aRepo, &aCommit, &tips[ii], 1 );
+
+        if( reachable < 0 )
+            return reachable;
+
+        if( reachable > 0 )
+        {
+            aRemoteRef = names[ii];
+            return 1;
+        }
+    }
+
+    return 1;
+}
+
+
+UndoCommitResult LIBGIT_BACKEND::UndoLastCommit( GIT_COMMIT_HANDLER* aHandler, const wxString& aExpectedBranch,
+                                                 const git_oid& aExpectedHead, wxString& aMessage )
+{
+    git_repository* repo = aHandler->GetRepo();
+
+    if( !repo )
+        return UndoCommitResult::Error;
+
+    git_reference* rawHead = nullptr;
+
+    if( git_reference_lookup( &rawHead, repo, "HEAD" ) != GIT_OK )
+    {
+        aHandler->AddGitError( _( "Could not read the current commit." ) );
+        return UndoCommitResult::Error;
+    }
+
+    KIGIT::GitReferencePtr head( rawHead );
+    const char*            branchName = git_reference_symbolic_target( head.get() );
+
+    // A detached HEAD has no branch to move back
+    if( !branchName || aExpectedBranch.IsEmpty() || wxString::FromUTF8( branchName ) != aExpectedBranch )
+        return UndoCommitResult::TargetChanged;
+
+    git_reference* rawBranch = nullptr;
+    int            lookup = git_reference_lookup( &rawBranch, repo, branchName );
+
+    if( lookup == GIT_ENOTFOUND )
+        return UndoCommitResult::NoCommit;
+
+    if( lookup != GIT_OK )
+    {
+        aHandler->AddGitError( _( "Could not read the current commit." ) );
+        return UndoCommitResult::Error;
+    }
+
+    KIGIT::GitReferencePtr branch( rawBranch );
+    const git_oid*         tip = git_reference_target( branch.get() );
+
+    if( !tip || !git_oid_equal( tip, &aExpectedHead ) )
+        return UndoCommitResult::TargetChanged;
+
+    if( aHandler->IsOperationInProgress() )
+    {
+        aHandler->AddErrorString( _( "Finish or abandon the current Git operation before undoing a commit." ) );
+        return UndoCommitResult::Error;
+    }
+
+    git_commit* rawCommit = nullptr;
+
+    if( git_commit_lookup( &rawCommit, repo, &aExpectedHead ) != GIT_OK )
+    {
+        aHandler->AddGitError( _( "Could not read the current commit." ) );
+        return UndoCommitResult::Error;
+    }
+
+    KIGIT::GitCommitPtr commit( rawCommit );
+    int                 published = reachableFromRemote( repo, aExpectedHead, aMessage );
+
+    if( published < 0 )
+    {
+        aHandler->AddGitError( _( "Could not check whether the commit was already sent to a remote." ) );
+        return UndoCommitResult::Error;
+    }
+
+    if( published > 0 )
+        return UndoCommitResult::Published;
+
+    int moved = GIT_OK;
+
+    // Both writes fail if the branch moved since it was read, so a commit made meanwhile is never dropped
+    if( git_commit_parentcount( commit.get() ) == 0 )
+    {
+        // git_reference_delete drops the reflog before comparing, so compare under the ref lock instead
+        git_transaction* rawTransaction = nullptr;
+        moved = git_transaction_new( &rawTransaction, repo );
+
+        std::unique_ptr<git_transaction, decltype( &git_transaction_free )> transaction( rawTransaction,
+                                                                                       git_transaction_free );
+        git_oid current;
+
+        if( moved == GIT_OK )
+            moved = git_transaction_lock_ref( transaction.get(), branchName );
+
+        if( moved == GIT_OK )
+            moved = git_reference_name_to_id( &current, repo, branchName );
+
+        if( moved == GIT_OK && !git_oid_equal( &current, &aExpectedHead ) )
+            moved = GIT_EMODIFIED;
+
+        if( moved == GIT_OK )
+            moved = git_transaction_remove( transaction.get(), branchName );
+
+        if( moved == GIT_OK )
+            moved = git_transaction_commit( transaction.get() );
+    }
+    else
+    {
+        git_reference* rawMoved = nullptr;
+        moved = git_reference_create_matching( &rawMoved, repo, branchName, git_commit_parent_id( commit.get(), 0 ), 1,
+                                               &aExpectedHead, "undo: moving to parent" );
+        git_reference_free( rawMoved );
+    }
+
+    if( moved == GIT_EMODIFIED )
+        return UndoCommitResult::TargetChanged;
+
+    if( moved != GIT_OK )
+    {
+        aHandler->AddGitError( _( "Could not undo the commit." ) );
+        return UndoCommitResult::Error;
+    }
+
+    aMessage = wxString::FromUTF8( git_commit_message( commit.get() ) );
+    return UndoCommitResult::Success;
+}
+
+
 PushResult LIBGIT_BACKEND::Push( GIT_PUSH_HANDLER* aHandler, bool aForce )
 {
     KIGIT_COMMON*                common = aHandler->GetCommon();
@@ -960,6 +1146,8 @@ PushResult LIBGIT_BACKEND::Push( GIT_PUSH_HANDLER* aHandler, bool aForce )
                                          remoteName );
         return PushResult::Error;
     }
+
+    aHandler->RememberWorkingSSHKey();
 
     git_push_options pushOptions;
     git_push_init_options( &pushOptions, GIT_PUSH_OPTIONS_VERSION );
@@ -1216,6 +1404,47 @@ bool LIBGIT_BACKEND::IsRepository( GIT_INIT_HANDLER* aHandler, const wxString& a
 }
 
 
+// Names the unborn branch Add to Version Control created, so a fetch can tell it from a later orphan
+static const char ADOPT_REMOTE_BRANCH_KEY[] = "kicad.adoptRemoteBranch";
+
+
+static wxString unbornBranchName( git_repository* aRepo )
+{
+    git_reference* head = nullptr;
+    wxString       name;
+
+    if( git_repository_head_unborn( aRepo ) != 1 || git_reference_lookup( &head, aRepo, "HEAD" ) != GIT_OK )
+        return name;
+
+    KIGIT::GitReferencePtr headPtr( head );
+
+    if( const char* target = git_reference_symbolic_target( head ) )
+        wxString::FromUTF8( target ).StartsWith( wxS( "refs/heads/" ), &name );
+
+    return name;
+}
+
+
+static bool markForRemoteBranchAdoption( git_repository* aRepo )
+{
+    const wxString branch = unbornBranchName( aRepo );
+    git_config*    config = nullptr;
+    git_config*    local = nullptr;
+
+    if( branch.IsEmpty() || git_repository_config( &config, aRepo ) != GIT_OK )
+        return false;
+
+    KIGIT::GitConfigPtr configPtr( config );
+
+    if( git_config_open_level( &local, config, GIT_CONFIG_LEVEL_LOCAL ) != GIT_OK )
+        return false;
+
+    KIGIT::GitConfigPtr localPtr( local );
+
+    return git_config_set_string( local, ADOPT_REMOTE_BRANCH_KEY, branch.utf8_str() ) == GIT_OK;
+}
+
+
 InitResult LIBGIT_BACKEND::InitializeRepository( GIT_INIT_HANDLER* aHandler, const wxString& aPath )
 {
     if( IsRepository( aHandler, aPath ) )
@@ -1236,6 +1465,12 @@ InitResult LIBGIT_BACKEND::InitializeRepository( GIT_INIT_HANDLER* aHandler, con
     }
 
     aHandler->GetCommon()->SetRepo( repo );
+
+    if( !markForRemoteBranchAdoption( repo ) )
+    {
+        aHandler->AddGitError( wxString::Format( _( "Could not set up version control in %s." ), aPath ) );
+        return InitResult::Error;
+    }
 
     wxLogTrace( traceGit, "Successfully initialized Git repository at %s", aPath );
     return InitResult::Success;
@@ -1429,7 +1664,103 @@ BranchResult LIBGIT_BACKEND::SwitchToBranch( GIT_BRANCH_HANDLER* aHandler, const
 
 // Use callbacks declared/implemented in kicad_git_common.h/.cpp
 
-bool LIBGIT_BACKEND::PerformFetch( GIT_PULL_HANDLER* aHandler, bool aSkipLock )
+// A local default of master would otherwise push beside a server created with main. False means
+// the move was due and failed
+static bool adoptRemoteBranch( git_repository* aRepo, const wxString& aRemoteName,
+                               const std::vector<wxString>& aRemoteBranches )
+{
+    git_config* config = nullptr;
+    git_config* local = nullptr;
+
+    if( git_repository_config( &config, aRepo ) != GIT_OK )
+        return true;
+
+    KIGIT::GitConfigPtr configPtr( config );
+
+    if( git_config_open_level( &local, config, GIT_CONFIG_LEVEL_LOCAL ) != GIT_OK )
+        return true;
+
+    KIGIT::GitConfigPtr localPtr( local );
+
+    git_buf marked = GIT_BUF_INIT;
+
+    if( git_config_get_string_buf( &marked, local, ADOPT_REMOTE_BRANCH_KEY ) != GIT_OK )
+        return true;
+
+    KIGIT::GitBufPtr markedPtr( &marked );
+    const wxString   localName = unbornBranchName( aRepo );
+
+    git_branch_iterator* iterator = nullptr;
+    git_reference*       ref = nullptr;
+    git_branch_t         type;
+
+    if( git_branch_iterator_new( &iterator, aRepo, GIT_BRANCH_LOCAL ) != GIT_OK )
+        return false;
+
+    KIGIT::GitBranchIteratorPtr iteratorPtr( iterator );
+    const int                   rc = git_branch_next( &ref, &type, iterator );
+    KIGIT::GitReferencePtr      refPtr( rc == GIT_OK ? ref : nullptr );
+
+    if( rc != GIT_OK && rc != GIT_ITEROVER )
+        return false;
+
+    git_reflog* reflog = nullptr;
+
+    if( git_reflog_read( &reflog, aRepo, "HEAD" ) != GIT_OK )
+        return false;
+
+    std::unique_ptr<git_reflog, decltype( &git_reflog_free )> reflogPtr( reflog, git_reflog_free );
+
+    // A commit, any branch, or HEAD history means the repository has moved on since it was made
+    if( rc == GIT_OK || git_reflog_entrycount( reflog ) != 0 || localName.IsEmpty()
+        || localName != wxString::FromUTF8( marked.ptr ) )
+    {
+        git_config_delete_entry( local, ADOPT_REMOTE_BRANCH_KEY );
+        return true;
+    }
+
+    // An empty remote keeps the question open until the first push gives it a branch
+    if( aRemoteBranches.empty() )
+        return true;
+
+    // Only a single remote branch says unambiguously where the first commit belongs
+    if( aRemoteBranches.size() != 1 || aRemoteBranches.front() == localName )
+    {
+        git_config_delete_entry( local, ADOPT_REMOTE_BRANCH_KEY );
+        return true;
+    }
+
+    const wxString   branch = aRemoteBranches.front();
+    const wxString   section = wxS( "branch." ) + branch;
+    git_transaction* transaction = nullptr;
+
+    if( git_config_lock( &transaction, local ) != GIT_OK )
+        return false;
+
+    std::unique_ptr<git_transaction, decltype( &git_transaction_free )> transactionPtr( transaction,
+                                                                                        git_transaction_free );
+
+    // Upstream first, so a failure leaves HEAD where it was rather than on a branch with half its tracking
+    if( git_config_set_string( local, ( section + wxS( ".remote" ) ).utf8_str(), aRemoteName.utf8_str() ) != GIT_OK
+        || git_config_set_string( local, ( section + wxS( ".merge" ) ).utf8_str(),
+                                  ( wxS( "refs/heads/" ) + branch ).utf8_str() )
+                   != GIT_OK
+        || git_transaction_commit( transaction ) != GIT_OK
+        || git_repository_set_head( aRepo, ( wxS( "refs/heads/" ) + branch ).utf8_str() ) != GIT_OK )
+    {
+        wxLogTrace( traceGit, "adoptRemoteBranch: could not move %s to %s: %s", localName, branch,
+                    KIGIT_COMMON::GetLastGitError() );
+        return false;
+    }
+
+    git_config_delete_entry( local, ADOPT_REMOTE_BRANCH_KEY );
+    wxLogTrace( traceGit, "adoptRemoteBranch: first commit goes to %s instead of %s", branch, localName );
+    return true;
+}
+
+
+// aRemoteHasBranches, when given, is false only when the server advertised no branch at all
+static bool fetchRemote( GIT_PULL_HANDLER* aHandler, bool aSkipLock, bool* aRemoteHasBranches )
 {
     // A pull already holds the lock when it fetches, and relocking from the owner is undefined.
     std::unique_lock<std::mutex> lock;
@@ -1500,6 +1831,25 @@ bool LIBGIT_BACKEND::PerformFetch( GIT_PULL_HANDLER* aHandler, bool aSkipLock )
         return false;
     }
 
+    aHandler->RememberWorkingSSHKey();
+
+    const git_remote_head** heads = nullptr;
+    size_t                  headCount = 0;
+    std::vector<wxString>   remoteBranches;
+
+    // The advertisement, not local tracking refs, because a custom refspec or stale refs mislead those
+    if( git_remote_ls( &heads, &headCount, remote ) == GIT_OK )
+    {
+        for( size_t ii = 0; ii < headCount; ++ii )
+        {
+            if( std::strncmp( heads[ii]->name, "refs/heads/", 11 ) == 0 )
+                remoteBranches.push_back( wxString::FromUTF8( heads[ii]->name + 11 ) );
+        }
+    }
+
+    if( aRemoteHasBranches )
+        *aRemoteHasBranches = !remoteBranches.empty();
+
     git_fetch_options fetchOptions;
     git_fetch_init_options( &fetchOptions, GIT_FETCH_OPTIONS_VERSION );
     fetchOptions.callbacks = remoteCallbacks;
@@ -1510,8 +1860,22 @@ bool LIBGIT_BACKEND::PerformFetch( GIT_PULL_HANDLER* aHandler, bool aSkipLock )
         return false;
     }
 
+    if( !adoptRemoteBranch( aHandler->GetRepo(), remoteName, remoteBranches ) )
+    {
+        aHandler->AddGitError( wxString::Format( _( "Fetched from '%s', but could not switch the new repository "
+                                                    "to the remote's branch." ),
+                                                 remoteName ) );
+        return false;
+    }
+
     wxLogTrace( traceGit, "GIT_PULL_HANDLER::PerformFetch() - Fetch completed successfully" );
     return true;
+}
+
+
+bool LIBGIT_BACKEND::PerformFetch( GIT_PULL_HANDLER* aHandler, bool aSkipLock )
+{
+    return fetchRemote( aHandler, aSkipLock, nullptr );
 }
 
 
@@ -1756,7 +2120,9 @@ PullResult LIBGIT_BACKEND::PerformPull( GIT_PULL_HANDLER* aHandler )
     if( aHandler->IsThisOperationCancelled() || !aHandler->GetRepo() )
         return PullResult::Error;
 
-    if( !PerformFetch( aHandler, true ) )
+    bool remoteHasBranches = true;
+
+    if( !fetchRemote( aHandler, true, &remoteHasBranches ) )
         return PullResult::Error;
 
     git_oid pull_merge_oid = {};
@@ -1821,6 +2187,10 @@ PullResult LIBGIT_BACKEND::PerformPull( GIT_PULL_HANDLER* aHandler )
     if( git_oid_iszero( &pull_merge_oid ) )
 #endif
     {
+        // An empty remote, as right after Add to Version Control, has nothing to pull yet
+        if( !remoteHasBranches )
+            return PullResult::UpToDate;
+
         aHandler->AddErrorString( _( "Nothing to pull: the remote has no branch matching the current local "
                                      "branch." ) );
         return PullResult::Error;
@@ -2407,6 +2777,11 @@ git_repository* LIBGIT_BACKEND::GetRepositoryForFile( const char* aFilename, wxS
                 KIGIT::GitBufPtr        gitDirPtr( &gitDir );
                 KIGIT_OWNERSHIP_REFUSAL refusal = KIGIT::DescribeOwnershipRefusal( wxString::FromUTF8( aFilename ),
                                                                                    wxString::FromUTF8( gitDir.ptr ) );
+
+                // Left as no repository, so Add to Version Control gives the project its own
+                if( refusal.coversHome )
+                    return nullptr;
+
                 *aError = refusal.summary;
 
                 if( aTrustCommand )

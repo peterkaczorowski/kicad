@@ -293,6 +293,7 @@ set( KICOMMON_SRCS
     widgets/wx_html_report_panel_base.cpp
     widgets/wx_html_report_box.cpp
 
+    database/access_fast_exit.cpp
     database/database_autofill.cpp
     database/database_lib_settings.cpp
 
@@ -477,6 +478,11 @@ if( APPLE )
         "-framework QuartzCore"
         "-framework AppKit"
     )
+endif()
+
+if( WIN32 )
+    # access_fast_exit.cpp flushes the OLE clipboard
+    target_link_libraries( kicommon ole32 )
 endif()
 
 
@@ -1026,7 +1032,14 @@ set( COMMON_SRCS
     properties/property_mgr.cpp
     properties/std_optional_variants.cpp
 
+    database/access_engine_mutex.cpp
+    database/database_backend.cpp
     database/database_connection.cpp
+    database/db_backend_support.cpp
+    database/db_worker_thread.cpp
+    database/odbc_backend.cpp
+    database/sqlite_backend.cpp
+    database/database_value.cpp
 
     http_lib/http_lib_connection.cpp
     http_lib/http_lib_settings.cpp
@@ -1038,6 +1051,12 @@ set( COMMON_SRCS
 if( UNIX AND NOT APPLE )
     list( APPEND COMMON_SRCS
         spacenav/spnav_2d_plugin.cpp
+    )
+endif()
+
+if( WIN32 )
+    list( APPEND COMMON_SRCS
+        database/ace_backend.cpp
     )
 endif()
 
@@ -1097,6 +1116,7 @@ target_link_libraries( common
     Boost::headers
     # Database support needs these two
     nanodbc # for now; maybe hoist out of common
+    ${KICAD_SQLITE3_TARGET}
     Boost::locale
     ${wxWidgets_LIBRARIES}
     ${EXTRA_LIBS}
@@ -1109,6 +1129,11 @@ target_link_libraries( common
 if( KICAD_USE_SENTRY )
     target_link_libraries( common
         sentry )
+endif()
+
+if( WIN32 )
+    # The Access backend talks ADO through COM and maps drive letters to UNC names
+    target_link_libraries( common ole32 oleaut32 mpr )
 endif()
 
 target_include_directories( common
