@@ -52,6 +52,9 @@ struct CONSTRAINT_DEFAULT_FIELD
     wxString label;
     int BOARD_DESIGN_SETTINGS::* member;
     wxString                     settingName;
+
+    /// The page that edits this value, where it is not edited with the rules read against it
+    wxString editedOn = {};
 };
 
 
@@ -117,6 +120,14 @@ public:
     static wxString PageEditingDefault( const wxString& aSetting );
 
     /**
+     * Marks a field as shown rather than edited here, with a link that opens the page that
+     * edits it.
+     *
+     * @param aSlot is where the link sits among the icons at the field's right edge.
+     */
+    static void ShowEditedElsewhere( wxWindow* aField, const wxString& aPage, int aSlot = 1 );
+
+    /**
      * Every board default a rule page edits, each with the group it is imported with.
      *
      * A default is written by the page that edits it, so an import has to reach the board
@@ -159,6 +170,9 @@ private:
     /// Writes the default fields to the board, or reports the first value out of range
     bool applyDefaults();
 
+    /// Copies the defaults this page edits into aSettings
+    void writeDefaults( BOARD_DESIGN_SETTINGS& aSettings ) const;
+
     /// Shows a warning icon, with the reason as its tooltip, over each default whose value has an issue
     void updateWarnings();
 
@@ -173,7 +187,7 @@ private:
     DRC_RULE_DOCUMENT*     m_document;
     wxScrolledWindow*      m_scrolled;
 
-    /// One board default, as this page edits it
+    /// One board default, as this page shows it
     struct DEFAULT_FIELD
     {
         wxString settingName;
@@ -181,6 +195,9 @@ private:
         wxTextCtrl*                  ctrl;
         FIELD_WARNING_ICON*          warning;
         std::unique_ptr<UNIT_BINDER> binder;
+
+        /// The page that edits this value, where this page only shows it
+        wxString editedOn;
     };
 
     CONSTRAINT_SECTION         m_section;

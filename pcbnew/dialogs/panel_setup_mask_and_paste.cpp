@@ -21,6 +21,7 @@
 #include <pcb_edit_frame.h>
 #include <board_design_settings.h>
 #include <dialogs/dialog_text_entry.h>
+#include <dialogs/panel_setup_constraint_rules.h>
 #include <panel_setup_mask_and_paste.h>
 
 
@@ -50,6 +51,17 @@ PANEL_SETUP_MASK_AND_PASTE::PANEL_SETUP_MASK_AND_PASTE( wxWindow* aParentWindow,
     m_pasteMarginRatioLabel->Show( false );
     m_pasteMarginRatioCtrl->Show( false );
     m_pasteMarginRatioUnits->Show( false );
+
+    // These two are the values the mask rules are read against, so they are set with those rules.
+    // The paste clearance stays here, because one control holds it and its ratio together.
+    m_maskExpansionPage = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_expansion" ) );
+    m_maskMinWidthPage = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_min_width" ) );
+
+    if( !m_maskExpansionPage.IsEmpty() )
+        PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( m_maskMarginCtrl, m_maskExpansionPage, 0 );
+
+    if( !m_maskMinWidthPage.IsEmpty() )
+        PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( m_maskMinWidthCtrl, m_maskMinWidthPage, 0 );
 }
 
 
@@ -71,8 +83,15 @@ bool PANEL_SETUP_MASK_AND_PASTE::TransferDataToWindow()
 bool PANEL_SETUP_MASK_AND_PASTE::TransferDataFromWindow()
 {
     // These are all stored in project file, not board, so no need for OnModify()
-    m_BrdSettings->m_SolderMaskExpansion = m_maskExpansion.GetIntValue();
-    m_BrdSettings->m_SolderMaskMinWidth = m_maskMinWidth.GetIntValue();
+
+    // A value shown here is written by the rule page that sets it, and reading it back from a
+    // field this page has not refreshed would undo what that page wrote
+    if( m_maskExpansionPage.IsEmpty() )
+        m_BrdSettings->m_SolderMaskExpansion = m_maskExpansion.GetIntValue();
+
+    if( m_maskMinWidthPage.IsEmpty() )
+        m_BrdSettings->m_SolderMaskMinWidth = m_maskMinWidth.GetIntValue();
+
     m_BrdSettings->m_SolderMaskToCopperClearance = m_maskToCopperClearance.GetIntValue();
 
     m_BrdSettings->m_SolderPasteMargin = m_pasteMargin.GetOffsetValue().value_or( 0 );
@@ -81,6 +100,16 @@ bool PANEL_SETUP_MASK_AND_PASTE::TransferDataFromWindow()
     m_BrdSettings->m_AllowSoldermaskBridgesInFPs = m_allowBridges->GetValue();
 
     return true;
+}
+
+
+void PANEL_SETUP_MASK_AND_PASTE::RefreshDefaults()
+{
+    if( !m_maskExpansionPage.IsEmpty() )
+        m_maskExpansion.SetValue( m_BrdSettings->m_SolderMaskExpansion );
+
+    if( !m_maskMinWidthPage.IsEmpty() )
+        m_maskMinWidth.SetValue( m_BrdSettings->m_SolderMaskMinWidth );
 }
 
 

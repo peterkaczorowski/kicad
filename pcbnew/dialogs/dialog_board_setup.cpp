@@ -564,6 +564,8 @@ void DIALOG_BOARD_SETUP::refreshRulePage( size_t aPage )
         textPage->RefreshFromDocument();
     else if( auto* constraintsPage = dynamic_cast<PANEL_SETUP_CONSTRAINTS*>( resolved ) )
         constraintsPage->RefreshDefaults();
+    else if( auto* maskPage = dynamic_cast<PANEL_SETUP_MASK_AND_PASTE*>( resolved ) )
+        maskPage->RefreshDefaults();
 }
 
 

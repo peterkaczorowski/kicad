@@ -115,23 +115,7 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
         // A constraint is set where the rules read against it are, so this page only shows it
         if( !field.m_EditedOn.IsEmpty() )
         {
-            if( wxTextCtrl* text = dynamic_cast<wxTextCtrl*>( field.m_Ctrl ) )
-            {
-                text->SetEditable( false );
-                text->SetBackgroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_BTNFACE ) );
-            }
-
-            field.m_Link = new FIELD_WARNING_ICON( field.m_Ctrl, BITMAPS::small_new_window, 1 );
-            field.m_Link->SetWarning(
-                    wxString::Format( _( "Set on the %s page. Click to open it." ), field.m_EditedOn ) );
-            field.m_Link->SetCursor( wxCURSOR_HAND );
-            field.m_Link->Bind( wxEVT_LEFT_DOWN,
-                                [this, page = field.m_EditedOn]( wxMouseEvent& )
-                                {
-                                    if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
-                                        dialog->ShowPage( page );
-                                } );
-
+            PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( field.m_Ctrl, field.m_EditedOn );
             continue;
         }
 

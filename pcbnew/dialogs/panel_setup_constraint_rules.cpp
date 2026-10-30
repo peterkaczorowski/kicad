@@ -30,6 +30,7 @@
 #include <project.h>
 #include <project/net_settings.h>
 #include <project/project_file.h>
+#include <bitmaps.h>
 #include <widgets/field_warning_icon.h>
 #include <widgets/paged_dialog.h>
 #include <wx/hyperlink.h>
@@ -134,14 +135,22 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
             entry.ctrl = value;
             entry.warning = new FIELD_WARNING_ICON( value );
             entry.binder = std::make_unique<UNIT_BINDER>( m_frame, label, value, units );
+            entry.editedOn = field.editedOn;
 
-            // Debounced so a half-typed value does not flash a warning
-            value->Bind( wxEVT_TEXT,
-                         [this]( wxCommandEvent& aEvent )
-                         {
-                             m_validationTimer.StartOnce( 250 );
-                             aEvent.Skip();
-                         } );
+            if( entry.editedOn.IsEmpty() )
+            {
+                // Debounced so a half-typed value does not flash a warning
+                value->Bind( wxEVT_TEXT,
+                             [this]( wxCommandEvent& aEvent )
+                             {
+                                 m_validationTimer.StartOnce( 250 );
+                                 aEvent.Skip();
+                             } );
+            }
+            else
+            {
+                ShowEditedElsewhere( value, entry.editedOn );
+            }
 
             m_defaults.push_back( std::move( entry ) );
         }
@@ -259,16 +268,15 @@ bool PANEL_SETUP_CONSTRAINT_RULES::applyDefaults()
 
     BOARD_DESIGN_SETTINGS candidate( *m_settings );
 
-    for( const DEFAULT_FIELD& field : m_defaults )
-        candidate.*( field.member ) = field.binder->GetValue();
+    writeDefaults( candidate );
 
-    // A page reports only the values it holds. The others are reported by the page that holds them.
+    // A page reports only the values it edits; the rest are reported where they are edited.
     for( const BOARD_DESIGN_SETTINGS::VALIDATION_ERROR& error :
          candidate.ValidateDesignRules( m_frame->GetUserUnits() ) )
     {
         for( const DEFAULT_FIELD& field : m_defaults )
         {
-            if( field.settingName != error.setting_name )
+            if( field.settingName != error.setting_name || !field.editedOn.IsEmpty() )
                 continue;
 
             if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
@@ -278,10 +286,19 @@ bool PANEL_SETUP_CONSTRAINT_RULES::applyDefaults()
         }
     }
 
-    for( const DEFAULT_FIELD& field : m_defaults )
-        m_settings->*( field.member ) = field.binder->GetValue();
+    writeDefaults( *m_settings );
 
     return true;
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::writeDefaults( BOARD_DESIGN_SETTINGS& aSettings ) const
+{
+    for( const DEFAULT_FIELD& field : m_defaults )
+    {
+        if( field.editedOn.IsEmpty() )
+            aSettings.*( field.member ) = field.binder->GetValue();
+    }
 }
 
 
@@ -292,12 +309,11 @@ void PANEL_SETUP_CONSTRAINT_RULES::updateWarnings()
     if( m_defaults.empty() )
         return;
 
-    // A warning can weigh two defaults against each other, and the other one is read from the
-    // board, where the page holding it wrote it on the way out.
+    // A warning can weigh two defaults against each other, and the page holding the other one
+    // wrote it to the board on its way out.
     BOARD_DESIGN_SETTINGS candidate( *m_settings );
 
-    for( const DEFAULT_FIELD& field : m_defaults )
-        candidate.*( field.member ) = field.binder->GetValue();
+    writeDefaults( candidate );
 
     EDA_UNITS                    units = m_frame->GetUserUnits();
     std::map<wxString, wxString> messages;
@@ -374,7 +390,11 @@ std::vector<std::pair<wxString, CONSTRAINT_DEFAULT_FIELD>> PANEL_SETUP_CONSTRAIN
             wxString group = section.settingsPage.IsEmpty() ? _( "Constraints" ) : section.settingsPage;
 
             for( const CONSTRAINT_DEFAULT_FIELD& field : section.defaults )
-                fields.emplace_back( group, field );
+            {
+                // A value another page edits is imported by that page, with the rest of its own
+                if( field.editedOn.IsEmpty() )
+                    fields.emplace_back( group, field );
+            }
         }
     }
 
@@ -437,7 +457,36 @@ wxString PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( const wxString& aSett
 {
     std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
 
-    return section ? section->title : wxString();
+    if( !section )
+        return wxString();
+
+    for( const CONSTRAINT_DEFAULT_FIELD& field : section->defaults )
+    {
+        if( field.settingName == aSetting )
+            return field.editedOn.IsEmpty() ? section->title : wxString();
+    }
+
+    return wxString();
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( wxWindow* aField, const wxString& aPage, int aSlot )
+{
+    // A background of its own is not enough: a dark theme draws a field and the panel behind
+    // it alike, so the field is greyed instead
+    aField->Disable();
+
+    // The link is a sibling of the field rather than a child, so it stays live
+    FIELD_WARNING_ICON* link = new FIELD_WARNING_ICON( aField, BITMAPS::small_new_window, aSlot );
+
+    link->SetWarning( wxString::Format( _( "Set on the %s page. Click to open it." ), aPage ) );
+    link->SetCursor( wxCURSOR_HAND );
+    link->Bind( wxEVT_LEFT_DOWN,
+                [aField, aPage]( wxMouseEvent& )
+                {
+                    if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( aField ) )
+                        dialog->ShowPage( aPage );
+                } );
 }
 
 
@@ -565,7 +614,8 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                    {},
                    _( "Solder Mask/Paste" ) },
                  { _( "Solder paste expansion" ),
-                   { { _( "Board default:" ), &BDS::m_SolderPasteMargin, wxS( "solder_paste_margin" ) } },
+                   { { _( "Board default:" ), &BDS::m_SolderPasteMargin, wxS( "solder_paste_margin" ),
+                       _( "Solder Mask/Paste" ) } },
                    SOLDERPASTE_EXPANSION,
                    {},
                    _( "Solder Mask/Paste" ) } };

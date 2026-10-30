@@ -67,9 +67,8 @@ private:
         int BOARD_DESIGN_SETTINGS::* m_Member = nullptr;
         FIELD_WARNING_ICON*          m_Warning = nullptr;
 
-        /// The rule page that edits this value, where one does, and the link that opens it
-        wxString            m_EditedOn = {};
-        FIELD_WARNING_ICON* m_Link = nullptr;
+        /// The rule page that edits this value, where one does
+        wxString m_EditedOn = {};
     };
 
 public:
