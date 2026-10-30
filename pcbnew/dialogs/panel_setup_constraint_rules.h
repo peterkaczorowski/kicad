@@ -21,21 +21,25 @@
 #define PANEL_SETUP_CONSTRAINT_RULES_H
 
 #include <functional>
-#include <map>
+#include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
 #include <wx/panel.h>
+#include <wx/timer.h>
 
 #include <board_design_settings.h>
 #include <drc/drc_constraint_types.h>
 #include <drc/rule_editor/drc_rule_editor_enums.h>
+#include <widgets/unit_binder.h>
 
 class wxScrolledWindow;
 class wxStaticText;
+class wxTextCtrl;
 class BOARD;
 class CONSTRAINT_RULES_LIST;
 class DRC_RULE_DOCUMENT;
+class FIELD_WARNING_ICON;
 class NETCLASS;
 class NET_SETTINGS;
 class PCB_EDIT_FRAME;
@@ -62,7 +66,7 @@ struct CONSTRAINT_SECTION
     std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME>       ruleType;
     std::function<std::optional<int>( const NETCLASS& )> netclassValue;
 
-    /// The page that owns this section's defaults.
+    /// The group this section's defaults are imported with.
     wxString settingsPage = wxEmptyString;
 };
 
@@ -95,31 +99,22 @@ public:
     /// The title of the page that edits rules of this type, or empty when no page does
     static wxString PageTitleFor( DRC_RULE_EDITOR_CONSTRAINT_NAME aType );
 
-    /**
-     * The classes setting their own value for a board constraint, grouped by the value they set.
-     * Empty where no class sets one, or where net classes cannot set this constraint at all.
-     */
-    static std::map<int, std::vector<wxString>> NetclassValuesFor( const wxString&     aSetting,
-                                                                   const NET_SETTINGS& aNetSettings );
+    /// The title of the page that edits a board default, or empty where no rule page edits one
+    static wxString PageEditingDefault( const wxString& aSetting );
 
     /**
-     * Shows the board defaults from another board, but only where the page that owns them is
-     * among those being imported. The values on a rule page belong to another page, so they
-     * arrive with it rather than with the rules.
+     * Every board default a rule page edits, each with the group it is imported with.
      *
-     * @param aSettingsPage is the title of the settings page being imported.
+     * A default is written by the page that edits it, so an import has to reach the board
+     * itself for a page that was never opened.
      */
-    void ImportSettingsFrom( BOARD* aBoard, const wxString& aSettingsPage );
+    static std::vector<std::pair<wxString, CONSTRAINT_DEFAULT_FIELD>> EditedDefaults();
 
     /**
-     * Drops imported defaults once the settings page that owns them has written them to the board.
+     * Reads the board defaults back into their fields, after something other than this page
+     * changed them.
      */
-    void DropImportedDefaults( const wxString& aSettingsPage );
-
-    /**
-     * Opens a rule of this constraint type in the editor, if this page holds that constraint.
-     */
-    void ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex );
+    void RefreshDefaults();
 
     void RefreshFromDocument();
 
@@ -147,10 +142,12 @@ private:
     void updateNetclassLabels();
     void wrapLabels();
     void showPage( const wxString& aTitle );
-    void updateDefaultLabels();
 
-    /// The settings page that owns this page's board defaults
-    wxString settingsPage() const;
+    /// Writes the default fields to the board, or reports the first value out of range
+    bool applyDefaults();
+
+    /// Shows a warning icon, with the reason as its tooltip, over each default whose value has an issue
+    void updateWarnings();
 
     /**
      * Offers what to do with a rule the form holds. False while the offer stands, which is what
@@ -163,13 +160,23 @@ private:
     DRC_RULE_DOCUMENT*     m_document;
     wxScrolledWindow*      m_scrolled;
 
-    CONSTRAINT_SECTION              m_section;
-    std::vector<wxStaticText*>      m_defaultLabels;
-    std::vector<std::optional<int>> m_importedDefaults;
-    wxStaticText*                   m_netclassLabel;
-    wxString                        m_netclassText;
-    wxStaticText*                   m_note;
-    wxString                        m_noteText;
+    /// One board default, as this page edits it
+    struct DEFAULT_FIELD
+    {
+        wxString settingName;
+        int BOARD_DESIGN_SETTINGS::* member;
+        wxTextCtrl*                  ctrl;
+        FIELD_WARNING_ICON*          warning;
+        std::unique_ptr<UNIT_BINDER> binder;
+    };
+
+    CONSTRAINT_SECTION         m_section;
+    std::vector<DEFAULT_FIELD> m_defaults;
+    wxStaticText*              m_netclassLabel;
+    wxString                   m_netclassText;
+    wxStaticText*              m_note;
+    wxString                   m_noteText;
+    wxTimer                    m_validationTimer;
     /// Null until the section is built, and where a section carries no rules of its own.
     CONSTRAINT_RULES_LIST* m_list;
 };

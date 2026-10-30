@@ -56,7 +56,7 @@ public:
     void SetTitleWindow( wxWindow* aWindow ) { m_titleWindow = aWindow; }
 
     /// The board defaults this constraint falls back to, each with the name the note gives it
-    void SetDefaults( std::vector<std::pair<wxString, wxStaticText*>> aDefaults )
+    void SetDefaults( std::vector<std::pair<wxString, std::function<wxString()>>> aDefaults )
     {
         m_defaults = std::move( aDefaults );
     }
@@ -143,7 +143,7 @@ private:
     DRC_RULE_EDITOR_CONSTRAINT_NAME                 m_type;
     wxString                                        m_title;
     wxWindow*                                       m_titleWindow;
-    std::vector<std::pair<wxString, wxStaticText*>> m_defaults;
+    std::vector<std::pair<wxString, std::function<wxString()>>> m_defaults;
 
     PANEL_DRC_RULE_EDITOR*                       m_editor;
     std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> m_editingData;

@@ -24,6 +24,7 @@
 #include <widgets/paged_dialog.h>
 #include "panel_setup_formatting.h"
 
+class BOARD;
 class PCB_EDIT_FRAME;
 class DRC_RULE_DOCUMENT;
 class PANEL_SETUP_CONSTRAINTS;
@@ -56,6 +57,9 @@ protected:
     void onCloseWindow( wxCloseEvent& aEvent );
 
     void refreshRulePage( size_t aPage );
+
+    /// Writes the board defaults a rule page edits, for one of the import dialog's groups
+    void importRuleDefaults( BOARD* aBoard, const wxString& aGroup );
     void forEachOpenRulePage( const std::function<void( PANEL_SETUP_CONSTRAINT_RULES* )>& aAction );
 
     bool TransferDataFromWindow() override;

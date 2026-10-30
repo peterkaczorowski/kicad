@@ -30,6 +30,7 @@
 #include <project.h>
 #include <project/net_settings.h>
 #include <project/project_file.h>
+#include <widgets/field_warning_icon.h>
 #include <widgets/paged_dialog.h>
 #include <wx/hyperlink.h>
 #include <widgets/ui_common.h>
@@ -37,6 +38,7 @@
 #include <wx/sizer.h>
 #include <wx/statline.h>
 #include <wx/stattext.h>
+#include <wx/textctrl.h>
 
 #include "constraint_rules_list.h"
 
@@ -78,6 +80,7 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
         m_section( aSection ),
         m_netclassLabel( nullptr ),
         m_note( nullptr ),
+        m_validationTimer( this ),
         m_list( nullptr )
 {
     wxBoxSizer* mainSizer = new wxBoxSizer( wxVERTICAL );
@@ -109,6 +112,14 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
                           wrapLabels();
                           aEvent.Skip();
                       } );
+
+    Bind(
+            wxEVT_TIMER,
+            [this]( wxTimerEvent& )
+            {
+                updateWarnings();
+            },
+            m_validationTimer.GetId() );
 }
 
 
@@ -125,42 +136,45 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
 
     if( !m_section.defaults.empty() )
     {
-        wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 2, 4, 8 );
+        // The value every rule here is read against, so it is edited here rather than on a page
+        // of its own
+        wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 3, 4, 8 );
 
         for( const CONSTRAINT_DEFAULT_FIELD& field : m_section.defaults )
         {
             wxStaticText* label = new wxStaticText( parent, wxID_ANY, field.label );
-            wxStaticText* value = new wxStaticText( parent, wxID_ANY, wxEmptyString );
+            wxTextCtrl*   value = new wxTextCtrl( parent, wxID_ANY );
+            wxStaticText* units = new wxStaticText( parent, wxID_ANY, wxEmptyString );
 
             label->SetFont( KIUI::GetInfoFont( this ) );
-            value->SetFont( KIUI::GetInfoFont( this ) );
+            units->SetFont( KIUI::GetInfoFont( this ) );
+
+            // Room for the longest value the field takes, in any of the units it can be shown in
+            value->SetMinSize( wxSize( KIUI::GetTextSize( wxT( "XXXXXXXXXX" ), value ).x, -1 ) );
 
             grid->Add( label, 0, wxALIGN_CENTER_VERTICAL );
             grid->Add( value, 0, wxALIGN_CENTER_VERTICAL );
+            grid->Add( units, 0, wxALIGN_CENTER_VERTICAL );
 
-            m_defaultLabels.push_back( value );
+            DEFAULT_FIELD entry;
+            entry.settingName = field.settingName;
+            entry.member = field.member;
+            entry.ctrl = value;
+            entry.warning = new FIELD_WARNING_ICON( value );
+            entry.binder = std::make_unique<UNIT_BINDER>( m_frame, label, value, units );
+
+            // Debounced so a half-typed value does not flash a warning
+            value->Bind( wxEVT_TEXT,
+                         [this]( wxCommandEvent& aEvent )
+                         {
+                             m_validationTimer.StartOnce( 250 );
+                             aEvent.Skip();
+                         } );
+
+            m_defaults.push_back( std::move( entry ) );
         }
 
-        // The Constraints page owns these defaults. They are shown here because a rule is read
-        // against them, but they are edited in one place only.
-        wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
-        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( parent, wxID_ANY, _( "Edit constraints" ), wxEmptyString );
-
-        link->SetFont( KIUI::GetInfoFont( this ) );
-        wxString owner = settingsPage();
-
-        link->Bind( wxEVT_HYPERLINK,
-                    [this, owner]( wxHyperlinkEvent& )
-                    {
-                        showPage( owner );
-                    } );
-
-        // The net class row below ellipsizes to keep the dialog narrow, which anchors its link to
-        // the right edge. This link sits there too so the two read as a pair.
-        row->Add( grid, 0, wxALIGN_CENTER_VERTICAL );
-        row->AddStretchSpacer();
-        row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
-        settings->Add( row, 0, wxEXPAND | wxALL, 5 );
+        settings->Add( grid, 0, wxEXPAND | wxALL, 5 );
     }
 
     if( m_section.netclassValue )
@@ -197,12 +211,11 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
 
         if( !m_section.defaults.empty() )
         {
-            std::vector<std::pair<wxString, wxStaticText*>> defaults;
+            std::vector<std::pair<wxString, std::function<wxString()>>> defaults;
 
             for( size_t d = 0; d < m_section.defaults.size(); ++d )
             {
-                // One default belongs to the section, so the section name reads best. Several are
-                // separate values and each has to carry its own name.
+                // One default is named by its section; several each need their own name
                 wxString name = m_section.title;
 
                 if( m_section.defaults.size() > 1 )
@@ -213,7 +226,12 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
                         name.RemoveLast();
                 }
 
-                defaults.emplace_back( name, m_defaultLabels[d] );
+                // Read on demand, since a note quoting a default is rebuilt as the default is typed
+                defaults.emplace_back( name,
+                                       [this, d]()
+                                       {
+                                           return m_frame->StringFromValue( m_defaults[d].binder->GetValue(), true );
+                                       } );
             }
 
             list->SetDefaults( std::move( defaults ) );
@@ -314,19 +332,87 @@ void PANEL_SETUP_CONSTRAINT_RULES::wrapLabels()
 }
 
 
-void PANEL_SETUP_CONSTRAINT_RULES::updateDefaultLabels()
+void PANEL_SETUP_CONSTRAINT_RULES::RefreshDefaults()
 {
-    for( size_t i = 0; i < m_defaultLabels.size(); ++i )
+    for( DEFAULT_FIELD& field : m_defaults )
+        field.binder->SetValue( m_settings->*( field.member ) );
+
+    updateWarnings();
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::applyDefaults()
+{
+    if( m_defaults.empty() )
+        return true;
+
+    BOARD_DESIGN_SETTINGS candidate( *m_settings );
+
+    for( const DEFAULT_FIELD& field : m_defaults )
+        candidate.*( field.member ) = field.binder->GetValue();
+
+    // A page reports only the values it holds. The others are reported by the page that holds them.
+    for( const BOARD_DESIGN_SETTINGS::VALIDATION_ERROR& error :
+         candidate.ValidateDesignRules( m_frame->GetUserUnits() ) )
     {
-        int value = m_settings->*( m_section.defaults[i].member );
+        for( const DEFAULT_FIELD& field : m_defaults )
+        {
+            if( field.settingName != error.setting_name )
+                continue;
 
-        if( i < m_importedDefaults.size() && m_importedDefaults[i] )
-            value = *m_importedDefaults[i];
+            if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+                dialog->SetError( error.error_message, this, field.ctrl );
 
-        m_defaultLabels[i]->SetLabel( m_frame->StringFromValue( value, true ) );
+            return false;
+        }
     }
 
-    // A note on an open rule quotes the default, so it is rebuilt when the defaults change.
+    for( const DEFAULT_FIELD& field : m_defaults )
+        m_settings->*( field.member ) = field.binder->GetValue();
+
+    return true;
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::updateWarnings()
+{
+    m_validationTimer.Stop();
+
+    if( m_defaults.empty() )
+        return;
+
+    // A warning can weigh two defaults against each other, and the other one is read from the
+    // board, where the page holding it wrote it on the way out.
+    BOARD_DESIGN_SETTINGS candidate( *m_settings );
+
+    for( const DEFAULT_FIELD& field : m_defaults )
+        candidate.*( field.member ) = field.binder->GetValue();
+
+    EDA_UNITS                    units = m_frame->GetUserUnits();
+    std::map<wxString, wxString> messages;
+
+    for( const std::vector<BOARD_DESIGN_SETTINGS::VALIDATION_ERROR>& issues :
+         { candidate.ValidateDesignRules( units ), candidate.GetDesignRuleWarnings( units ) } )
+    {
+        for( const BOARD_DESIGN_SETTINGS::VALIDATION_ERROR& issue : issues )
+        {
+            wxString& msg = messages[issue.setting_name];
+
+            if( !msg.IsEmpty() )
+                msg += wxS( "\n" );
+
+            msg += issue.error_message;
+        }
+    }
+
+    for( const DEFAULT_FIELD& field : m_defaults )
+    {
+        auto it = messages.find( field.settingName );
+
+        field.warning->SetWarning( it != messages.end() ? it->second : wxString() );
+    }
+
+    // A note on an open rule quotes the default, so it is rebuilt as the default is typed.
     if( m_list )
         m_list->RefreshOverrideNote();
 }
@@ -346,12 +432,13 @@ bool PANEL_SETUP_CONSTRAINT_RULES::Validate()
 
 bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataFromWindow()
 {
-    return confirmPendingRule();
+    return applyDefaults() && confirmPendingRule();
 }
 
 
 bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataToWindow()
 {
+    RefreshDefaults();
     RefreshFromDocument();
     return true;
 }
@@ -359,7 +446,6 @@ bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataToWindow()
 
 void PANEL_SETUP_CONSTRAINT_RULES::RefreshFromDocument()
 {
-    updateDefaultLabels();
     updateNetclassLabels();
 
     if( m_list )
@@ -367,42 +453,23 @@ void PANEL_SETUP_CONSTRAINT_RULES::RefreshFromDocument()
 }
 
 
-wxString PANEL_SETUP_CONSTRAINT_RULES::settingsPage() const
+std::vector<std::pair<wxString, CONSTRAINT_DEFAULT_FIELD>> PANEL_SETUP_CONSTRAINT_RULES::EditedDefaults()
 {
-    return m_section.settingsPage.IsEmpty() ? _( "Constraints" ) : m_section.settingsPage;
-}
+    std::vector<std::pair<wxString, CONSTRAINT_DEFAULT_FIELD>> fields;
 
+    for( FAMILY family : { FAMILY::CLEARANCE, FAMILY::TRACKS_AND_VIAS, FAMILY::HOLES, FAMILY::SILKSCREEN,
+                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINT_RULES } )
+    {
+        for( const CONSTRAINT_SECTION& section : SectionsFor( family ) )
+        {
+            wxString group = section.settingsPage.IsEmpty() ? _( "Constraints" ) : section.settingsPage;
 
-void PANEL_SETUP_CONSTRAINT_RULES::ImportSettingsFrom( BOARD* aBoard, const wxString& aSettingsPage )
-{
-    if( settingsPage() != aSettingsPage )
-        return;
+            for( const CONSTRAINT_DEFAULT_FIELD& field : section.defaults )
+                fields.emplace_back( group, field );
+        }
+    }
 
-    BOARD_DESIGN_SETTINGS& other = aBoard->GetDesignSettings();
-
-    m_importedDefaults.resize( m_section.defaults.size() );
-
-    for( size_t i = 0; i < m_section.defaults.size(); ++i )
-        m_importedDefaults[i] = other.*( m_section.defaults[i].member );
-
-    updateDefaultLabels();
-}
-
-
-void PANEL_SETUP_CONSTRAINT_RULES::DropImportedDefaults( const wxString& aSettingsPage )
-{
-    if( settingsPage() != aSettingsPage || m_importedDefaults.empty() )
-        return;
-
-    m_importedDefaults.clear();
-    updateDefaultLabels();
-}
-
-
-void PANEL_SETUP_CONSTRAINT_RULES::ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex )
-{
-    if( m_list && m_section.ruleType == aType )
-        m_list->EditRule( aIndex );
+    return fields;
 }
 
 
@@ -422,18 +489,6 @@ std::optional<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::sectionForSettin
     }
 
     return std::nullopt;
-}
-
-
-std::map<int, std::vector<wxString>> PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( const wxString&     aSetting,
-                                                                                      const NET_SETTINGS& aNetSettings )
-{
-    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
-
-    if( !section || !section->netclassValue )
-        return {};
-
-    return groupByValue( section->netclassValue, aNetSettings );
 }
 
 
@@ -466,6 +521,14 @@ bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, D
         *aConstraint = it->second;
 
     return true;
+}
+
+
+wxString PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( const wxString& aSetting )
+{
+    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
+
+    return section ? section->title : wxString();
 }
 
 

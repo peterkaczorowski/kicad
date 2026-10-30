@@ -31,7 +31,6 @@
 
 class BOARD;
 class FIELD_WARNING_ICON;
-class DRC_RULE_DOCUMENT;
 class PAGED_DIALOG;
 class PCB_EDIT_FRAME;
 class wxCommandEvent;
@@ -40,12 +39,16 @@ class wxCommandEvent;
 class PANEL_SETUP_CONSTRAINTS : public PANEL_SETUP_CONSTRAINTS_BASE
 {
 public:
-    PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument );
+    PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame );
     ~PANEL_SETUP_CONSTRAINTS( ) override { };
 
     void ImportSettingsFrom( BOARD* aBoard );
 
-    void RefreshOverrides();
+    /**
+     * Reads the values a rule page edits back into their fields. This page only shows those, so
+     * it has to be told when the page that edits one has written it.
+     */
+    void RefreshDefaults();
 
 private:
     bool TransferDataToWindow() override;
@@ -56,15 +59,17 @@ private:
     /// Show a warning icon, with the reason as its tooltip, over each field whose value has an issue.
     void updateWarnings();
 
-    /// Opens a popup listing the rules that override a board constraint
-    void showOverridingRules( const wxString& aSetting, wxWindow* aAnchor );
-
     struct CONSTRAINT_FIELD
     {
-        wxString            m_Setting;
-        wxWindow*           m_Ctrl;
-        FIELD_WARNING_ICON* m_Warning = nullptr;
-        FIELD_WARNING_ICON* m_Override = nullptr;
+        wxString     m_Setting;
+        wxWindow*    m_Ctrl;
+        UNIT_BINDER* m_Binder = nullptr;
+        int BOARD_DESIGN_SETTINGS::* m_Member = nullptr;
+        FIELD_WARNING_ICON*          m_Warning = nullptr;
+
+        /// The rule page that edits this value, where one does, and the link that opens it
+        wxString            m_EditedOn = {};
+        FIELD_WARNING_ICON* m_Link = nullptr;
     };
 
 public:
@@ -87,7 +92,6 @@ public:
 
 private:
     PCB_EDIT_FRAME*               m_Frame;
-    DRC_RULE_DOCUMENT*            m_document;
     BOARD_DESIGN_SETTINGS*        m_BrdSettings;
     std::vector<CONSTRAINT_FIELD> m_fields;
     wxTimer                       m_validationTimer;

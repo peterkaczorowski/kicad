@@ -169,7 +169,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame, wxWindow* aParen
     m_treebook->AddLazySubPage(
             [this]( wxWindow* aParent ) -> wxWindow*
             {
-                return new PANEL_SETUP_CONSTRAINTS( aParent, m_frame, m_ruleDocument.get() );
+                return new PANEL_SETUP_CONSTRAINTS( aParent, m_frame );
             },
             _( "Constraints" ) );
 
@@ -361,8 +361,7 @@ DIALOG_BOARD_SETUP::~DIALOG_BOARD_SETUP()
         wxWindow* page = m_treebook->GetResolvedPage( i );
 
         if( page && page != m_treebook->GetPage( i )
-            && ( dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( page ) || dynamic_cast<PANEL_SETUP_CONSTRAINTS*>( page )
-                 || dynamic_cast<PANEL_SETUP_RULES*>( page ) ) )
+            && ( dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( page ) || dynamic_cast<PANEL_SETUP_RULES*>( page ) ) )
         {
             m_treebook->GetPage( i )->DestroyChildren();
         }
@@ -466,18 +465,6 @@ void DIALOG_BOARD_SETUP::onPageChanged( wxBookCtrlEvent& aEvent )
 
     size_t page = m_treebook->GetSelection();
 
-    // Leaving a settings page wrote its values to the board, so imported copies on rule pages are stale
-    if( m_currentPage == m_constraintsPage || m_currentPage == m_maskAndPastePage )
-    {
-        wxString owner = m_currentPage == m_constraintsPage ? _( "Constraints" ) : _( "Solder Mask/Paste" );
-
-        forEachOpenRulePage(
-                [&owner]( PANEL_SETUP_CONSTRAINT_RULES* aPage )
-                {
-                    aPage->DropImportedDefaults( owner );
-                } );
-    }
-
     if( int selected = m_treebook->GetSelection(); selected != wxNOT_FOUND )
         refreshRulePage( selected );
 
@@ -546,6 +533,27 @@ void DIALOG_BOARD_SETUP::forEachOpenRulePage( const std::function<void( PANEL_SE
 }
 
 
+void DIALOG_BOARD_SETUP::importRuleDefaults( BOARD* aBoard, const wxString& aGroup )
+{
+    BOARD_DESIGN_SETTINGS& settings = m_frame->GetBoard()->GetDesignSettings();
+    BOARD_DESIGN_SETTINGS& other = aBoard->GetDesignSettings();
+
+    // A rule page writes the default it edits, and a page that was never opened never will, so
+    // the import is written here and the pages that are open read it back
+    for( const auto& [group, field] : PANEL_SETUP_CONSTRAINT_RULES::EditedDefaults() )
+    {
+        if( group == aGroup )
+            settings.*( field.member ) = other.*( field.member );
+    }
+
+    forEachOpenRulePage(
+            []( PANEL_SETUP_CONSTRAINT_RULES* aPage )
+            {
+                aPage->RefreshDefaults();
+            } );
+}
+
+
 void DIALOG_BOARD_SETUP::refreshRulePage( size_t aPage )
 {
     wxWindow* resolved = m_treebook->GetResolvedPage( aPage );
@@ -555,7 +563,7 @@ void DIALOG_BOARD_SETUP::refreshRulePage( size_t aPage )
     else if( auto* textPage = dynamic_cast<PANEL_SETUP_RULES*>( resolved ) )
         textPage->RefreshFromDocument();
     else if( auto* constraintsPage = dynamic_cast<PANEL_SETUP_CONSTRAINTS*>( resolved ) )
-        constraintsPage->RefreshOverrides();
+        constraintsPage->RefreshDefaults();
 }
 
 
@@ -672,13 +680,9 @@ void DIALOG_BOARD_SETUP::onAuxiliaryAction( wxCommandEvent& aEvent )
 
         if( importDlg.m_ConstraintsOpt->GetValue() )
         {
-            RESOLVE_PAGE( PANEL_SETUP_CONSTRAINTS, m_constraintsPage )->ImportSettingsFrom( other );
+            importRuleDefaults( other, _( "Constraints" ) );
 
-            forEachOpenRulePage(
-                    [other]( PANEL_SETUP_CONSTRAINT_RULES* aPage )
-                    {
-                        aPage->ImportSettingsFrom( other, _( "Constraints" ) );
-                    } );
+            RESOLVE_PAGE( PANEL_SETUP_CONSTRAINTS, m_constraintsPage )->ImportSettingsFrom( other );
         }
 
         if( importDlg.m_NetclassesOpt->GetValue() )
@@ -714,14 +718,9 @@ void DIALOG_BOARD_SETUP::onAuxiliaryAction( wxCommandEvent& aEvent )
 
         if( importDlg.m_MaskAndPasteOpt->GetValue() )
         {
-            RESOLVE_PAGE( PANEL_SETUP_MASK_AND_PASTE, m_maskAndPastePage )->ImportSettingsFrom( other );
+            importRuleDefaults( other, _( "Solder Mask/Paste" ) );
 
-            // The mask and paste rule pages show these values as their board default.
-            forEachOpenRulePage(
-                    [other]( PANEL_SETUP_CONSTRAINT_RULES* aPage )
-                    {
-                        aPage->ImportSettingsFrom( other, _( "Solder Mask/Paste" ) );
-                    } );
+            RESOLVE_PAGE( PANEL_SETUP_MASK_AND_PASTE, m_maskAndPastePage )->ImportSettingsFrom( other );
         }
 
         if( importDlg.m_ZoneHatchingOffsetsOpt->GetValue() )

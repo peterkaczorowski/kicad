@@ -592,12 +592,14 @@ void CONSTRAINT_RULES_LIST::showOverrideNote()
 
     // A section with one default is named by the section itself. One with several carries a name
     // per value, or the note would quote one number under both names.
-    for( const auto& [name, label] : m_defaults )
+    for( const auto& [name, read] : m_defaults )
     {
-        if( !label || label->GetLabel().IsEmpty() )
+        wxString shown = read ? read() : wxString();
+
+        if( shown.IsEmpty() )
             continue;
 
-        wxString value = wxString::Format( wxS( "%s %s" ), name, label->GetLabel() );
+        wxString value = wxString::Format( wxS( "%s %s" ), name, shown );
 
         boardDefault = boardDefault.IsEmpty() ? value : wxString::Format( _( "%s and %s" ), boardDefault, value );
     }
