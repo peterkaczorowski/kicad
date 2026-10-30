@@ -3408,8 +3408,21 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                     continue;
                 }
 
-                out.Write( file->decompressedData.data(), file->decompressedData.size() );
-                out.Close();
+                const size_t size = file->decompressedData.size();
+
+                out.Write( file->decompressedData.data(), size );
+
+                // Close() is where a full disk reports itself.
+                bool written_ok = out.IsOk() && out.LastWrite() == size;
+                written_ok &= out.Close();
+
+                if( !written_ok )
+                {
+                    wxRemoveFile( target.GetFullPath() );
+                    failed.insert( name );
+                    failedCount++;
+                    continue;
+                }
 
                 it = written.emplace( name, wxT( "${KIPRJMOD}/3dmodels/" ) + name ).first;
             }
