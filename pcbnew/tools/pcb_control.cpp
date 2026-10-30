@@ -3376,7 +3376,6 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     BOARD_COMMIT commit( m_frame );
     int          extractedCount = 0;
-    int          failedCount = 0;
 
     std::map<wxString, wxString> written;   // embedded name -> the path footprints now use
     std::set<wxString>           extracted; // every name written out, companions included
@@ -3482,10 +3481,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
             wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
 
             if( name.IsEmpty() )
-            {
-                failedCount++;
                 continue;
-            }
 
             if( failed.count( name ) )
                 continue;
@@ -3500,7 +3496,6 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                 if( placed.IsEmpty() )
                 {
                     failed.insert( name );
-                    failedCount++;
                     continue;
                 }
 
@@ -3560,22 +3555,21 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     wxString msg;
 
-    if( extractedCount > 0 && failedCount > 0 )
-    {
-        msg = wxString::Format( _( "%d 3D model(s) extracted to '%s'.  %d could not be read." ), extractedCount,
-                                modelDir.GetPath(), failedCount );
-    }
-    else if( extractedCount > 0 )
-    {
+    if( extractedCount > 0 )
         msg = wxString::Format( _( "%d 3D model(s) extracted to '%s'." ), extractedCount, modelDir.GetPath() );
-    }
-    else if( failedCount > 0 )
-    {
-        msg = wxString::Format( _( "No 3D models could be extracted.  %d could not be read." ), failedCount );
-    }
-    else
-    {
+    else if( failed.empty() )
         msg = _( "The board has no embedded 3D models." );
+    else
+        msg = _( "No 3D models could be extracted." );
+
+    if( !failed.empty() )
+    {
+        wxString names;
+
+        for( const wxString& name : failed )
+            names += ( names.IsEmpty() ? wxString() : wxT( ", " ) ) + name;
+
+        DisplayErrorMessage( m_frame, msg, wxString::Format( _( "These models could not be extracted: %s" ), names ) );
     }
 
     m_frame->GetInfoBar()->ShowMessageFor( msg, 5000 );
