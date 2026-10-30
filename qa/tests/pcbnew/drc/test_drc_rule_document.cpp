@@ -662,6 +662,31 @@ BOOST_AUTO_TEST_CASE( ADefaultHeldWithAnotherValueStaysOnItsOwnPage )
 }
 
 
+BOOST_AUTO_TEST_CASE( EachDefaultTravelsWithTheRightImportGroup )
+{
+    // Import Settings from Another Board writes these by group, so a default in the wrong one
+    // either arrives when it should not or stays behind when it should come
+    std::map<wxString, wxString> groups;
+
+    for( const auto& [group, field] : PANEL_SETUP_CONSTRAINT_RULES::EditedDefaults() )
+        groups[field.settingName] = group;
+
+    for( const wxString& setting :
+         { wxS( "min_clearance" ), wxS( "min_track_width" ), wxS( "min_through_hole_diameter" ),
+           wxS( "min_resolved_spokes" ), wxS( "min_microvia_diameter" ) } )
+    {
+        BOOST_CHECK_MESSAGE( groups[setting] == wxS( "Constraints" ),
+                             setting.ToStdString() << " travels with '" << groups[setting].ToStdString() << "'" );
+    }
+
+    for( const wxString& setting : { wxS( "solder_mask_expansion" ), wxS( "solder_mask_min_width" ) } )
+    {
+        BOOST_CHECK_MESSAGE( groups[setting] == wxS( "Solder Mask/Paste" ),
+                             setting.ToStdString() << " travels with '" << groups[setting].ToStdString() << "'" );
+    }
+}
+
+
 BOOST_AUTO_TEST_CASE( AConditionedDefaultSitsWithTheConstraintItNarrows )
 {
     // A microvia carries its own minimum for two constraints that are not microvia specific, so
