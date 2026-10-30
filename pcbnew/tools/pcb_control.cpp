@@ -83,6 +83,7 @@
 #include <confirm.h>
 #include <kidialog.h>
 #include <wx/dirdlg.h>
+#include <wx/hyperlink.h>
 #include <connectivity/connectivity_data.h>
 #include <core/kicad_algo.h>
 #include <dialogs/hotkey_cycle_popup.h>
@@ -3646,7 +3647,23 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
         DisplayErrorMessage( m_frame, msg, wxString::Format( _( "These models could not be extracted: %s" ), names ) );
     }
 
-    m_frame->GetInfoBar()->ShowMessageFor( msg, 5000 );
+    WX_INFOBAR* infobar = m_frame->GetInfoBar();
+
+    infobar->RemoveAllButtons();
+
+    if( extractedCount > 0 )
+    {
+        wxString folder = modelDir.GetPath();
+
+        infobar->AddLink( _( "Show folder" ),
+                          [folder]( wxHyperlinkEvent& aEvent )
+                          {
+                              wxLaunchDefaultApplication( folder );
+                          } );
+    }
+
+    infobar->AddCloseButton();
+    infobar->ShowMessageFor( msg, 8000 );
 
     return 0;
 }
