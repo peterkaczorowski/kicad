@@ -3396,6 +3396,18 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
         {
             wxFileName target( modelDir.GetPath(), candidate );
 
+            // A link would put the write outside the project.
+            if( target.Exists( wxFILE_EXISTS_SYMLINK ) )
+            {
+                if( attempt == 0 )
+                {
+                    candidate = distinctName( source, aFile->data_hash );
+                    continue;
+                }
+
+                return wxEmptyString;
+            }
+
             if( target.FileExists() )
             {
                 std::string onDisk;
