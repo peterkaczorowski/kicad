@@ -3357,6 +3357,23 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     wxFileName modelDir( m_frame->Prj().GetProjectPath(), wxEmptyString );
     modelDir.AppendDir( wxT( "3dmodels" ) );
 
+    if( wxFileName::FileExists( modelDir.GetPath() ) )
+    {
+        DisplayErrorMessage( m_frame, _( "Cannot extract the 3D models." ),
+                             wxString::Format( _( "'%s' is a file, so the models have nowhere "
+                                                  "to go." ),
+                                               modelDir.GetPath() ) );
+        return 0;
+    }
+
+    if( !PATHS::EnsurePathExists( modelDir.GetPath() )
+        || !wxFileName( modelDir.GetPath(), wxEmptyString ).IsDirWritable() )
+    {
+        DisplayErrorMessage( m_frame, _( "Cannot extract the 3D models." ),
+                             wxString::Format( _( "'%s' cannot be written to." ), modelDir.GetPath() ) );
+        return 0;
+    }
+
     BOARD_COMMIT commit( m_frame );
     int          extractedCount = 0;
     int          failedCount = 0;
@@ -3380,9 +3397,6 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     auto placeFile = [&]( EMBEDDED_FILES::EMBEDDED_FILE* aFile ) -> wxString
     {
         if( !aFile || !aFile->Validate() || aFile->data_hash.empty() )
-            return wxEmptyString;
-
-        if( !PATHS::EnsurePathExists( modelDir.GetPath() ) )
             return wxEmptyString;
 
         const wxFileName source( aFile->name );
