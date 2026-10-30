@@ -3362,6 +3362,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     std::map<wxString, wxString> written;   // embedded name -> the path footprints now use
     std::set<wxString>           extracted; // every name written out, companions included
+    std::map<EMBEDDED_FILES*, std::set<wxString>> owners;    // which store each one came from
     std::set<wxString>           failed;
 
     // Write one embedded file into the models folder, confirming that all of it landed.
@@ -3422,6 +3423,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                 }
 
                 extracted.insert( name );
+                owners[store].insert( name );
 
                 // Embedding also takes a VRML model's STEP companion, which no footprint names.
                 const wxString base = name.BeforeLast( '.' );
@@ -3440,7 +3442,10 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                             continue;
 
                         if( writeOut( entry.get(), companion ) )
+                        {
                             extracted.insert( companion );
+                            owners[store].insert( companion );
+                        }
                     }
                 }
 
@@ -3458,24 +3463,22 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
 
     if( extractedCount > 0 )
     {
-        // Drop the blobs now that nothing points at them, so the board stops carrying them.
-        for( const wxString& name : extracted )
+        // Another footprint can hold a different file under the same name.
+        for( const auto& [store, names] : owners )
         {
-            bool stillUsed = false;
-
-            for( FOOTPRINT* fp : brd->Footprints() )
+            for( const wxString& name : names )
             {
-                for( const FP_3DMODEL& model : fp->Models() )
-                    stillUsed |= model.m_Filename == prefix + name;
+                bool stillUsed = false;
+
+                for( FOOTPRINT* fp : brd->Footprints() )
+                {
+                    for( const FP_3DMODEL& model : fp->Models() )
+                        stillUsed |= model.m_Filename == prefix + name;
+                }
+
+                if( !stillUsed )
+                    store->RemoveFile( name, true );
             }
-
-            if( stillUsed )
-                continue;
-
-            for( FOOTPRINT* fp : brd->Footprints() )
-                fp->GetEmbeddedFiles()->RemoveFile( name, true );
-
-            brd->GetEmbeddedFiles()->RemoveFile( name, true );
         }
 
         // Embedded files are not staged in any commit, so undo cannot restore them.
