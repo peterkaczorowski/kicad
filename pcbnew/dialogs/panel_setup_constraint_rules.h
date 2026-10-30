@@ -217,6 +217,8 @@ private:
     std::vector<DEFAULT_FIELD> m_defaults;
     wxStaticText*              m_note;
     wxString                   m_noteText;
+    wxStaticText*              m_defaultsNote;
+    wxString                   m_defaultsNoteText;
     wxTimer                    m_validationTimer;
     /// Null until the section is built, and where a section carries no rules of its own.
     CONSTRAINT_RULES_LIST* m_list;

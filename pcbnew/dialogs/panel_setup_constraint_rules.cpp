@@ -53,6 +53,7 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
         m_document( aDocument ),
         m_section( aSection ),
         m_note( nullptr ),
+        m_defaultsNote( nullptr ),
         m_validationTimer( this ),
         m_list( nullptr )
 {
@@ -61,18 +62,6 @@ PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, P
     m_scrolled = new wxScrolledWindow( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL );
     m_scrolled->SetScrollRate( 0, 10 );
     m_scrolled->SetSizer( new wxBoxSizer( wxVERTICAL ) );
-
-    // The note describes the rule list, so it belongs wherever there is one. Most pages carry
-    // rules without carrying a board default.
-    if( m_section.ruleType )
-    {
-        m_noteText = _( "The rules below are read from top to bottom and the last one that matches "
-                        "decides the value. A value a net class sets is read before any of them." );
-
-        m_note = new wxStaticText( m_scrolled, wxID_ANY, m_noteText );
-        m_note->SetFont( KIUI::GetInfoFont( this ).Italic() );
-        m_scrolled->GetSizer()->Add( m_note, 0, wxALL, 8 );
-    }
 
     buildSection();
 
@@ -158,30 +147,60 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
         }
 
         settings->Add( grid, 0, wxEXPAND | wxALL, 5 );
-    }
 
-    if( m_section.netclassValue )
-    {
-        // The values themselves are listed with the rules they are read before
-        wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
-        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( parent, wxID_ANY, _( "Edit net classes" ), wxEmptyString );
+        if( m_section.ruleType )
+        {
+            m_defaultsNoteText = _( "Used where no rule below matches. Kept with the board, not in the "
+                                    "rules file." );
 
-        link->SetFont( KIUI::GetInfoFont( this ) );
-        link->Bind( wxEVT_HYPERLINK,
-                    [this]( wxHyperlinkEvent& )
-                    {
-                        showPage( _( "Net Classes" ) );
-                    } );
-
-        row->AddStretchSpacer();
-        row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
-        settings->Add( row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
+            m_defaultsNote = new wxStaticText( parent, wxID_ANY, m_defaultsNoteText );
+            m_defaultsNote->SetFont( KIUI::GetInfoFont( this ).Italic() );
+            settings->Add( m_defaultsNote, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
+        }
     }
 
     if( m_section.ruleType )
     {
         if( !m_section.defaults.empty() )
             box->Add( new wxStaticLine( parent ), 0, wxEXPAND | wxLEFT | wxRIGHT, 5 );
+
+        if( !m_section.defaults.empty() || m_section.netclassValue )
+        {
+            wxBoxSizer* row = new wxBoxSizer( wxHORIZONTAL );
+
+            if( !m_section.defaults.empty() )
+            {
+                wxStaticText* rules = new wxStaticText( parent, wxID_ANY, _( "Rules" ) );
+
+                rules->SetFont( rules->GetFont().Bold() );
+                row->Add( rules, 0, wxALIGN_CENTER_VERTICAL );
+            }
+
+            row->AddStretchSpacer();
+
+            if( m_section.netclassValue )
+            {
+                wxHyperlinkCtrl* link = new wxHyperlinkCtrl( parent, wxID_ANY, _( "Edit net classes" ), wxEmptyString );
+
+                link->SetFont( KIUI::GetInfoFont( this ) );
+                link->Bind( wxEVT_HYPERLINK,
+                            [this]( wxHyperlinkEvent& )
+                            {
+                                showPage( _( "Net Classes" ) );
+                            } );
+
+                row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
+            }
+
+            box->Add( row, 0, wxEXPAND | wxLEFT | wxTOP, 8 );
+        }
+
+        m_noteText = _( "The rules below are read from top to bottom and the last one that matches "
+                        "decides the value. A value a net class sets is read before any of them." );
+
+        m_note = new wxStaticText( parent, wxID_ANY, m_noteText );
+        m_note->SetFont( KIUI::GetInfoFont( this ).Italic() );
+        box->Add( m_note, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8 );
 
         CONSTRAINT_RULES_LIST* list =
                 new CONSTRAINT_RULES_LIST( parent, m_frame, m_document, *m_section.ruleType, m_section.title );
@@ -242,10 +261,14 @@ void PANEL_SETUP_CONSTRAINT_RULES::wrapLabels()
     if( m_scrolled->GetClientSize().x - 180 < 200 )
         return;
 
-    if( m_note )
+    for( const auto& [label, text] :
+         { std::pair{ m_note, m_noteText }, std::pair{ m_defaultsNote, m_defaultsNoteText } } )
     {
-        m_note->SetLabel( m_noteText );
-        m_note->Wrap( GetClientSize().x - 32 );
+        if( label )
+        {
+            label->SetLabel( text );
+            label->Wrap( GetClientSize().x - 32 );
+        }
     }
 
     m_scrolled->Layout();
