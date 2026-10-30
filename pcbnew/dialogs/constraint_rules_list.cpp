@@ -346,10 +346,8 @@ wxString CONSTRAINT_RULES_LIST::layersText( const DRC_RE_LOADED_PANEL_ENTRY& aEn
 
 wxString CONSTRAINT_RULES_LIST::inUserUnits( const wxString& aClause, UNITS_PROVIDER* aUnits )
 {
-    if( aUnits->GetUserUnits() == EDA_UNITS::MM )
-        return aClause;
-
-    // Rule text carries its own units. Show numbers the way the rest of the page does.
+    // Rule text carries the units it was typed with. Show every number the way the rest of the
+    // page shows one, so a column read down does not mix "0.25mm" with "0.13 mm".
     static wxRegEx units( wxS( "([0-9]+(\\.[0-9]+)?)(mm|um|mil|in)\\b" ), wxRE_ADVANCED );
 
     wxString result;
