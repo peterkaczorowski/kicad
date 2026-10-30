@@ -67,8 +67,12 @@ private:
         int BOARD_DESIGN_SETTINGS::* m_Member = nullptr;
         FIELD_WARNING_ICON*          m_Warning = nullptr;
 
-        /// The rule page that edits this value, where one does
-        wxString m_EditedOn = {};
+        /// The rule page that also holds this value, where one does
+        wxString m_AlsoOn = {};
+
+        /// The value as this page last read it, so an untouched field does not write back over
+        /// an edit made to the same value on the page that also holds it
+        int m_Loaded = 0;
     };
 
 public:
@@ -93,8 +97,11 @@ private:
     PCB_EDIT_FRAME*               m_Frame;
     BOARD_DESIGN_SETTINGS*        m_BrdSettings;
 
-    /// The rule page that sets the spoke count, which is a spin control rather than a bound field
+    /// The rule page that also holds the spoke count, a spin control rather than a bound field
     wxString                      m_spokeCountPage;
+
+    /// The spoke count as this page last read it
+    int                           m_spokeCountLoaded = 0;
     std::vector<CONSTRAINT_FIELD> m_fields;
     wxTimer                       m_validationTimer;
 };

@@ -642,18 +642,16 @@ BOOST_AUTO_TEST_CASE( EveryBoardDefaultIsWrittenByOnePageOnly )
 }
 
 
-BOOST_AUTO_TEST_CASE( ADefaultHeldWithAnotherValueStaysOnItsOwnPage )
+BOOST_AUTO_TEST_CASE( EveryConstraintWithARulePageHasItsDefaultThere )
 {
-    // One control on Solder Mask/Paste holds the paste clearance together with its ratio, so the
-    // rule page shows that value rather than writing it
-    BOOST_CHECK( PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_paste_margin" ) ).IsEmpty() );
-
-    for( const auto& [group, field] : PANEL_SETUP_CONSTRAINT_RULES::EditedDefaults() )
-        BOOST_CHECK( field.settingName != wxS( "solder_paste_margin" ) );
-
-    // Its neighbours on that page did move
-    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_expansion" ) ).IsEmpty() );
-    BOOST_CHECK( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_min_width" ) ).IsEmpty() );
+    // Each of these is a whole board default for the constraint its rule page is about, even
+    // where the page it has always been set on holds it in a control with something else
+    for( const wxString& setting :
+         { wxS( "solder_mask_expansion" ), wxS( "solder_mask_min_width" ), wxS( "solder_paste_margin" ) } )
+    {
+        BOOST_CHECK_MESSAGE( !PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( setting ).IsEmpty(),
+                             "no rule page holds " << setting.ToStdString() );
+    }
 
     // Max error is a geometry tolerance and the groove width feeds the creepage search, so
     // neither is a constraint a rule page could hold
@@ -679,7 +677,8 @@ BOOST_AUTO_TEST_CASE( EachDefaultTravelsWithTheRightImportGroup )
                              setting.ToStdString() << " travels with '" << groups[setting].ToStdString() << "'" );
     }
 
-    for( const wxString& setting : { wxS( "solder_mask_expansion" ), wxS( "solder_mask_min_width" ) } )
+    for( const wxString& setting :
+         { wxS( "solder_mask_expansion" ), wxS( "solder_mask_min_width" ), wxS( "solder_paste_margin" ) } )
     {
         BOOST_CHECK_MESSAGE( groups[setting] == wxS( "Solder Mask/Paste" ),
                              setting.ToStdString() << " travels with '" << groups[setting].ToStdString() << "'" );

@@ -122,26 +122,18 @@ void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
             entry.ctrl = value;
             entry.warning = new FIELD_WARNING_ICON( value );
             entry.binder = std::make_unique<UNIT_BINDER>( m_frame, label, value, units );
-            entry.editedOn = field.editedOn;
 
             // UNIT_BINDER leaves an unscaled field alone through a change of units
             if( field.value == CONSTRAINT_VALUE::COUNT )
                 entry.binder->SetUnits( EDA_UNITS::UNSCALED );
 
-            if( entry.editedOn.IsEmpty() )
-            {
-                // Debounced so a half-typed value does not flash a warning
-                value->Bind( wxEVT_TEXT,
-                             [this]( wxCommandEvent& aEvent )
-                             {
-                                 m_validationTimer.StartOnce( 250 );
-                                 aEvent.Skip();
-                             } );
-            }
-            else
-            {
-                ShowEditedElsewhere( value, entry.editedOn );
-            }
+            // Debounced so a half-typed value does not flash a warning
+            value->Bind( wxEVT_TEXT,
+                         [this]( wxCommandEvent& aEvent )
+                         {
+                             m_validationTimer.StartOnce( 250 );
+                             aEvent.Skip();
+                         } );
 
             m_defaults.push_back( std::move( entry ) );
         }
@@ -280,7 +272,10 @@ void PANEL_SETUP_CONSTRAINT_RULES::wrapLabels()
 void PANEL_SETUP_CONSTRAINT_RULES::RefreshDefaults()
 {
     for( DEFAULT_FIELD& field : m_defaults )
-        field.binder->SetValue( m_settings->*( field.member ) );
+    {
+        field.loaded = m_settings->*( field.member );
+        field.binder->SetValue( field.loaded );
+    }
 
     updateWarnings();
 }
@@ -301,7 +296,7 @@ bool PANEL_SETUP_CONSTRAINT_RULES::applyDefaults()
     {
         for( const DEFAULT_FIELD& field : m_defaults )
         {
-            if( field.settingName != error.setting_name || !field.editedOn.IsEmpty() )
+            if( field.settingName != error.setting_name )
                 continue;
 
             if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
@@ -311,7 +306,18 @@ bool PANEL_SETUP_CONSTRAINT_RULES::applyDefaults()
         }
     }
 
-    writeDefaults( *m_settings );
+    // The same value may be set on another page too, so a field the user did not touch here
+    // must not write back over an edit made there
+    for( DEFAULT_FIELD& field : m_defaults )
+    {
+        int value = field.binder->GetValue();
+
+        if( value != field.loaded )
+        {
+            m_settings->*( field.member ) = value;
+            field.loaded = value;
+        }
+    }
 
     return true;
 }
@@ -320,10 +326,7 @@ bool PANEL_SETUP_CONSTRAINT_RULES::applyDefaults()
 void PANEL_SETUP_CONSTRAINT_RULES::writeDefaults( BOARD_DESIGN_SETTINGS& aSettings ) const
 {
     for( const DEFAULT_FIELD& field : m_defaults )
-    {
-        if( field.editedOn.IsEmpty() )
-            aSettings.*( field.member ) = field.binder->GetValue();
-    }
+        aSettings.*( field.member ) = field.binder->GetValue();
 }
 
 
@@ -415,11 +418,7 @@ std::vector<std::pair<wxString, CONSTRAINT_DEFAULT_FIELD>> PANEL_SETUP_CONSTRAIN
             wxString group = section.settingsPage.IsEmpty() ? _( "Constraints" ) : section.settingsPage;
 
             for( const CONSTRAINT_DEFAULT_FIELD& field : section.defaults )
-            {
-                // A value another page edits is imported by that page, with the rest of its own
-                if( field.editedOn.IsEmpty() )
-                    fields.emplace_back( group, field );
-            }
+                fields.emplace_back( group, field );
         }
     }
 
@@ -482,29 +481,17 @@ wxString PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( const wxString& aSett
 {
     std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
 
-    if( !section )
-        return wxString();
-
-    for( const CONSTRAINT_DEFAULT_FIELD& field : section->defaults )
-    {
-        if( field.settingName == aSetting )
-            return field.editedOn.IsEmpty() ? section->title : wxString();
-    }
-
-    return wxString();
+    return section ? section->title : wxString();
 }
 
 
-void PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( wxWindow* aField, const wxString& aPage, int aSlot )
+void PANEL_SETUP_CONSTRAINT_RULES::LinkToPage( wxWindow* aField, const wxString& aPage, int aSlot )
 {
-    // A background of its own is not enough: a dark theme draws a field and the panel behind
-    // it alike, so the field is greyed instead
-    aField->Disable();
-
-    // The link is a sibling of the field rather than a child, so it stays live
+    // The link is a sibling of the field rather than a child, so it works whether or not the
+    // field itself is live
     FIELD_WARNING_ICON* link = new FIELD_WARNING_ICON( aField, BITMAPS::small_new_window, aSlot );
 
-    link->SetWarning( wxString::Format( _( "Set on the %s page. Click to open it." ), aPage ) );
+    link->SetWarning( wxString::Format( _( "Also on the %s page. Click to open it." ), aPage ) );
     link->SetCursor( wxCURSOR_HAND );
     link->Bind( wxEVT_LEFT_DOWN,
                 [aField, aPage]( wxMouseEvent& )
@@ -570,7 +557,7 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                  { _( "Physical clearance" ), {}, PHYSICAL_CLEARANCE, {} },
                  { _( "Creepage distance" ), {}, CREEPAGE_DISTANCE, {} },
                  { _( "Minimum thermal relief spoke count" ),
-                   { { _( "Board default:" ), &BDS::m_MinResolvedSpokes, wxS( "min_resolved_spokes" ), wxEmptyString,
+                   { { _( "Board default:" ), &BDS::m_MinResolvedSpokes, wxS( "min_resolved_spokes" ),
                        CONSTRAINT_VALUE::COUNT } },
                    MINIMUM_THERMAL_RELIEF_SPOKE_COUNT,
                    {} } };
@@ -645,8 +632,7 @@ std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMIL
                    {},
                    _( "Solder Mask/Paste" ) },
                  { _( "Solder paste expansion" ),
-                   { { _( "Board default:" ), &BDS::m_SolderPasteMargin, wxS( "solder_paste_margin" ),
-                       _( "Solder Mask/Paste" ) } },
+                   { { _( "Board default:" ), &BDS::m_SolderPasteMargin, wxS( "solder_paste_margin" ) } },
                    SOLDERPASTE_EXPANSION,
                    {},
                    _( "Solder Mask/Paste" ) } };

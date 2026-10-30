@@ -58,10 +58,17 @@ PANEL_SETUP_MASK_AND_PASTE::PANEL_SETUP_MASK_AND_PASTE( wxWindow* aParentWindow,
     m_maskMinWidthPage = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_mask_min_width" ) );
 
     if( !m_maskExpansionPage.IsEmpty() )
-        PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( m_maskMarginCtrl, m_maskExpansionPage, 0 );
+        PANEL_SETUP_CONSTRAINT_RULES::LinkToPage( m_maskMarginCtrl, m_maskExpansionPage, 0 );
 
     if( !m_maskMinWidthPage.IsEmpty() )
-        PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( m_maskMinWidthCtrl, m_maskMinWidthPage, 0 );
+        PANEL_SETUP_CONSTRAINT_RULES::LinkToPage( m_maskMinWidthCtrl, m_maskMinWidthPage, 0 );
+
+    // Only the absolute part of this control is a constraint a rule page holds; the ratio is a
+    // constraint of its own with no page, so it is only ever set here
+    m_pasteMarginPage = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( wxS( "solder_paste_margin" ) );
+
+    if( !m_pasteMarginPage.IsEmpty() )
+        PANEL_SETUP_CONSTRAINT_RULES::LinkToPage( m_pasteMarginCtrl, m_pasteMarginPage, 0 );
 }
 
 
@@ -84,17 +91,28 @@ bool PANEL_SETUP_MASK_AND_PASTE::TransferDataFromWindow()
 {
     // These are all stored in project file, not board, so no need for OnModify()
 
-    // A value shown here is written by the rule page that sets it, and reading it back from a
-    // field this page has not refreshed would undo what that page wrote
-    if( m_maskExpansionPage.IsEmpty() )
-        m_BrdSettings->m_SolderMaskExpansion = m_maskExpansion.GetIntValue();
+    // These two can also be set with the rules read against them, so a field the user did not
+    // touch here must not write back over an edit made on that page
+    if( m_maskExpansion.GetIntValue() != m_maskExpansionLoaded )
+    {
+        m_maskExpansionLoaded = m_maskExpansion.GetIntValue();
+        m_BrdSettings->m_SolderMaskExpansion = m_maskExpansionLoaded;
+    }
 
-    if( m_maskMinWidthPage.IsEmpty() )
-        m_BrdSettings->m_SolderMaskMinWidth = m_maskMinWidth.GetIntValue();
+    if( m_maskMinWidth.GetIntValue() != m_maskMinWidthLoaded )
+    {
+        m_maskMinWidthLoaded = m_maskMinWidth.GetIntValue();
+        m_BrdSettings->m_SolderMaskMinWidth = m_maskMinWidthLoaded;
+    }
 
     m_BrdSettings->m_SolderMaskToCopperClearance = m_maskToCopperClearance.GetIntValue();
 
-    m_BrdSettings->m_SolderPasteMargin = m_pasteMargin.GetOffsetValue().value_or( 0 );
+    if( m_pasteMargin.GetOffsetValue().value_or( 0 ) != m_pasteMarginLoaded )
+    {
+        m_pasteMarginLoaded = m_pasteMargin.GetOffsetValue().value_or( 0 );
+        m_BrdSettings->m_SolderPasteMargin = m_pasteMarginLoaded;
+    }
+
     m_BrdSettings->m_SolderPasteMarginRatio = m_pasteMargin.GetRatioValue().value_or( 0.0 );
 
     m_BrdSettings->m_AllowSoldermaskBridgesInFPs = m_allowBridges->GetValue();
@@ -105,11 +123,14 @@ bool PANEL_SETUP_MASK_AND_PASTE::TransferDataFromWindow()
 
 void PANEL_SETUP_MASK_AND_PASTE::RefreshDefaults()
 {
-    if( !m_maskExpansionPage.IsEmpty() )
-        m_maskExpansion.SetValue( m_BrdSettings->m_SolderMaskExpansion );
+    m_maskExpansionLoaded = m_BrdSettings->m_SolderMaskExpansion;
+    m_maskExpansion.SetValue( m_maskExpansionLoaded );
 
-    if( !m_maskMinWidthPage.IsEmpty() )
-        m_maskMinWidth.SetValue( m_BrdSettings->m_SolderMaskMinWidth );
+    m_maskMinWidthLoaded = m_BrdSettings->m_SolderMaskMinWidth;
+    m_maskMinWidth.SetValue( m_maskMinWidthLoaded );
+
+    m_pasteMarginLoaded = m_BrdSettings->m_SolderPasteMargin;
+    m_pasteMargin.SetOffsetValue( m_pasteMarginLoaded );
 }
 
 

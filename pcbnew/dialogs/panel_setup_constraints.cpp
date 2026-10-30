@@ -119,14 +119,12 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
     for( CONSTRAINT_FIELD& field : m_fields )
     {
         field.m_Warning = new FIELD_WARNING_ICON( field.m_Ctrl );
-        field.m_EditedOn = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( field.m_Setting );
+        field.m_AlsoOn = PANEL_SETUP_CONSTRAINT_RULES::PageEditingDefault( field.m_Setting );
 
-        // A constraint is set where the rules read against it are, so this page only shows it
-        if( !field.m_EditedOn.IsEmpty() )
-        {
-            PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( field.m_Ctrl, field.m_EditedOn );
-            continue;
-        }
+        // The value can be set here or with the rules that are read against it, so the field
+        // stays live and only carries a way to reach the other page
+        if( !field.m_AlsoOn.IsEmpty() )
+            PANEL_SETUP_CONSTRAINT_RULES::LinkToPage( field.m_Ctrl, field.m_AlsoOn );
 
         // Debounced so a half-typed value does not flash a warning
         field.m_Ctrl->Bind( wxEVT_TEXT,
@@ -138,7 +136,7 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
     }
 
     if( !m_spokeCountPage.IsEmpty() )
-        PANEL_SETUP_CONSTRAINT_RULES::ShowEditedElsewhere( m_minResolvedSpokeCountCtrl, m_spokeCountPage, 0 );
+        PANEL_SETUP_CONSTRAINT_RULES::LinkToPage( m_minResolvedSpokeCountCtrl, m_spokeCountPage, 0 );
 
     Bind( wxEVT_TIMER,
           [this]( wxTimerEvent& )
@@ -156,32 +154,10 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataToWindow()
     m_stCircleToPolyWarning->SetLabel( msg );
 
     m_useHeightForLengthCalcs->SetValue( m_BrdSettings->m_UseHeightForLengthCalcs );
-
-    m_maxError.SetValue( m_BrdSettings->m_MaxError );
-
     m_allowExternalFilletsOpt->SetValue( m_BrdSettings->m_ZoneKeepExternalFillets );
-    m_minResolvedSpokeCountCtrl->SetValue( m_BrdSettings->m_MinResolvedSpokes );
 
-    m_minClearance.SetValue( m_BrdSettings->m_MinClearance );
-    m_minConn.SetValue( m_BrdSettings->m_MinConn );
-    m_trackMinWidth.SetValue( m_BrdSettings->m_TrackMinWidth );
-    m_viaMinAnnulus.SetValue( m_BrdSettings->m_ViasMinAnnularWidth );
-    m_viaMinSize.SetValue(m_BrdSettings->m_ViasMinSize );
-    m_holeClearance.SetValue( m_BrdSettings->m_HoleClearance );
-    m_edgeClearance.SetValue( m_BrdSettings->m_CopperEdgeClearance );
-    m_minGrooveWidth.SetValue( m_BrdSettings->m_MinGrooveWidth );
-
-    m_throughHoleMin.SetValue( m_BrdSettings->m_MinThroughDrill );
-    m_holeToHoleMin.SetValue( m_BrdSettings->m_HoleToHoleMin );
-
-    m_uviaMinSize.SetValue( m_BrdSettings->m_MicroViasMinSize );
-    m_uviaMinDrill.SetValue( m_BrdSettings->m_MicroViasMinDrill );
-
-    m_silkClearance.SetValue( m_BrdSettings->m_SilkClearance );
-    m_minTextHeight.SetValue( m_BrdSettings->m_MinSilkTextHeight );
-    m_minTextThickness.SetValue( m_BrdSettings->m_MinSilkTextThickness );
-
-    updateWarnings();
+    // Every bound field is read there, which also records what was read
+    RefreshDefaults();
 
     return true;
 }
@@ -195,17 +171,10 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataFromWindow()
 
     applyValues( temp );
 
-    std::map<wxString, wxWindow*> fieldToControl;
-
-    if( m_spokeCountPage.IsEmpty() )
-        fieldToControl[wxS( "min_resolved_spokes" )] = m_minResolvedSpokeCountCtrl;
+    std::map<wxString, wxWindow*> fieldToControl = { { wxS( "min_resolved_spokes" ), m_minResolvedSpokeCountCtrl } };
 
     for( const CONSTRAINT_FIELD& field : m_fields )
-    {
-        // A value a rule page edits is reported there, by the page that can still change it
-        if( field.m_EditedOn.IsEmpty() )
-            fieldToControl[field.m_Setting] = field.m_Ctrl;
-    }
+        fieldToControl[field.m_Setting] = field.m_Ctrl;
 
     for( const BOARD_DESIGN_SETTINGS::VALIDATION_ERROR& error : temp.ValidateDesignRules( m_Frame->GetUserUnits() ) )
     {
@@ -218,7 +187,28 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataFromWindow()
         return false;
     }
 
-    applyValues( *m_BrdSettings );
+    m_BrdSettings->m_UseHeightForLengthCalcs = m_useHeightForLengthCalcs->GetValue();
+    m_BrdSettings->m_ZoneKeepExternalFillets = m_allowExternalFilletsOpt->GetValue();
+
+    // A constraint can also be set with the rules read against it, so a field the user did not
+    // touch here must not write back over an edit made on that page
+    if( m_minResolvedSpokeCountCtrl->GetValue() != m_spokeCountLoaded )
+    {
+        m_spokeCountLoaded = m_minResolvedSpokeCountCtrl->GetValue();
+        m_BrdSettings->m_MinResolvedSpokes = m_spokeCountLoaded;
+    }
+
+    for( CONSTRAINT_FIELD& field : m_fields )
+    {
+        int value = field.m_Binder->GetValue();
+
+        if( value != field.m_Loaded )
+        {
+            field.m_Loaded = value;
+            m_BrdSettings->*( field.m_Member ) = value;
+        }
+    }
+
     return true;
 }
 
@@ -228,29 +218,23 @@ void PANEL_SETUP_CONSTRAINTS::applyValues( BOARD_DESIGN_SETTINGS& aSettings ) co
     aSettings.m_UseHeightForLengthCalcs = m_useHeightForLengthCalcs->GetValue();
     aSettings.m_ZoneKeepExternalFillets = m_allowExternalFilletsOpt->GetValue();
 
-    if( m_spokeCountPage.IsEmpty() )
-        aSettings.m_MinResolvedSpokes = m_minResolvedSpokeCountCtrl->GetValue();
+    aSettings.m_MinResolvedSpokes = m_minResolvedSpokeCountCtrl->GetValue();
 
     for( const CONSTRAINT_FIELD& field : m_fields )
-    {
-        // A value shown here is written by the rule page that edits it, and reading it back
-        // from a field this page has not refreshed would undo what that page wrote
-        if( field.m_EditedOn.IsEmpty() )
-            aSettings.*( field.m_Member ) = field.m_Binder->GetValue();
-    }
+        aSettings.*( field.m_Member ) = field.m_Binder->GetValue();
 }
 
 
 void PANEL_SETUP_CONSTRAINTS::RefreshDefaults()
 {
-    for( const CONSTRAINT_FIELD& field : m_fields )
+    for( CONSTRAINT_FIELD& field : m_fields )
     {
-        if( !field.m_EditedOn.IsEmpty() )
-            field.m_Binder->SetValue( m_BrdSettings->*( field.m_Member ) );
+        field.m_Loaded = m_BrdSettings->*( field.m_Member );
+        field.m_Binder->SetValue( field.m_Loaded );
     }
 
-    if( !m_spokeCountPage.IsEmpty() )
-        m_minResolvedSpokeCountCtrl->SetValue( m_BrdSettings->m_MinResolvedSpokes );
+    m_spokeCountLoaded = m_BrdSettings->m_MinResolvedSpokes;
+    m_minResolvedSpokeCountCtrl->SetValue( m_spokeCountLoaded );
 
     updateWarnings();
 }

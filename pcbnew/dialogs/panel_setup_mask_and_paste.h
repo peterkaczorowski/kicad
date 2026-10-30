@@ -57,9 +57,16 @@ private:
     UNIT_BINDER             m_maskToCopperClearance;
     MARGIN_OFFSET_BINDER    m_pasteMargin;
 
-    /// The rule pages that set these two values, where they do; empty leaves them editable here
+    /// The rule pages that also hold these values, where they do
     wxString m_maskExpansionPage;
     wxString m_maskMinWidthPage;
+    wxString m_pasteMarginPage;
+
+    /// The values as this page last read them, so an untouched field does not write back over
+    /// an edit made on the page that also holds it
+    int m_maskExpansionLoaded = 0;
+    int m_maskMinWidthLoaded = 0;
+    int m_pasteMarginLoaded = 0;
 };
 
 

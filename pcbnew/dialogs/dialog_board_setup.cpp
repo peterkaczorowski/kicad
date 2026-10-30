@@ -468,6 +468,20 @@ void DIALOG_BOARD_SETUP::onPageChanged( wxBookCtrlEvent& aEvent )
     if( int selected = m_treebook->GetSelection(); selected != wxNOT_FOUND )
         refreshRulePage( selected );
 
+    // A constraint can be set on its rule page or on the page it has always been set on, and
+    // leaving either one writes it, so every open page showing that value reads it again
+    for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
+    {
+        wxWindow* resolved = m_treebook->GetResolvedPage( i );
+
+        if( auto* rulesPage = dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( resolved ) )
+            rulesPage->RefreshDefaults();
+        else if( auto* constraintsPage = dynamic_cast<PANEL_SETUP_CONSTRAINTS*>( resolved ) )
+            constraintsPage->RefreshDefaults();
+        else if( auto* maskPage = dynamic_cast<PANEL_SETUP_MASK_AND_PASTE*>( resolved ) )
+            maskPage->RefreshDefaults();
+    }
+
     if( m_initComplete )
     {
         if( m_currentPage == m_physicalStackupPage || page == m_physicalStackupPage || page == m_netclassesPage

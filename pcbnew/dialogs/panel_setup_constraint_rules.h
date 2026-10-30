@@ -64,8 +64,6 @@ struct CONSTRAINT_DEFAULT_FIELD
     int BOARD_DESIGN_SETTINGS::* member;
     wxString                     settingName;
 
-    /// The page that edits this value, where it is not edited with the rules read against it
-    wxString editedOn = {};
 
     CONSTRAINT_VALUE value = CONSTRAINT_VALUE::LENGTH;
 };
@@ -133,12 +131,12 @@ public:
     static wxString PageEditingDefault( const wxString& aSetting );
 
     /**
-     * Marks a field as shown rather than edited here, with a link that opens the page that
-     * edits it.
+     * Puts a link to another page holding the same value at the field's right edge. The field
+     * stays editable: the value can be set in either place.
      *
      * @param aSlot is where the link sits among the icons at the field's right edge.
      */
-    static void ShowEditedElsewhere( wxWindow* aField, const wxString& aPage, int aSlot = 1 );
+    static void LinkToPage( wxWindow* aField, const wxString& aPage, int aSlot = 1 );
 
     /**
      * Every board default a rule page edits, each with the group it is imported with.
@@ -209,8 +207,10 @@ private:
         FIELD_WARNING_ICON*          warning;
         std::unique_ptr<UNIT_BINDER> binder;
 
-        /// The page that edits this value, where this page only shows it
-        wxString editedOn;
+
+        /// The value as this page last read it, so an untouched field does not write back over
+        /// an edit made to the same value on another page
+        int loaded = 0;
     };
 
     CONSTRAINT_SECTION         m_section;
