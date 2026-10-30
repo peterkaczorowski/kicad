@@ -3373,6 +3373,9 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     if( confirm.ShowModal() != wxID_OK )
         return 0;
 
+    // The chooser falls back to the parent when the folder is missing.
+    PATHS::EnsurePathExists( modelDir.GetPath() );
+
     wxDirDialog dirDlg( m_frame, _( "Write the 3D models to" ), modelDir.GetPath(), wxDD_DEFAULT_STYLE );
 
     if( dirDlg.ShowModal() != wxID_OK )
