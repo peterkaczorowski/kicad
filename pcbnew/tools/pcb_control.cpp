@@ -3366,34 +3366,81 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
     std::map<EMBEDDED_FILES*, std::set<wxString>> owners;    // which store each one came from
     std::set<wxString>           failed;
 
-    // Write one embedded file into the models folder, confirming that all of it landed.
-    auto writeOut = [&]( EMBEDDED_FILES::EMBEDDED_FILE* aFile, const wxString& aName ) -> bool
+    // Destination name -> the content hash holding it.
+    std::map<wxString, std::string> claimed;
+
+    auto distinctName = []( const wxFileName& aSource, const std::string& aHash )
     {
-        if( !aFile || !aFile->Validate() )
-            return false;
+        wxString unique = aSource.GetName() + wxT( "_" ) + wxString( aHash.substr( 0, 8 ) );
+
+        return aSource.GetExt().IsEmpty() ? unique : unique + wxT( "." ) + aSource.GetExt();
+    };
+
+    // Returns the name the file went under, empty on failure.
+    auto placeFile = [&]( EMBEDDED_FILES::EMBEDDED_FILE* aFile ) -> wxString
+    {
+        if( !aFile || !aFile->Validate() || aFile->data_hash.empty() )
+            return wxEmptyString;
 
         if( !PATHS::EnsurePathExists( modelDir.GetPath() ) )
-            return false;
+            return wxEmptyString;
 
-        wxFileName          target( modelDir.GetPath(), aName );
-        wxFFileOutputStream out( target.GetFullPath() );
+        const wxFileName source( aFile->name );
+        wxString         candidate = source.GetFullName();
+        auto             claim = claimed.find( candidate );
 
-        if( !out.IsOk() )
-            return false;
+        if( claim != claimed.end() && claim->second != aFile->data_hash )
+            candidate = distinctName( source, aFile->data_hash );
 
-        const size_t size = aFile->decompressedData.size();
+        for( int attempt = 0; attempt < 2; ++attempt )
+        {
+            wxFileName target( modelDir.GetPath(), candidate );
 
-        out.Write( aFile->decompressedData.data(), size );
+            if( target.FileExists() )
+            {
+                std::string onDisk;
 
-        // Close() is where a full disk or a failing network share finally reports itself,
-        // and the blob is about to be the only copy that is gone.
-        bool ok = out.IsOk() && out.LastWrite() == size;
-        ok &= out.Close();
+                if( EMBEDDED_FILES::ComputeFileHash( target, onDisk ) == EMBEDDED_FILES::RETURN_CODE::OK
+                    && onDisk == aFile->data_hash )
+                {
+                    claimed[candidate] = aFile->data_hash;
+                    return candidate;
+                }
 
-        if( !ok )
-            wxRemoveFile( target.GetFullPath() );
+                // One retry, under a name of our own.
+                if( attempt == 0 )
+                {
+                    candidate = distinctName( source, aFile->data_hash );
+                    continue;
+                }
 
-        return ok;
+                return wxEmptyString;
+            }
+
+            wxFFileOutputStream out( target.GetFullPath() );
+
+            if( !out.IsOk() )
+                return wxEmptyString;
+
+            const size_t size = aFile->decompressedData.size();
+
+            out.Write( aFile->decompressedData.data(), size );
+
+            // Close() is where a full disk reports itself.
+            bool ok = out.IsOk() && out.LastWrite() == size;
+            ok &= out.Close();
+
+            if( !ok )
+            {
+                wxRemoveFile( target.GetFullPath() );
+                return wxEmptyString;
+            }
+
+            claimed[candidate] = aFile->data_hash;
+            return candidate;
+        }
+
+        return wxEmptyString;
     };
 
     for( FOOTPRINT* fp : brd->Footprints() )
@@ -3422,8 +3469,9 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
             if( it == written.end() )
             {
                 EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd );
+                wxString        placed = store ? placeFile( store->GetEmbeddedFile( name ) ) : wxString();
 
-                if( !store || !writeOut( store->GetEmbeddedFile( name ), name ) )
+                if( placed.IsEmpty() )
                 {
                     failed.insert( name );
                     failedCount++;
@@ -3449,7 +3497,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                         if( companion.BeforeLast( '.' ) != base )
                             continue;
 
-                        if( writeOut( entry.get(), companion ) )
+                        if( !placeFile( entry.get() ).IsEmpty() )
                         {
                             extracted.insert( companion );
                             owners[store].insert( companion );
@@ -3457,7 +3505,7 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
                     }
                 }
 
-                it = written.emplace( name, wxT( "${KIPRJMOD}/3dmodels/" ) + name ).first;
+                it = written.emplace( name, wxT( "${KIPRJMOD}/3dmodels/" ) + placed ).first;
             }
 
             if( !fpModified )
