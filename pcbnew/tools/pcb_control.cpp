@@ -3556,9 +3556,14 @@ int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
         // Another footprint can hold a different file under the same name.
         for( const auto& [store, names] : owners )
         {
-            // The pass above relinked every model that referred to these.
+            // The store also holds fonts and documents.
             for( const wxString& name : names )
-                store->RemoveFile( name, true );
+            {
+                EMBEDDED_FILES::EMBEDDED_FILE* file = store->GetEmbeddedFile( name );
+
+                if( file && file->type == EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL )
+                    store->RemoveFile( name, true );
+            }
         }
 
         // Embedded files are not staged in any commit, so undo cannot restore them.
