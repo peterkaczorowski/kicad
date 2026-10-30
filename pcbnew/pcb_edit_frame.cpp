@@ -1189,6 +1189,22 @@ void PCB_EDIT_FRAME::setupUIConditions()
                 return GetUndoCommandCount() > 0;
             };
 
+    auto hasEmbedded3DModels = [this]( const SELECTION& aSel )
+    {
+        const wxString prefix = FILEEXT::KiCadUriPrefix + "://";
+
+        for( FOOTPRINT* fp : GetBoard()->Footprints() )
+        {
+            for( const FP_3DMODEL& model : fp->Models() )
+            {
+                if( model.m_Filename.StartsWith( prefix ) )
+                    return true;
+            }
+        }
+
+        return false;
+    };
+
     auto groupWithDesignBlockLink =
             [] ( const SELECTION& aSel )
             {
@@ -1523,6 +1539,7 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::drawZoneCutout,  ENABLE( singleZoneCond ) );
     mgr->SetConditions( PCB_ACTIONS::drawSimilarZone, ENABLE( singleZoneCond ) );
     mgr->SetConditions( PCB_ACTIONS::zoneMerge,       ENABLE( zoneMergeCond ) );
+    mgr->SetConditions( PCB_ACTIONS::extract3DModels, ENABLE( hasEmbedded3DModels ) );
 
     mgr->SetConditions( ACTIONS::selectSetRect,       CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
     mgr->SetConditions( ACTIONS::selectSetLasso,      CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
