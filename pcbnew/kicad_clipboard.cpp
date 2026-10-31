@@ -22,6 +22,7 @@
 #include <wx/log.h>
 
 #include <board.h>
+#include <board_tables/generated_table_refresh.h>
 #include <build_version.h>
 #include <core/ignore.h>
 #include <footprint.h>
@@ -114,6 +115,32 @@ wxString CLIPBOARD_IO::clipboardReader()
 }
 
 
+std::vector<BOARD_ITEM*> CLIPBOARD_IO::CopiedItems( const PCB_SELECTION& aSelection )
+{
+    std::vector<BOARD_ITEM*> items;
+    std::set<EDA_ITEM*>      promoted;
+
+    for( EDA_ITEM* item : aSelection )
+    {
+        if( !item->IsBOARD_ITEM() )
+            continue;
+
+        // SaveSelection trims a plain table to the selected cells but copies a generated one whole
+        if( item->Type() == PCB_TABLECELL_T && static_cast<PCB_TABLE*>( item->GetParent() )->IsGenerated() )
+        {
+            if( promoted.insert( item->GetParent() ).second )
+                items.push_back( static_cast<BOARD_ITEM*>( item->GetParent() ) );
+
+            continue;
+        }
+
+        items.push_back( static_cast<BOARD_ITEM*>( item ) );
+    }
+
+    return items;
+}
+
+
 void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootprintEditor )
 {
     VECTOR2I refPoint( 0, 0 );
@@ -174,17 +201,8 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
 
     std::set<PCB_TABLE*> promotedTables;
 
-    auto parentIsPromoted =
-            [&]( PCB_TABLECELL* cell ) -> bool
-            {
-                for( PCB_TABLE* table : promotedTables )
-                {
-                    if( table->m_Uuid == cell->GetParent()->m_Uuid )
-                        return true;
-                }
-
-                return false;
-            };
+    // Keyed by the source table, since the board branch deletes each copy once it is formatted
+    std::set<const EDA_ITEM*> promotedSources;
 
     if( aSelected.Size() == 1 && aSelected.Front()->Type() == PCB_FOOTPRINT_T )
     {
@@ -242,7 +260,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
             }
             else if( item->Type() == PCB_TABLECELL_T )
             {
-                if( parentIsPromoted( static_cast<PCB_TABLECELL*>( item ) ) )
+                if( !promotedSources.insert( item->GetParent() ).second )
                     continue;
 
                 copy = static_cast<BOARD_ITEM*>( item->GetParent()->Clone() );
@@ -390,11 +408,10 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
             }
             else if( item->Type() == PCB_TABLECELL_T )
             {
-                if( parentIsPromoted( static_cast<PCB_TABLECELL*>( item ) ) )
+                if( !promotedSources.insert( item->GetParent() ).second )
                     continue;
 
                 copy = static_cast<BOARD_ITEM*>( item->GetParent()->Clone() );
-                promotedTables.insert( static_cast<PCB_TABLE*>( copy ) );
             }
             else
             {
@@ -429,13 +446,10 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
                 // locate the reference point at (0, 0) in the copied items
                 copy->Move( -refPoint );
 
-                if( copy->Type() == PCB_TABLE_T )
-                {
-                    PCB_TABLE* table = static_cast<PCB_TABLE*>( copy );
-
-                    if( promotedTables.count( table ) )
-                        deleteUnselectedCells( table );
-                }
+                // A generated table goes whole, since trimming it would leave its row keys and
+                // columns describing cells it no longer has
+                if( item->Type() == PCB_TABLECELL_T && copy->Type() == PCB_TABLE_T )
+                    deleteUnselectedCells( static_cast<PCB_TABLE*>( copy ) );
 
                 Format( copy );
 
@@ -504,6 +518,9 @@ void CLIPBOARD_IO::SaveBoard( const wxString& aFileName, BOARD& aBoard,
     init( aProperties );
 
     m_board = &aBoard; // after init()
+
+    // An open API commit edits items without telling the board, so its tables can be stale
+    RefreshGeneratedTables( aBoard );
 
     m_formatter.Print( "(kicad_pcb (version %d) (generator \"pcbnew\") (generator_version %s)",
                   SEXPR_BOARD_FILE_VERSION,

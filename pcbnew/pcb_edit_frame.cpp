@@ -895,6 +895,7 @@ void PCB_EDIT_FRAME::SetBoard( BOARD* aBoard, bool aBuildConnectivity, PROGRESS_
 
     PCB_BASE_EDIT_FRAME::SetBoard( aBoard, aReporter );
 
+    aBoard->AddListener( this );
     aBoard->SetProject( &Prj() );
 
     if( aBuildConnectivity )
@@ -2414,14 +2415,37 @@ void PCB_EDIT_FRAME::OnModify()
     if( m_isClosing )
         return;
 
-    // A chart reports the board, so an edit that moved a hole has already made it wrong.
-    // Costs one integer comparison per chart when nothing drill related changed.
+    // A generated table reports the board, so any edit may already have made it wrong
+    // A drill chart compares a counter but a stackup table regenerates its text, ~100 us at 32 layers
     RefreshGeneratedTables( *GetBoard() );
 
     Update3DView( true, GetPcbNewSettings()->m_Display.m_Live3DRefresh );
 
     if( !GetTitle().StartsWith( wxT( "*" ) ) )
         UpdateTitle();
+}
+
+
+void PCB_EDIT_FRAME::OnBoardItemsChanged( BOARD& aBoard, std::vector<BOARD_ITEM*>& aItems )
+{
+    bool rebuilt = false;
+
+    for( BOARD_ITEM* item : aItems )
+    {
+        if( !IsGeneratedTableType( item->Type() ) )
+            continue;
+
+        rebuilt = true;
+
+        if( GetCanvas() )
+            GetCanvas()->GetView()->Update( item );
+    }
+
+    // The rebuild may have freed selected cells, which can no longer be asked what they were
+    PCB_SELECTION_TOOL* selTool = m_toolManager ? m_toolManager->GetTool<PCB_SELECTION_TOOL>() : nullptr;
+
+    if( rebuilt && selTool && !selTool->GetSelection().Empty() )
+        selTool->RebuildSelection();
 }
 
 
@@ -3199,6 +3223,13 @@ void PCB_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
                                                {
                                                    return new PANEL_DRILL_CHART_OPTIONS( aParent );
                                                } );
+        dlg.ShowModal();
+        break;
+    }
+
+    case PCB_STACKUP_TABLE_T:
+    {
+        DIALOG_GENERATED_TABLE_PROPERTIES dlg( this, static_cast<PCB_GENERATED_TABLE*>( aItem ), {} );
         dlg.ShowModal();
         break;
     }

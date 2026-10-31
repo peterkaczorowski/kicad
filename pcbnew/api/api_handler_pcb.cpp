@@ -472,6 +472,9 @@ static const std::vector<KICAD_T> s_allowedBoardTypes = {
     PCB_TEXT_T,
     PCB_TEXTBOX_T,
     PCB_TABLE_T,
+    PCB_DRILL_CHART_T,
+    PCB_STACKUP_TABLE_T,
+    PCB_DRILL_MAP_T,
     PCB_TRACE_T,
     PCB_ARC_T,
     PCB_VIA_T,
@@ -541,6 +544,9 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_PCB::handleGetItems( const HANDLER_
 
         case PCB_SHAPE_T:
         case PCB_TABLE_T:
+        case PCB_DRILL_CHART_T:
+        case PCB_STACKUP_TABLE_T:
+        case PCB_DRILL_MAP_T:
         case PCB_TEXT_T:
         case PCB_TEXTBOX_T:
         case PCB_BARCODE_T:

@@ -1829,13 +1829,7 @@ int PCBNEW_JOBS_HANDLER::JobExportGerbers( JOB* aJob )
     // Ensure layers to plot are restricted to enabled layers of the board to plot
     LSET layersToPlot = LSET( aGerberJob->ResolvePlotLayers( brd->GetEnabledLayers() ) ) & brd->GetEnabledLayers();
 
-    // Once for the run, not per file, so an update rebuilds each chart once. Common layers
-    // included or a chart plotted as one is never looked at
-    LSET preflightLayers = layersToPlot;
-
-    for( PCB_LAYER_ID commonLayer : aGerberJob->m_plotOnAllLayersSequence )
-        preflightLayers.set( commonLayer );
-
+    // Once for the run, not per file, so an update rebuilds each chart once
     RefreshGeneratedTables( *brd );
 
     for( PCB_LAYER_ID layer : layersToPlot.UIOrder() )
@@ -2296,13 +2290,8 @@ int PCBNEW_JOBS_HANDLER::JobExportGerber( JOB* aJob )
 
     // We are feeding it one layer at the start here to silence a logic check
 
-    // It drives StartPlotBoard directly rather than PCB_PLOTTER::Plot, so it needs its own
-    // preflight or a FAIL policy would still emit a stale chart
-    {
-        LSET preflightLayers( { aGerberJob->m_plotLayerSequence } );
-
-        RefreshGeneratedTables( *brd );
-    }
+    // It drives StartPlotBoard directly rather than PCB_PLOTTER::Plot, so it refreshes on its own
+    RefreshGeneratedTables( *brd );
 
     PLOTTER* plotter = StartPlotBoard( brd, &plotOpts, layer, layerName, outPath, sheetName, sheetPath );
     bool     success = false;
