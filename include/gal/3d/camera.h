@@ -207,6 +207,8 @@ public:
 
     bool Zoom( float aFactor );
 
+    bool ZoomAt( float aFactor, const wxPoint& aPosition );
+
     bool Zoom_T1( float aFactor );
 
     float GetZoom() const { return m_zoom; }

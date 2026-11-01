@@ -914,7 +914,7 @@ void EDA_3D_CANVAS::OnMouseWheel( wxMouseEvent& event )
 {
     wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::OnMouseWheel" ) );
 
-    OnMouseWheelCamera( event, m_boardAdapter.m_MousewheelPanning );
+    OnMouseWheelCamera( event, m_boardAdapter.m_MousewheelPanning, true );
 
     if( m_mouse_was_moved )
     {

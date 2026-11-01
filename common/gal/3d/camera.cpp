@@ -622,6 +622,27 @@ bool CAMERA::Zoom( float aFactor )
 }
 
 
+bool CAMERA::ZoomAt( float aFactor, const wxPoint& aPosition )
+{
+    wxCHECK_MSG( m_windowSize.x > 0 && m_windowSize.y > 0, false, wxT( "Cannot anchor zoom without a canvas size" ) );
+    wxCHECK_MSG( aPosition.x >= 0 && aPosition.x < m_windowSize.x && aPosition.y >= 0 && aPosition.y < m_windowSize.y,
+                 false, wxT( "Zoom anchor is outside the canvas" ) );
+
+    const float oldZoom = m_zoom;
+    const float halfHeight =
+            m_projectionType == PROJECTION_TYPE::ORTHO ? m_frustum.nh * 0.5f : -m_camera_pos.z * m_frustum.tang;
+    const SFVEC2F cursor( 2.0f * aPosition.x / m_windowSize.x - 1.0f, 1.0f - 2.0f * aPosition.y / m_windowSize.y );
+
+    if( !Zoom( aFactor ) )
+        return false;
+
+    const float offset = halfHeight * ( m_zoom / oldZoom - 1.0f );
+    Pan( SFVEC3F( cursor.x * offset * m_frustum.ratio, cursor.y * offset, 0.0f ) );
+
+    return true;
+}
+
+
 bool CAMERA::Zoom_T1( float aFactor )
 {
     if( ( m_zoom <= m_minZoom && aFactor > 1 ) || ( m_zoom >= m_maxZoom && aFactor < 1 )
