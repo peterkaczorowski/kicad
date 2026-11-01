@@ -37,6 +37,7 @@
 #include <geometry/shape_poly_set.h>
 #include <layer_ids.h>
 #include <reporter.h>
+#include <string_utils.h>
 
 #include <wx/log.h>
 
@@ -179,7 +180,7 @@ struct POINT
      */
     void Format( OUTPUTFORMATTER* out, int nestLevel ) const
     {
-        out->Print( nestLevel, " %.6g %.6g", x, y );
+        out->Print( nestLevel, " %s %s", FormatDouble2Str( x ).c_str(), FormatDouble2Str( y ).c_str() );
     }
 };
 
@@ -485,11 +486,11 @@ public:
 
         const char* quote = out->GetQuoteChar( layer_id.c_str() );
 
-        out->Print( nestLevel, "(%s %s%s%s %.6g %.6g %.6g %.6g)%s",
+        out->Print( nestLevel, "(%s %s%s%s %s %s %s %s)%s",
                     Name(),
                     quote, layer_id.c_str(), quote,
-                    point0.x, point0.y,
-                    point1.x, point1.y,
+                    FormatDouble2Str( point0.x ).c_str(), FormatDouble2Str( point0.y ).c_str(),
+                    FormatDouble2Str( point1.x ).c_str(), FormatDouble2Str( point1.y ).c_str(),
                     newline );
     }
 
@@ -629,10 +630,10 @@ public:
         const char* quote = out->GetQuoteChar( layer_id.c_str() );
 
         const int RIGHTMARGIN = 70;
-        int perLine = out->Print( nestLevel, "(%s %s%s%s %.6g",
+        int perLine = out->Print( nestLevel, "(%s %s%s%s %s",
                                   Name(),
                                   quote, layer_id.c_str(), quote,
-                                  aperture_width );
+                                  FormatDouble2Str( aperture_width ).c_str() );
 
         int wrapNest = std::max( nestLevel+1, 6 );
 
@@ -648,7 +649,7 @@ public:
                 perLine += out->Print( 0, "  " );
             }
 
-            perLine += out->Print( 0, "%.6g %.6g", pt.x, pt.y );
+            perLine += out->Print( 0, "%s %s", FormatDouble2Str( pt.x ).c_str(), FormatDouble2Str( pt.y ).c_str() );
         }
 
         if( aperture_type == T_square )
@@ -758,10 +759,12 @@ public:
         const char* newline = nestLevel ? "\n" : "";
 
         const char* quote = out->GetQuoteChar( layer_id.c_str() );
-        out->Print( nestLevel, "(%s %s%s%s %.6g", Name(), quote, layer_id.c_str(), quote, diameter );
+        out->Print( nestLevel, "(%s %s%s%s %s", Name(), quote, layer_id.c_str(), quote,
+                    FormatDouble2Str( diameter ).c_str() );
 
         if( vertex.x!=0.0 || vertex.y!=0.0 )
-            out->Print( 0, " %.6g %.6g)%s", vertex.x, vertex.y, newline );
+            out->Print( 0, " %s %s)%s", FormatDouble2Str( vertex.x ).c_str(), FormatDouble2Str( vertex.y ).c_str(),
+                        newline );
         else
             out->Print( 0, ")%s", newline );
     }
@@ -805,11 +808,11 @@ public:
         const char* newline = nestLevel ? "\n" : "";
 
         const char* quote = out->GetQuoteChar( layer_id.c_str() );
-        out->Print( nestLevel, "(%s %s%s%s %.6g", Name(), quote, layer_id.c_str(), quote,
-                                 aperture_width );
+        out->Print( nestLevel, "(%s %s%s%s %s", Name(), quote, layer_id.c_str(), quote,
+                    FormatDouble2Str( aperture_width ).c_str() );
 
         for( const POINT& pt : vertex )
-            out->Print( 0, "  %.6g %.6g", pt.x, pt.y );
+            out->Print( 0, "  %s %s", FormatDouble2Str( pt.x ).c_str(), FormatDouble2Str( pt.y ).c_str() );
 
         out->Print( 0, ")%s", newline );
     }
@@ -1310,11 +1313,11 @@ public:
         const char* quote0 = out->GetQuoteChar( layer_id0.c_str() );
         const char* quote1 = out->GetQuoteChar( layer_id1.c_str() );
 
-        out->Print( nestLevel, "(%s %s%s%s %s%s%s %.6g)\n",
+        out->Print( nestLevel, "(%s %s%s%s %s%s%s %s)\n",
                     Name(),
                     quote0, layer_id0.c_str(), quote0,
                     quote1, layer_id1.c_str(), quote1,
-                    layer_weight );
+                    FormatDouble2Str( layer_weight ).c_str() );
     }
 
 private:
@@ -1498,7 +1501,8 @@ public:
 
     void Format( OUTPUTFORMATTER* out, int nestLevel ) override
     {
-        out->Print( nestLevel, "(%s %s %.6g", Name(), GetTokenText( m_grid_type ), m_dimension );
+        out->Print( nestLevel, "(%s %s %s", Name(), GetTokenText( m_grid_type ),
+                    FormatDouble2Str( m_dimension ).c_str() );
 
         if( m_grid_type == T_place )
         {
@@ -1512,7 +1516,7 @@ public:
         }
 
         if( m_offset != 0.0 )
-            out->Print( 0, " (offset %.6g)", m_offset );
+            out->Print( 0, " (offset %s)", FormatDouble2Str( m_offset ).c_str() );
 
         out->Print( 0, ")\n");
     }
@@ -1974,12 +1978,14 @@ public:
     {
         const char* quote = out->GetQuoteChar( m_padstack_id.c_str() );
         if( m_isRotated )
-            out->Print( nestLevel, "(pin %s%s%s (rotate %.6g)", quote, m_padstack_id.c_str(), quote, m_rotation );
+            out->Print( nestLevel, "(pin %s%s%s (rotate %s)", quote, m_padstack_id.c_str(), quote,
+                        FormatDouble2Str( m_rotation ).c_str() );
         else
             out->Print( nestLevel, "(pin %s%s%s", quote, m_padstack_id.c_str(), quote );
 
         quote = out->GetQuoteChar( m_pin_id.c_str() );
-        out->Print( 0, " %s%s%s %.6g %.6g)\n", quote, m_pin_id.c_str(), quote, m_vertex.x, m_vertex.y );
+        out->Print( 0, " %s%s%s %s %s)\n", quote, m_pin_id.c_str(), quote,
+                    FormatDouble2Str( m_vertex.x ).c_str(), FormatDouble2Str( m_vertex.y ).c_str() );
     }
 
 private:
@@ -3000,7 +3006,7 @@ public:
                 perLine += out->Print( 0, "  " );
             }
 
-            perLine += out->Print( 0, "%.6g %.6g", pt.x, pt.y );
+            perLine += out->Print( 0, "%s %s", FormatDouble2Str( pt.x ).c_str(), FormatDouble2Str( pt.y ).c_str() );
         }
 
         if( m_net_id.size() || m_via_number!=-1 || m_via_type!=T_NONE || m_attr!=T_NONE || m_supply)
