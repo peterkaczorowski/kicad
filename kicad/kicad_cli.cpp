@@ -530,7 +530,11 @@ static std::vector<std::string> preprocessArgs( int argc, char** argv )
 bool PGM_KICAD::OnPgmInit()
 {
     PGM_BASE::BuildArgvUtf8();
-    App().SetAppDisplayName( wxT( "kicad-cli" ) );
+    #if defined(KICAD_IS_NIGHTLY)
+        App().SetAppDisplayName( wxT( "kicad-cli-nightly" ) );
+    #else
+        App().SetAppDisplayName( wxT( "kicad-cli" ) );
+    #endif
 
 #if defined( DEBUG )
     wxString absoluteArgv0 = wxStandardPaths::Get().GetExecutablePath();

@@ -96,6 +96,15 @@ elseif( UNIX )
           PATTERN "*.png"
           PATTERN "*.svg"
           )
+    if( KICAD_IS_NIGHTLY )
+        # Replace some icons in case of Nightly version.
+        file( COPY ${PROJECT_SOURCE_DIR}/resources/linux/icons-nightly/
+             DESTINATION ${PROJECT_BINARY_DIR}/resources/linux/icons
+             FILES_MATCHING
+             PATTERN "*.png"
+             PATTERN "*.svg"
+             )
+    endif()
 
     if( KICAD_BUILD_FLATPAK )
         # Rename all icons to start with KICAD_ICON_PREFIX

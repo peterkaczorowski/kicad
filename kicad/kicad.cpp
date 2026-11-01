@@ -101,7 +101,11 @@ PGM_KICAD& PgmTop()
 
 bool PGM_KICAD::OnPgmInit()
 {
-    App().SetAppDisplayName( wxT( "KiCad" ) );
+    #if defined(KICAD_IS_NIGHTLY)
+        App().SetAppDisplayName( wxT( "KiCad-nightly" ) );
+    #else
+        App().SetAppDisplayName( wxT( "KiCad" ) );
+    #endif
 
 #if defined(DEBUG)
     wxString absoluteArgv0 = wxStandardPaths::Get().GetExecutablePath();
