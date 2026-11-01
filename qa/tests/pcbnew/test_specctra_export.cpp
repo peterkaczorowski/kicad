@@ -31,6 +31,7 @@
 #include <footprint.h>
 #include <layer_ids.h>
 #include <locale_io.h>
+#include <pad.h>
 #include <pcb_shape.h>
 #include <pcb_track.h>
 #include <zone.h>
@@ -244,6 +245,72 @@ BOOST_AUTO_TEST_CASE( SpecctraExportRotatedFootprintKeepout )
     BOOST_CHECK_MESSAGE( imageText.find( "3000 -1500" ) != std::string::npos, imageText );
     BOOST_CHECK_MESSAGE( imageText.find( "3000 -500" ) != std::string::npos, imageText );
     BOOST_CHECK_MESSAGE( imageText.find( "1000 -1500" ) != std::string::npos, imageText );
+}
+
+
+// #25850: coordinates must keep their sub-micrometre part beyond 100 mm. A track starting at the
+// centre of a pad has to be written at the same point as the pad (placement plus pin offset);
+// with six significant digits the track end was rounded to the micrometre and no longer met it.
+BOOST_AUTO_TEST_CASE( SpecctraExportCoordinatePrecision )
+{
+    LOCALE_IO toggle;
+    BOARD     board;
+
+    // A board outline, which the export requires.
+    const VECTOR2I corners[4] = { { 0, 0 }, { pcbIUScale.mmToIU( 200 ), 0 },
+                                  { pcbIUScale.mmToIU( 200 ), pcbIUScale.mmToIU( 100 ) },
+                                  { 0, pcbIUScale.mmToIU( 100 ) } };
+
+    for( int i = 0; i < 4; ++i )
+    {
+        PCB_SHAPE* edge = new PCB_SHAPE( &board, SHAPE_T::SEGMENT );
+        edge->SetLayer( Edge_Cuts );
+        edge->SetStart( corners[i] );
+        edge->SetEnd( corners[( i + 1 ) % 4] );
+        board.Add( edge );
+    }
+
+    NETINFO_ITEM* net = new NETINFO_ITEM( &board, wxS( "N1" ), 1 );
+    board.Add( net );
+
+    // Placement at 167 mm, pad offset 0.7875 mm: the pad centre is at x = 167787.5 um.
+    FOOTPRINT* footprint = new FOOTPRINT( &board );
+    footprint->SetReference( wxS( "R1" ) );
+    footprint->SetPosition( { pcbIUScale.mmToIU( 167 ), pcbIUScale.mmToIU( 50 ) } );
+
+    PAD* pad = new PAD( footprint );
+    pad->SetNumber( wxS( "1" ) );
+    footprint->Add( pad );
+    pad->SetFPRelativePosition( { pcbIUScale.mmToIU( 0.7875 ), 0 } );
+    pad->SetNet( net );
+    board.Add( footprint );
+
+    const VECTOR2I padCentre = pad->GetPosition();
+    BOOST_REQUIRE_EQUAL( padCentre.x, 167787500 );
+
+    PCB_TRACK* track = new PCB_TRACK( &board );
+    track->SetLayer( F_Cu );
+    track->SetWidth( pcbIUScale.mmToIU( 0.25 ) );
+    track->SetStart( padCentre );
+    track->SetEnd( { pcbIUScale.mmToIU( 165.647545 ), padCentre.y } );
+    track->SetNet( net );
+    board.Add( track );
+
+    TEMP_FILE out( wxT( "kicad_specctra_25850_" ) );
+    BOOST_REQUIRE_NO_THROW( ExportBoardToSpecctraFile( &board, out.Str() ) );
+
+    const std::string dsn = slurp( out.Path() );
+    const size_t      wiring = dsn.find( "(wiring" );
+    BOOST_REQUIRE( wiring != std::string::npos );
+    const std::string wiringText = dsn.substr( wiring );
+
+    // Placement and pin offset, which together give the pad centre.
+    BOOST_CHECK_MESSAGE( dsn.find( "(place R1 167000 -50000" ) != std::string::npos, dsn );
+    BOOST_CHECK_MESSAGE( dsn.find( "787.5 0)" ) != std::string::npos, dsn );
+
+    // Both track ends keep their sub-micrometre part: the start meets the pad centre exactly.
+    BOOST_CHECK_MESSAGE( wiringText.find( "167787.5 -50000" ) != std::string::npos, wiringText );
+    BOOST_CHECK_MESSAGE( wiringText.find( "165647.545 -50000" ) != std::string::npos, wiringText );
 }
 
 

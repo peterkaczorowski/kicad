@@ -1276,10 +1276,12 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
 
         std::vector<std::string>& rules = m_pcb->m_structure->m_rules->m_rules;
 
-        std::snprintf( rule, sizeof( rule ), "(width %.6g)", scale( defaultTrackWidth ) );
+        std::snprintf( rule, sizeof( rule ), "(width %s)",
+                       FormatDouble2Str( scale( defaultTrackWidth ) ).c_str() );
         rules.push_back( rule );
 
-        std::snprintf( rule, sizeof( rule ), "(clearance %.6g)", clearance );
+        std::snprintf( rule, sizeof( rule ), "(clearance %s)",
+                       FormatDouble2Str( clearance ).c_str() );
         rules.push_back( rule );
 
         // Pad to pad spacing on a single SMT part can be closer than our clearance. We don't want
@@ -1287,7 +1289,8 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
         // clearance to freerouter.
         clearance = scale( defaultClearance ) / 4;
 
-        std::snprintf( rule, sizeof( rule ), "(clearance %.6g (type smd_smd))", clearance );
+        std::snprintf( rule, sizeof( rule ), "(clearance %s (type smd_smd))",
+                       FormatDouble2Str( clearance ).c_str() );
         rules.push_back( rule );
     }
 
@@ -1804,7 +1807,8 @@ void SPECCTRA_DB::exportNETCLASS( const NETCLASS* aNetClass, const BOARD* aBoard
     if( aNetClass->HasTrackWidth() )
     {
         int trackWidth = aNetClass->GetTrackWidth();
-        std::snprintf( text, sizeof( text ), "(width %.6g)", scale( trackWidth ) );
+        std::snprintf( text, sizeof( text ), "(width %s)",
+                       FormatDouble2Str( scale( trackWidth ) ).c_str() );
         clazz->m_rules->m_rules.push_back( text );
     }
 
@@ -1812,7 +1816,8 @@ void SPECCTRA_DB::exportNETCLASS( const NETCLASS* aNetClass, const BOARD* aBoard
     if( aNetClass->HasClearance() )
     {
         int clearance = aNetClass->GetClearance();
-        std::snprintf( text, sizeof( text ), "(clearance %.6g)", scale( clearance ) );
+        std::snprintf( text, sizeof( text ), "(clearance %s)",
+                       FormatDouble2Str( scale( clearance ) ).c_str() );
         clazz->m_rules->m_rules.push_back( text );
     }
 
