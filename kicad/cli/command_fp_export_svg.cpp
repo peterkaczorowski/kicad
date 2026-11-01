@@ -41,8 +41,8 @@ CLI::FP_EXPORT_SVG_COMMAND::FP_EXPORT_SVG_COMMAND() :
 
     m_argParser.add_argument( "-t", ARG_THEME )
             .default_value( std::string() )
-            .help( UTF8STDSTR( _( "Color theme to use (will default to footprint editor "
-                                  "settings)" ) ) );
+            .help( UTF8STDSTR( _( "Color theme to use (theme name or path to theme file; will default to footprint "
+                                  "editor settings)" ) ) );
 
     m_argParser.add_argument( "--fp", ARG_FOOTPRINT )
             .default_value( std::string() )

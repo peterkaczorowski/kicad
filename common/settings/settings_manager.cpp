@@ -289,7 +289,7 @@ COLOR_SETTINGS* SETTINGS_MANAGER::GetColorSettings( const wxString& aName )
     // No match? See if we can load it
     if( !aName.empty() )
     {
-        COLOR_SETTINGS* ret = loadColorSettingsByName( aName );
+        COLOR_SETTINGS* ret = loadColorSettingsByPath( aName );
 
         if( !ret )
         {
@@ -321,20 +321,37 @@ std::vector<COLOR_SETTINGS*> SETTINGS_MANAGER::GetColorSettingsList()
 }
 
 
-COLOR_SETTINGS* SETTINGS_MANAGER::loadColorSettingsByName( const wxString& aName )
+COLOR_SETTINGS* SETTINGS_MANAGER::loadColorSettingsByPath( const wxString& aName )
 {
     wxLogTrace( traceSettings, wxT( "Attempting to load color theme %s" ), aName );
 
     wxFileName fn( GetColorSettingsPath(), aName, wxS( "json" ) );
+    bool       useAbsolutePath = false;
 
     if( !fn.IsOk() || !fn.Exists() )
     {
-        wxLogTrace( traceSettings, wxT( "Theme file %s.json not found, falling back to user" ),
-                    aName );
-        return nullptr;
+        wxLogTrace( traceSettings, wxT( "Theme file '%s' does not exist" ), fn.GetFullPath() );
+
+        fn = wxFileName( aName );
+
+        if( fn.GetExt().IsEmpty() )
+            fn.SetExt( wxS( "json" ) );
+
+        useAbsolutePath = true;
+
+        if( !fn.IsOk() || !fn.Exists() )
+        {
+            wxLogTrace( traceSettings, wxT( "Theme file '%s' does not exist, falling back to user" ),
+                        fn.GetFullPath() );
+            return nullptr;
+        }
     }
 
-    COLOR_SETTINGS* settings = RegisterSettings( new COLOR_SETTINGS( aName ) );
+    COLOR_SETTINGS* settings = RegisterSettings( new COLOR_SETTINGS( aName, useAbsolutePath ) );
+
+    // do not modify user-provided theme file, as KiCad does not own it
+    if( useAbsolutePath )
+        settings->SetReadOnly( true );
 
     if( settings->GetFilename() != aName.ToStdString() )
     {

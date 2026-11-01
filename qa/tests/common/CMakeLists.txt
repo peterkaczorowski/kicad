@@ -196,6 +196,9 @@ set( QA_COMMON_SRCS
     test_project_template.cpp
     ${CMAKE_SOURCE_DIR}/kicad/project_template.cpp
 
+    # Color settings tests
+    test_color_settings.cpp
+
     # Project file tests
     test_import_proj_properties.cpp
     test_project_file.cpp

@@ -62,7 +62,8 @@ CLI::SCH_EXPORT_PLOT_COMMAND::SCH_EXPORT_PLOT_COMMAND( const std::string& aName,
 
     m_argParser.add_argument( "-t", ARG_THEME )
             .default_value( std::string() )
-            .help( UTF8STDSTR( _( "Color theme to use (will default to schematic settings)" ) ) )
+            .help( UTF8STDSTR(
+                    _( "Color theme to use (theme name or path to theme file; will default to schematic settings)" ) ) )
             .metavar( "THEME_NAME" );
     m_argParser.add_argument( "-b", ARG_BLACKANDWHITE )
             .help( UTF8STDSTR( _( ARG_BLACKANDWHITE_DESC ) ) )

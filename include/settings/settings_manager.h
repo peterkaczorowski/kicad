@@ -519,12 +519,15 @@ private:
                                 int* aMinor = nullptr );
 
     /**
-     * Attempt to load a color theme by name (the color theme directory and .json ext are assumed).
+     * Attempt to load a color theme by its file name (the color theme
+     * directory and .json ext are assumed) or from the given argument
+     * interpreted as a path.
      *
-     * @param aName is the filename of the color theme (without the extension or path).
+     * @param aName is the filename of the color theme (without the extension
+     * or path) or an existing path to a color theme file.
      * @return the loaded settings, or nullptr if load failed.
      */
-    COLOR_SETTINGS* loadColorSettingsByName( const wxString& aName );
+    COLOR_SETTINGS* loadColorSettingsByPath( const wxString& aName );
 
     COLOR_SETTINGS* registerColorSettings( const wxString& aFilename, bool aAbsolutePath = false );
 
