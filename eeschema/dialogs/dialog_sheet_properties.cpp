@@ -308,6 +308,16 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
     // but unedited data from existing files can be bad.)
     sheetFileName = EnsureFileExtension( sheetFileName, FILEEXT::KiCadSchematicFileExtension );
 
+    // sheetFileName from the grid edit have URI scheme prepended (since 593a1f5).
+    // Remove the "file://" scheme, otherwise hierarchical sheet loading and checks below will all break
+    const wxString fileScheme = wxS( "file://" );
+    // Trim possible left side spaces
+    sheetFileName.Trim( false );
+    if( sheetFileName.StartsWith( fileScheme ) )
+    {
+        sheetFileName.Remove( 0, fileScheme.Len() );
+    }
+
     // Ensure sheetFileName is legal
     if( !IsFullFileNameValid( sheetFileName ) )
     {
