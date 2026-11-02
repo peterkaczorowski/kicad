@@ -28,6 +28,8 @@
 
 #include "pns_component_dragger.h"
 #include "pns_debug_decorator.h"
+#include "pns_walkaround.h"
+#include "pns_optimizer.h"
 
 namespace PNS
 {
@@ -153,6 +155,31 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
 }
 
 
+bool COMPONENT_DRAGGER::tryWalkaround( NODE* aNode, LINE& aOrig, LINE& aWalk )
+{
+    WALKAROUND walkaround( aNode, Router() );
+    bool       ok = false;
+    walkaround.SetSolidsOnly( false );
+    walkaround.SetDebugDecorator( Dbg() );
+    walkaround.SetLogger( Logger() );
+    walkaround.SetIterationLimit( Settings().WalkaroundIterationLimit() );
+    walkaround.SetLengthLimit( true, 30.0 );
+    walkaround.SetAllowedPolicies( { WALKAROUND::WP_SHORTEST } );
+
+    aWalk = aOrig;
+
+    WALKAROUND::RESULT wr = walkaround.Route( aWalk );
+
+    if( wr.status[WALKAROUND::WP_SHORTEST] == WALKAROUND::ST_DONE )
+    {
+        aWalk = wr.lines[WALKAROUND::WP_SHORTEST];
+        return true;
+    }
+
+    return false;
+}
+
+
 bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
 {
     assert( m_world );
@@ -209,7 +236,7 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
 
         case ITEM::ARC_T:
         {
-            ARC* a = static_cast<ARC*>( item );
+            ARC*                 a = static_cast<ARC*>( item );
             std::unique_ptr<ARC> a_new( a->Clone() );
 
             SHAPE_ARC& arc = a_new->Arc();
@@ -220,25 +247,137 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
             break;
         }
 
-        default:
-            wxFAIL_MSG( wxT( "Unexpected item type in COMPONENT_DRAGGER::m_fixedItems" ) );
+        default: wxFAIL_MSG( wxT( "Unexpected item type in COMPONENT_DRAGGER::m_fixedItems" ) );
         }
     }
 
     for( COMPONENT_DRAGGER::DRAGGED_CONNECTION& cn : m_conns )
     {
-        LINE l_new( cn.origLine );
-        l_new.Unmark();
-        l_new.ClearLinks();
-        l_new.DragCorner( cn.p_next, cn.origLine.CLine().Find( cn.p_orig ) );
-
-        PNS_DBG( Dbg(), AddItem, &l_new, BLUE, 0, wxT( "cdrag-new-fanout" ) );
-        m_draggedItems.Add( l_new );
-
-        LINE l_orig( cn.origLine );
-        m_currentNode->Remove( l_orig );
-        m_currentNode->Add( l_new );
+        LINE origLine( cn.origLine );
+        m_currentNode->Remove( origLine );
     }
+
+    std::map<long long, std::set<int>> toRouteOrder;
+    std::set<int>                      firstToRoute;
+
+    for( int i = 0; i < m_conns.size(); i++ )
+        firstToRoute.emplace( i );
+
+    toRouteOrder.emplace( 0, firstToRoute );
+
+    std::map<int, LINE> addedLines;
+    std::set<int>       failedConnections;
+
+    auto routeConnection = [&]( int aCn, bool aOptimize )
+    {
+        COMPONENT_DRAGGER::DRAGGED_CONNECTION cn = m_conns[aCn];
+        bool                                  status = true;
+
+        LINE origLine( cn.origLine );
+        LINE draggedLine( cn.origLine );
+
+        draggedLine.Unmark();
+        draggedLine.ClearLinks();
+
+        draggedLine.DragCorner( cn.p_next, origLine.CLine().Find( cn.p_orig ) );
+
+        if( Settings().Mode() != RM_MarkObstacles )
+        {
+            LINE walkLine( draggedLine );
+
+            status = tryWalkaround( m_currentNode, draggedLine, walkLine );
+
+            if( status )
+            {
+                if( aOptimize )
+                {
+                    OPTIMIZER optimizer( m_currentNode );
+
+                    int effort = OPTIMIZER::MERGE_SEGMENTS | OPTIMIZER::KEEP_TOPOLOGY
+                                 | OPTIMIZER::RESTRICT_AREA;
+
+                    if( Settings().SmoothDraggedSegments() )
+                        effort |= OPTIMIZER::MERGE_COLINEAR;
+
+                    optimizer.SetEffortLevel( effort );
+
+                    OPT_BOX2I affectedArea = walkLine.ChangedArea( &origLine );
+                    VECTOR2I  anchor( aP );
+
+                    if( walkLine.CLine().Find( aP ) < 0 )
+                        anchor = walkLine.CLine().NearestPoint( aP );
+
+                    optimizer.SetPreserveVertex( anchor );
+
+                    if( !affectedArea )
+                        affectedArea = BOX2I(
+                                aP ); // No valid area yet? set to minimum to disable optimization
+
+                    PNS_DBG( Dbg(), AddPoint, anchor, YELLOW, 100000, wxT( "drag-anchor" ) );
+                    PNS_DBG( Dbg(), AddShape, *affectedArea, RED, 0, wxT( "drag-affected-area" ) );
+
+                    optimizer.SetRestrictArea( *affectedArea );
+
+                    PNS_DBG( Dbg(), AddItem, walkLine.Clone(), RED, 0, wxT( "drag-preopt" ) );
+                    walkLine.Line().Split( anchor );
+
+                    optimizer.Optimize( &walkLine, &draggedLine, &origLine );
+                    PNS_DBG( Dbg(), AddItem, walkLine.Clone(), GREEN, 0, wxT( "drag-postopt" ) );
+                }
+                else
+                {
+                    draggedLine = walkLine;
+                }
+            }
+        }
+
+        m_currentNode->Add( draggedLine );
+        addedLines.emplace( aCn, draggedLine );
+
+        return status;
+    };
+
+    for( auto& [_, toRouteSet] : toRouteOrder )
+    {
+        for( int cnId : toRouteSet )
+        {
+            if( !routeConnection( cnId, false ) )
+                failedConnections.emplace( cnId );
+        }
+    }
+
+    // If there's a length increase of more than this value, this track will be routed before routing failed connections
+    const long long c_failed_vs_length = pcbIUScale.mmToIU( 100 );
+
+    toRouteOrder.clear();
+    toRouteOrder[-c_failed_vs_length] = failedConnections;
+
+    for( auto& [cId, newLine] : addedLines )
+    {
+        if( !failedConnections.contains( cId ) )
+        {
+            long long increase = newLine.Line().Length() - m_conns[cId].origLine.Line().Length();
+            toRouteOrder[-increase].emplace( cId );
+        }
+    }
+
+    for( auto& [_, line] : addedLines )
+        m_currentNode->Remove( line );
+
+    addedLines.clear();
+    failedConnections.clear();
+
+    for( auto& [_, toRouteSet] : toRouteOrder )
+    {
+        for( int cnId : toRouteSet )
+        {
+            if( !routeConnection( cnId, true ) )
+                failedConnections.emplace( cnId );
+        }
+    }
+
+    for( auto& [_, line] : addedLines )
+        m_draggedItems.Add( line );
 
     return true;
 }

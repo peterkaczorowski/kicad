@@ -120,10 +120,12 @@ private:
     struct DRAGGED_CONNECTION
     {
         LINE     origLine;
-        SOLID*   attachedPad;
+        SOLID*   attachedPad = nullptr;
         VECTOR2I p_orig, p_next;
         VECTOR2I offset;
     };
+
+    bool tryWalkaround( NODE* aNode, LINE& aOrig, LINE& aWalk );
 
     std::set<SOLID*>                m_solids;       // Pads being dragged
     std::set<ITEM*>                 m_fixedItems;   // Items being moved along with pads
