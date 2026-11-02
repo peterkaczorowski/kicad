@@ -21,10 +21,12 @@
 
 #include <board.h>
 #include <id.h>
+#include <net_visibility_helpers.h>
 #include <project/project_local_settings.h>
 #include <widgets/net_inspector_panel.h>
 
 #include <optional>
+#include <set>
 #include <vector>
 
 class PCB_EDIT_FRAME;
@@ -168,6 +170,16 @@ private:
 
     /// Highlight the currently selected net
     void highlightSelectedNets();
+
+    /// Get net codes for all selected (non-group) items in the nets list
+    std::set<int> getSelectedNetCodes() const;
+
+    /// Ratsnest visibility context menu handlers
+    void showSelectedNets();
+    void hideSelectedNets();
+    void showOnlyNets();
+    void showAllNets();
+    void hideAllNets();
 
     /// Handle an application-level change of units
     void onUnitsChanged( wxCommandEvent& event );
@@ -341,8 +353,13 @@ private:
         ID_HIGHLIGHT_SELECTED_NETS,
         ID_CLEAR_HIGHLIGHTING,
         ID_SHOW_TIME_DOMAIN_DETAILS,
-        ID_LAST_STATIC_MENU = ID_CLEAR_HIGHLIGHTING,
-        ID_AUTOFIT_COLUMN = ID_SHOW_TIME_DOMAIN_DETAILS + 1,
+        ID_SHOW_SELECTED_NETS,
+        ID_HIDE_SELECTED_NETS,
+        ID_SHOW_ONLY_NETS,
+        ID_SHOW_ALL_NETS,
+        ID_HIDE_ALL_NETS,
+        ID_LAST_STATIC_MENU = ID_HIDE_ALL_NETS,
+        ID_AUTOFIT_COLUMN = ID_HIDE_ALL_NETS + 1,
         ID_AUTOFIT_ALL_COLUMNS,
         ID_HIDE_COLUMN,
     };
