@@ -1255,6 +1255,13 @@ void PCB_NET_INSPECTOR_PANEL::OnShowPanel()
 
 void PCB_NET_INSPECTOR_PANEL::OnNetsListContextMenu( wxDataViewEvent& event )
 {
+    // If nothing is selected, select the item under the cursor so the
+    // context menu actions apply to it; otherwise keep the existing selection
+    wxDataViewItem item = event.GetItem();
+
+    if( item.IsOk() && !m_netsList->HasSelection() )
+        m_netsList->Select( item );
+
     bool             multipleSelections = false;
     const LIST_ITEM* selItem = nullptr;
 
