@@ -58,7 +58,7 @@ public:
     CAMERA* GetCamera() { return &m_camera; }
 
     void OnMouseMoveCamera( wxMouseEvent& event );
-    void OnMouseWheelCamera( wxMouseEvent& event, bool aPan );
+    void OnMouseWheelCamera( wxMouseEvent& event, bool aPan, bool aZoomAtCursor = false );
 };
 
 
