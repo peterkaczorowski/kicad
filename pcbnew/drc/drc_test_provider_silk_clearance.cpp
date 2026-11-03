@@ -95,6 +95,16 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
     LSET      silkLayers = LSET( { F_SilkS, B_SilkS } );
     LSET      targetLayers = LSET::FrontMask() | LSET::BackMask() | LSET( { Edge_Cuts, Margin } );
 
+    // A target layer no silk clearance rule covers cannot produce a violation; on a default board
+    // only the silkscreen layers have one.  Individually tested mask items need no rule (see
+    // checkIndividualMaskItems below), so their layers stay.
+    LSET ruleLayers = m_drcEngine->GetLayersForConstraintType( SILK_CLEARANCE_CONSTRAINT );
+
+    if( checkIndividualMaskItems )
+        ruleLayers |= LSET( { F_Mask, B_Mask } );
+
+    targetLayers &= ruleLayers;
+
     auto countItems =
             [&]( BOARD_ITEM* item ) -> bool
             {
