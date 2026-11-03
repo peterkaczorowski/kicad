@@ -309,6 +309,7 @@ set( EESCHEMA_SIM_SRCS
     sim/kibis/ibis_parser.cpp
     sim/kibis/kibis.cpp
 
+    sim/operating_point.cpp
     sim/spice_circuit_model.cpp
     sim/ngspice.cpp
     sim/simulator_frame.cpp
