@@ -184,14 +184,16 @@ bool DRC_TEST_PROVIDER_DISALLOW::Run()
     // tests.  These should be reasonably quick using the caches generated above.
     //
     // Collect items first, then process in parallel.
+    // Only items on a disallow rule's layers can match one; Edge.Cuts is kept for the text test.
+    LSET itemLayers = m_drcEngine->GetLayersForConstraintType( DISALLOW_CONSTRAINT ) | LSET( { Edge_Cuts } );
     std::vector<BOARD_ITEM*> allItems;
 
-    forEachGeometryItem( {}, LSET::AllLayersMask(),
-            [&]( BOARD_ITEM* item ) -> bool
-            {
-                allItems.push_back( item );
-                return true;
-            } );
+    forEachGeometryItem( {}, itemLayers,
+                         [&]( BOARD_ITEM* item ) -> bool
+                         {
+                             allItems.push_back( item );
+                             return true;
+                         } );
 
     std::atomic<size_t> itemsDone( 0 );
     size_t              itemCount = allItems.size();
