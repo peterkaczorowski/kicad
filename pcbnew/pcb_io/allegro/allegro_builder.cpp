@@ -2461,10 +2461,35 @@ std::unique_ptr<PCB_SHAPE> BOARD_BUILDER::buildPolygon( const BLK_0x28_SHAPE& aP
     chain.SetClosed( true );
     shape->SetPolyShape( chain );
 
+    shape->SetFilled( aPolygon.IsFilled() && layer != Edge_Cuts && layer != F_CrtYd && layer != B_CrtYd );
+
     const int lineWidth = 0;
     shape->SetWidth( lineWidth );
 
     return shape;
+}
+
+
+std::vector<std::unique_ptr<PCB_SHAPE>> BOARD_BUILDER::buildBoardShape( const BLK_0x28_SHAPE& aShapeData )
+{
+    const PCB_LAYER_ID layer = getLayer( aShapeData.m_Layer );
+
+    const bool outlineOnly = ( layer == Edge_Cuts || layer == F_CrtYd || layer == B_CrtYd );
+
+    // If shape marked as filled, then make closed shape with buildPolygon
+    if( aShapeData.IsFilled() && !outlineOnly )
+    {
+        std::unique_ptr<PCB_SHAPE> poly = buildPolygon( aShapeData, m_board );
+
+        if( poly )
+        {
+            std::vector<std::unique_ptr<PCB_SHAPE>> shapes;
+            shapes.push_back( std::move( poly ) );
+            return shapes;
+        }
+    }
+
+    return buildPolygonShapes( aShapeData, m_board );
 }
 
 
@@ -3445,11 +3470,11 @@ std::unique_ptr<FOOTPRINT> BOARD_BUILDER::buildFootprint( const BLK_0x2D_FOOTPRI
         {
             std::vector<std::unique_ptr<BOARD_ITEM>> shapes = buildGraphicItems( *areaBlock, *fp );
 
+            const bool assumeFilled = ( areaBlock->GetBlockType() != 0x28 );
+
             for( std::unique_ptr<BOARD_ITEM>& item : shapes )
             {
-                // If we find shapes in the areas list, they are (presumably) filled.
-                // Maybe there's a flag to look at rather than just assuming this?
-                if( item->Type() == PCB_SHAPE_T )
+                if( assumeFilled && item->Type() == PCB_SHAPE_T )
                 {
                     PCB_SHAPE& shape = static_cast<PCB_SHAPE&>( *item );
 
@@ -3851,7 +3876,7 @@ void BOARD_BUILDER::createBoardShapes()
             if( layerIsZone( shapeData.m_Layer ) )
                 continue;
 
-            std::vector<std::unique_ptr<PCB_SHAPE>> shapeItems = buildPolygonShapes( shapeData, m_board );
+            std::vector<std::unique_ptr<PCB_SHAPE>> shapeItems = buildBoardShape( shapeData );
             uint32_t                                idSeq = 0;
 
             for( std::unique_ptr<PCB_SHAPE>& shapeItem : shapeItems )
@@ -3910,7 +3935,7 @@ void BOARD_BUILDER::createBoardShapes()
             if( layerIsZone( shapeData.m_Layer ) )
                 continue;
 
-            std::vector<std::unique_ptr<PCB_SHAPE>> shapeItems = buildPolygonShapes( shapeData, m_board );
+            std::vector<std::unique_ptr<PCB_SHAPE>> shapeItems = buildBoardShape( shapeData );
             uint32_t                                idSeq = 0;
 
             for( std::unique_ptr<PCB_SHAPE>& shapeItem : shapeItems )

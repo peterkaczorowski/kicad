@@ -1791,6 +1791,16 @@ struct BLK_0x28_SHAPE
     {
         return m_TablePtr.value_or( m_TablePtr_16x.value_or( 0 ) );
     }
+
+    static constexpr uint32_t FILLED_FLAG = 0x0001;
+
+    bool IsFilled() const
+    {
+        if( m_Unknown2.has_value() )
+            return ( m_Unknown2.value() & FILLED_FLAG ) != 0;
+
+        return ( m_Unknown5 & FILLED_FLAG ) != 0;
+    }
 };
 
 

@@ -199,6 +199,14 @@ private:
                                                                 BOARD_ITEM_CONTAINER& aParent );
 
     /**
+     * Build the board-level items for an 0x28 SHAPE.
+     *
+     * A filled shape becomes a single closed polygon. An outline stays a run of separate
+     * items per segment.
+     */
+    std::vector<std::unique_ptr<PCB_SHAPE>> buildBoardShape( const BLK_0x28_SHAPE& aShape );
+
+    /**
      * Build a drill marker from a 0x0C PIN_DEF block
      */
     std::vector<std::unique_ptr<BOARD_ITEM>> buildDrillMarker( const BLK_0x0C_PIN_DEF& aPinDef,
