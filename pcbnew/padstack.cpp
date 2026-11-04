@@ -1192,6 +1192,28 @@ PADSTACK::COPPER_LAYER_PROPS& PADSTACK::CopperLayer( PCB_LAYER_ID aLayer )
             return m_copperProps[INNER_LAYERS];
     }
 
+    if( m_mode == MODE::CUSTOM && IsNonCopperLayer( aLayer ) )
+    {
+        // Mirror the const overload: writes for a non-copper layer that the padstack does
+        // not define (e.g. solder mask primitives on a custom padstack) must land on the
+        // copper side that is actually defined, not in a brand-new entry that readers will
+        // never see.  Copper layers keep creating their own entry so that per-layer
+        // padstacks (importers write inner copper props this way) keep working.
+        if( IsFrontLayer( aLayer ) && m_copperProps.contains( F_Cu ) )
+            return m_copperProps.at( F_Cu );
+        else if( IsBackLayer( aLayer ) && m_copperProps.contains( B_Cu ) )
+            return m_copperProps.at( B_Cu );
+
+        if( m_copperProps.count( aLayer ) )
+            return m_copperProps.at( aLayer );
+
+        if( m_copperProps.count( ALL_LAYERS ) )
+            return m_copperProps.at( ALL_LAYERS );
+
+        wxASSERT( !m_copperProps.empty() );
+        return m_copperProps.begin()->second;
+    }
+
     return m_copperProps[aLayer];
 }
 
