@@ -962,10 +962,7 @@ public:
      */
     bool FlashLayer( int aLayer, bool aOnlyCheckIfPermitted = false ) const;
 
-    bool CanFlashLayer( int aLayer )
-    {
-        return FlashLayer( aLayer, true );
-    }
+    bool CanFlashLayer( int aLayer ) const { return FlashLayer( aLayer, true ); }
 
     PCB_LAYER_ID GetLayer() const override;
 

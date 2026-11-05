@@ -61,21 +61,27 @@ public:
     bool IsDebug() const { return m_debugZoneFiller; }
 
 private:
+    void addKnockout( const BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, SHAPE_POLY_SET& aHoles,
+                      ERROR_LOC aErrorLoc = ERROR_OUTSIDE );
 
-    void addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, SHAPE_POLY_SET& aHoles );
-
-    void addKnockout( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, bool aIgnoreLineWidth,
+    void addKnockout( const BOARD_ITEM* aItem, PCB_LAYER_ID aLayer, int aGap, bool aIgnoreLineWidth,
                       SHAPE_POLY_SET& aHoles );
 
-    void addHoleKnockout( PAD* aPad, int aGap, SHAPE_POLY_SET& aHoles );
+    void addHoleKnockout( const PAD* aPad, int aGap, SHAPE_POLY_SET& aHoles );
 
     void knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aFill,
-                                 std::vector<BOARD_ITEM*>& aThermalConnectionPads, std::vector<PAD*>& aNoConnectionPads,
-                                 std::vector<BOARD_ITEM*>& aSolidConnectionItems );
+                                 std::vector<const BOARD_ITEM*>& aThermalConnectionPads,
+                                 std::vector<const PAD*>&        aNoConnectionPads,
+                                 std::vector<const BOARD_ITEM*>& aSolidConnectionItems );
+
+    /**
+     * A higher priority zone or the minimum width parameter can remove the part of the zone that connects to the
+     * thermal spoke.  This method removes the spoke.
+     */
+    void removeUselessThermalSpokes( ZONE* aZone, PCB_LAYER_ID aLayer );
 
     void buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLayer,
-                                    const std::vector<PAD*>& aNoConnectionPads,
-                                    SHAPE_POLY_SET& aHoles,
+                                    const std::vector<const PAD*>& aNoConnectionPads, SHAPE_POLY_SET& aHoles,
                                     bool aIncludeZoneClearances = true );
 
     /**
@@ -124,8 +130,8 @@ private:
      * Constructs a list of all thermal spokes for the given zone.
      */
     void buildThermalSpokes( const ZONE* box, PCB_LAYER_ID aLayer,
-                             const std::vector<BOARD_ITEM*>& aSpokedPadsList,
-                             std::deque<SHAPE_LINE_CHAIN>& aSpokes );
+                             const std::vector<const BOARD_ITEM*>& aSpokedPadsList,
+                             std::vector<SHAPE_LINE_CHAIN>&        aSpokes );
 
     /**
      * Build thermal rings for pads in hatch zones.
@@ -140,11 +146,9 @@ private:
      * @param aThermalRings Output parameter to collect the thermal ring geometry. Used later
      *                      to drop hatch holes that would isolate the thermal relief.
      */
-    void buildHatchZoneThermalRings( const ZONE* aZone, PCB_LAYER_ID aLayer,
-                                     const SHAPE_POLY_SET& aSmoothedOutline,
-                                     const std::vector<BOARD_ITEM*>& aThermalConnectionPads,
-                                     SHAPE_POLY_SET& aFillPolys,
-                                     SHAPE_POLY_SET& aThermalRings );
+    void buildHatchZoneThermalRings( const ZONE* aZone, PCB_LAYER_ID aLayer, const SHAPE_POLY_SET& aSmoothedOutline,
+                                     const std::vector<const BOARD_ITEM*>& aThermalConnectionPads,
+                                     SHAPE_POLY_SET& aFillPolys, SHAPE_POLY_SET& aThermalRings );
 
     /**
      * Create strands of zero-width between elements of SHAPE_POLY_SET that are within
@@ -279,22 +283,31 @@ private:
 
     bool                  m_debugZoneFiller;
 
-    // Cache of pre-knockout fills for iterative refill optimization (issue 21746)
-    // Key: (zone pointer, layer), Value: fill polygon before higher-priority zone knockout
-    std::map<std::pair<const ZONE*, PCB_LAYER_ID>, SHAPE_POLY_SET> m_preKnockoutFillCache;
+    struct ZONE_LAYER_STATE
+    {
+        std::vector<SHAPE_LINE_CHAIN> ThermalSpokes;
 
-    // Un-hatched extent per (zone, layer); lets the refiller re-border carved hatch zones (#24758).
-    std::map<std::pair<const ZONE*, PCB_LAYER_ID>, SHAPE_POLY_SET> m_preHatchSolidFillCache;
+        // Pads and vias that need thermal spokes.
+        std::vector<const BOARD_ITEM*> ThermalConnectionPads;
 
-    // Band just outside each (zone, layer) that an abutting same-net zone pours into.  Buffers the
-    // refiller's min-width cycle the way the smoothed outline buffers the initial one (#23790).
-    std::map<std::pair<const ZONE*, PCB_LAYER_ID>, SHAPE_POLY_SET> m_sameNetApronCache;
+        // Cache of pre-knockout fills for iterative refill optimization (issue 21746)
+        // Key: (zone pointer, layer), Value: fill polygon before higher-priority zone knockout
+        std::optional<SHAPE_POLY_SET> PreKnockoutFill;
 
-    // Refill result keyed by (zone, layer); value is the knockout-geometry hash + cached fill.
-    // Hit lets an unchanged-knockout zone skip the refill subtract + prune.  Cleared each Fill().
-    std::map<std::pair<const ZONE*, PCB_LAYER_ID>, std::pair<HASH_128, SHAPE_POLY_SET>>
-                                                                   m_refillResultCache;
-    mutable std::mutex                                             m_cacheMutex;
+        // Un-hatched extent per (zone, layer); lets the refiller re-border carved hatch zones (#24758).
+        std::optional<SHAPE_POLY_SET> PreHatchSolidFill;
+
+        // Band just outside each (zone, layer) that an abutting same-net zone pours into.  Buffers the
+        // refiller's min-width cycle the way the smoothed outline buffers the initial one (#23790).
+        std::optional<SHAPE_POLY_SET> SameNetApron;
+
+        // Refill result keyed by (zone, layer); value is the knockout-geometry hash + cached fill.
+        // Hit lets an unchanged-knockout zone skip the refill subtract + prune.  Cleared each Fill().
+        std::optional<std::pair<HASH_128, SHAPE_POLY_SET>> RefillResult;
+    };
+    std::map<std::pair<const ZONE*, PCB_LAYER_ID>, ZONE_LAYER_STATE> m_cache;
+
+    mutable std::mutex m_cacheMutex;
 };
 
 #endif
