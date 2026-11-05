@@ -25,6 +25,10 @@
 
 #include <settings/nested_settings.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 
 /**
  * Storage for simulator specific settings.
@@ -81,8 +85,27 @@ public:
     NGSPICE_COMPATIBILITY_MODE GetCompatibilityMode() const { return m_compatibilityMode; }
     void SetCompatibilityMode( NGSPICE_COMPATIBILITY_MODE aMode ) { m_compatibilityMode = aMode; }
 
+    /// Return the value set for a simulator option, or an empty string if it is unset.
+    wxString GetOption( const std::string& aName ) const;
+
+    /// Set (or clear, when aValue is empty) the value for a simulator option.
+    void SetOption( const std::string& aName, const wxString& aValue );
+
+    /**
+     * Build a ".options ..." directive from the options that have a value set, or an empty
+     * string if none are set.
+     *
+     * This is emitted into the netlist ahead of the schematic directives so that any ".options"
+     * placed on the schematic override these (ngspice applies the last value seen for an option).
+     */
+    wxString GetOptionsDirective() const;
+
+    /// The ngspice option names exposed through the settings UI, in display order.
+    static const std::vector<std::string>& SupportedOptions();
+
 private:
-    NGSPICE_COMPATIBILITY_MODE m_compatibilityMode;
+    NGSPICE_COMPATIBILITY_MODE      m_compatibilityMode;
+    std::map<std::string, wxString> m_options;
 };
 
 

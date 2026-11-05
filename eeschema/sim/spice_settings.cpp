@@ -50,6 +50,9 @@ NGSPICE_SETTINGS::NGSPICE_SETTINGS( JSON_SETTINGS* aParent, const std::string& a
     m_params.emplace_back( new PARAM_ENUM<NGSPICE_COMPATIBILITY_MODE>( "model_mode",
             &m_compatibilityMode, NGSPICE_COMPATIBILITY_MODE::LT_PSPICE,
             NGSPICE_COMPATIBILITY_MODE::USER_CONFIG, NGSPICE_COMPATIBILITY_MODE::HSPICE ) );
+
+    for( const std::string& option : SupportedOptions() )
+        m_params.emplace_back( new PARAM<wxString>( "options." + option, &m_options[option], "" ) );
 }
 
 
@@ -59,6 +62,49 @@ bool NGSPICE_SETTINGS::operator==( const SPICE_SETTINGS& aRhs ) const
 
     wxCHECK( settings, false );
 
-    return SPICE_SETTINGS::operator==( aRhs )
-            && m_compatibilityMode == settings->m_compatibilityMode;
+    return SPICE_SETTINGS::operator==( aRhs ) && m_compatibilityMode == settings->m_compatibilityMode
+           && m_options == settings->m_options;
+}
+
+
+wxString NGSPICE_SETTINGS::GetOption( const std::string& aName ) const
+{
+    auto it = m_options.find( aName );
+
+    return it != m_options.end() ? it->second : wxString();
+}
+
+
+void NGSPICE_SETTINGS::SetOption( const std::string& aName, const wxString& aValue )
+{
+    m_options[aName] = aValue;
+}
+
+
+wxString NGSPICE_SETTINGS::GetOptionsDirective() const
+{
+    wxString options;
+
+    for( const std::string& name : SupportedOptions() )
+    {
+        wxString value = GetOption( name );
+        value.Trim( true ).Trim( false );
+
+        if( !value.IsEmpty() )
+            options += wxString::Format( wxT( " %s=%s" ), wxString::FromUTF8( name ), value );
+    }
+
+    if( options.IsEmpty() )
+        return wxEmptyString;
+
+    return wxT( ".options" ) + options;
+}
+
+
+const std::vector<std::string>& NGSPICE_SETTINGS::SupportedOptions()
+{
+    static const std::vector<std::string> options = { "method", "reltol", "abstol", "vntol", "chgtol", "gmin", "gshunt",
+                                                      "rshunt", "itl1",   "itl4",   "trtol", "temp",   "tnom" };
+
+    return options;
 }

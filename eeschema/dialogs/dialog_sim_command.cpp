@@ -28,6 +28,9 @@
 #include <eda_pattern_match.h>
 
 #include <wx/tokenzr.h>
+#include <wx/sizer.h>
+#include <wx/stattext.h>
+#include <wx/textctrl.h>
 
 #include <vector>
 #include <utility>
@@ -124,6 +127,9 @@ DIALOG_SIM_COMMAND::DIALOG_SIM_COMMAND( SIMULATOR_FRAME* aParent,
     if( !dynamic_cast<NGSPICE_SETTINGS*>( aSettings.get() ) )
         m_compatibilityModeSizer->Show( false );
 
+    if( dynamic_cast<NGSPICE_SETTINGS*>( aSettings.get() ) )
+        buildSimOptionsPage();
+
     int minWidth = GetTextExtent( wxS( "XXX.XXXXXXX" ) ).x;
     m_y1Min->SetMinSize( wxSize( minWidth, -1 ) );
     m_y1Max->SetMinSize( wxSize( minWidth, -1 ) );
@@ -137,6 +143,87 @@ DIALOG_SIM_COMMAND::DIALOG_SIM_COMMAND( SIMULATOR_FRAME* aParent,
     m_bSizerY3->Show( false );
 
     SetupStandardButtons();
+}
+
+
+void DIALOG_SIM_COMMAND::buildSimOptionsPage()
+{
+    struct OPTION_DEF
+    {
+        std::string           key;
+        wxString              label;
+        wxString              tooltip;
+        std::vector<wxString> choices; ///< If non-empty, present a dropdown of these values.
+    };
+
+    const std::vector<OPTION_DEF> optionDefs = {
+        { "method", _( "Integration method" ), _( "Numerical integration method" ), { "trap", "gear" } },
+        { "reltol", _( "Relative tolerance" ), _( "Relative error tolerance (default 1e-3)" ), {} },
+        { "abstol", _( "Absolute current tol." ), _( "Absolute current error tolerance (default 1e-12 A)" ), {} },
+        { "vntol", _( "Absolute voltage tol." ), _( "Absolute voltage error tolerance (default 1e-6 V)" ), {} },
+        { "chgtol", _( "Charge tolerance" ), _( "Absolute charge error tolerance (default 1e-14)" ), {} },
+        { "gmin", _( "Minimum conductance" ), _( "Minimum conductance across junctions (default 1e-12)" ), {} },
+        { "gshunt", _( "Node-to-ground cond." ), _( "Conductance added from each node to ground (default 0)" ), {} },
+        { "rshunt", _( "Node-to-ground res." ), _( "Resistance added from each node to ground (default off)" ), {} },
+        { "itl1", _( "DC iteration limit" ), _( "Operating-point iteration limit (default 100)" ), {} },
+        { "itl4", _( "Transient iter. limit" ), _( "Per-timestep iteration limit (default 10)" ), {} },
+        { "trtol", _( "Truncation error tol." ), _( "Transient truncation error factor (default 7)" ), {} },
+        { "temp", _( "Temperature (\u00b0C)" ), _( "Operating temperature (default 27)" ), {} },
+        { "tnom", _( "Nominal temp. (\u00b0C)" ), _( "Parameter measurement temperature (default 27)" ), {} },
+    };
+
+    wxPanel*    panel = new wxPanel( m_notebook1 );
+    wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
+
+    wxStaticText* hint =
+            new wxStaticText( panel, wxID_ANY,
+                              _( "These values are passed to ngspice as .options. Leave a field empty to use the "
+                                 "ngspice default. Any .options placed on the schematic override these." ) );
+    hint->Wrap( 480 );
+    sizer->Add( hint, 0, wxALL, 8 );
+
+    wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 4, 4, 8 );
+    grid->AddGrowableCol( 1 );
+    grid->AddGrowableCol( 3 );
+
+    for( const OPTION_DEF& def : optionDefs )
+    {
+        // Show the actual ngspice option keyword alongside the friendly label.
+        wxString      text = wxString::Format( wxT( "%s (%s):" ), def.label, wxString::FromUTF8( def.key ) );
+        wxStaticText* label = new wxStaticText( panel, wxID_ANY, text );
+        wxWindow*     ctrl = nullptr;
+
+        if( def.choices.empty() )
+        {
+            wxTextCtrl* textCtrl = new wxTextCtrl( panel, wxID_ANY );
+            m_simOptionTextCtrls[def.key] = textCtrl;
+            ctrl = textCtrl;
+        }
+        else
+        {
+            wxChoice* choice = new wxChoice( panel, wxID_ANY );
+            choice->Append( _( "(default)" ) );
+
+            for( const wxString& value : def.choices )
+                choice->Append( value );
+
+            choice->SetSelection( 0 );
+            m_simOptionChoices[def.key] = choice;
+            ctrl = choice;
+        }
+
+        label->SetToolTip( def.tooltip );
+        ctrl->SetToolTip( def.tooltip );
+
+        grid->Add( label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, 8 );
+        grid->Add( ctrl, 1, wxEXPAND | wxRIGHT, 8 );
+    }
+
+    sizer->Add( grid, 1, wxEXPAND | wxALL, 8 );
+
+    panel->SetSizer( sizer );
+    panel->Layout();
+    m_notebook1->AddPage( panel, _( "Simulator Options" ), false );
 }
 
 
@@ -160,6 +247,15 @@ bool DIALOG_SIM_COMMAND::TransferDataToWindow()
         case NGSPICE_COMPATIBILITY_MODE::HSPICE:      m_compatibilityMode->SetSelection( 5 ); break;
         default:    wxFAIL_MSG( wxString::Format( "Unknown NGSPICE_COMPATIBILITY_MODE %d.",
                                                   settings->GetCompatibilityMode() ) );       break;
+        }
+
+        for( const auto& [key, ctrl] : m_simOptionTextCtrls )
+            ctrl->SetValue( settings->GetOption( key ) );
+
+        for( const auto& [key, choice] : m_simOptionChoices )
+        {
+            int sel = choice->FindString( settings->GetOption( key ) );
+            choice->SetSelection( sel == wxNOT_FOUND ? 0 : sel );
         }
     }
 
@@ -309,6 +405,15 @@ bool DIALOG_SIM_COMMAND::TransferDataFromWindow()
         case 3: settings->SetCompatibilityMode( NGSPICE_COMPATIBILITY_MODE::LTSPICE );     break;
         case 4: settings->SetCompatibilityMode( NGSPICE_COMPATIBILITY_MODE::LT_PSPICE );   break;
         case 5: settings->SetCompatibilityMode( NGSPICE_COMPATIBILITY_MODE::HSPICE );      break;
+        }
+
+        for( const auto& [key, ctrl] : m_simOptionTextCtrls )
+            settings->SetOption( key, ctrl->GetValue() );
+
+        for( const auto& [key, choice] : m_simOptionChoices )
+        {
+            int sel = choice->GetSelection();
+            settings->SetOption( key, sel <= 0 ? wxString() : choice->GetStringSelection() );
         }
     }
 

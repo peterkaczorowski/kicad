@@ -290,7 +290,29 @@ bool NGSPICE::Attach( const std::shared_ptr<SIMULATION_MODEL>& aModel, const wxS
     {
         SIMULATOR::Attach( aModel, aSimCommand, aSimOptions, aInputPath, aReporter );
         updateNgspiceSettings();
-        LoadNetlist( formatter.GetString() );
+
+        std::string netlist = formatter.GetString();
+
+        // Emit the user's simulator options (from the project settings) as a ".options" directive
+        // just after the leading ".title" line.  Placing it ahead of the schematic directives lets
+        // any ".options" on the schematic override these, since ngspice keeps the last value seen.
+        if( const NGSPICE_SETTINGS* ngSettings = dynamic_cast<const NGSPICE_SETTINGS*>( Settings().get() ) )
+        {
+            wxString directive = ngSettings->GetOptionsDirective();
+
+            if( !directive.IsEmpty() )
+            {
+                std::string optionsLine = directive.ToStdString() + "\n";
+                size_t      afterTitle = netlist.find( '\n' );
+
+                if( afterTitle == std::string::npos )
+                    netlist += "\n" + optionsLine;
+                else
+                    netlist.insert( afterTitle + 1, optionsLine );
+            }
+        }
+
+        LoadNetlist( netlist );
 
         if( !( aSimOptions & NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_EVENTS ) )
         {

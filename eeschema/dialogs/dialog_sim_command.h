@@ -29,6 +29,9 @@
 
 #include <wx/valnum.h>
 
+#include <map>
+
+class wxTextCtrl;
 class SPICE_CIRCUIT_MODEL;
 class SPICE_SETTINGS;
 class SIMULATOR_FRAME;
@@ -164,6 +167,9 @@ private:
 
     void loadDirectives();
 
+    /// Build the "Simulator Options" notebook page (ngspice .options fields).
+    void buildSimOptionsPage();
+
 private:
     SIMULATOR_FRAME*                     m_simulatorFrame;
     wxString                             m_simCommand;
@@ -173,6 +179,8 @@ private:
     SPICE_VALIDATOR                      m_spiceEmptyValidator;
     wxIntegerValidator<int>              m_posIntValidator;
     std::set<wxString>                   m_fftInputSignals;
+    std::map<std::string, wxTextCtrl*>   m_simOptionTextCtrls;
+    std::map<std::string, wxChoice*>     m_simOptionChoices;
 };
 
 #endif /* DIALOG_SIM_COMMAND_H */
