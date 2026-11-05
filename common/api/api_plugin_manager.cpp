@@ -445,6 +445,16 @@ void API_PLUGIN_MANAGER::InvokeAction( const wxString& aIdentifier, std::shared_
         PYTHON_MANAGER manager( *py );
         wxExecuteEnv   env;
         wxGetEnvMap( &env.env );
+
+#ifndef _WIN32
+        // Running from a Linux AppImage: drop its bundled-Python overrides so the plugin's own interpreter is used.
+        if( wxGetEnv( wxT( "APPDIR" ), nullptr ) )
+        {
+            env.env.erase( "PYTHONHOME" );
+            env.env.erase( "PYTHONPATH" );
+        }
+#endif
+
         env.env[wxS( "KICAD_API_SOCKET" )] = Pgm().GetApiServer().SocketPath();
         env.env[wxS( "KICAD_API_TOKEN" )] = Pgm().GetApiServer().Token();
         env.cwd = pluginFile.GetPath();
@@ -751,6 +761,14 @@ void API_PLUGIN_MANAGER::processNextJob( wxCommandEvent& aEvent )
             || wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
         {
             wxLogTrace( traceApi, "Configured Python is the KiCad one; erasing path overrides..." );
+            env.env.erase( "PYTHONHOME" );
+            env.env.erase( "PYTHONPATH" );
+        }
+#else
+        // Running from a Linux AppImage: inherit the environment but drop its bundled-Python overrides so the spawned system python builds the venv with its own stdlib.
+        if( wxGetEnv( wxT( "APPDIR" ), nullptr ) )
+        {
+            wxGetEnvMap( &env.env );
             env.env.erase( "PYTHONHOME" );
             env.env.erase( "PYTHONPATH" );
         }
