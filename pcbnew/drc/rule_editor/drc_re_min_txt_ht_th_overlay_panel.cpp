@@ -22,7 +22,6 @@
 #include "drc_rule_editor_utils.h"
 #include "drc_re_validator_numeric_ctrl.h"
 
-#include <dialogs/rule_editor_dialog_base.h>
 #include <eda_base_frame.h>
 #include <base_units.h>
 #include <widgets/unit_binder.h>
@@ -65,26 +64,6 @@ DRC_RE_MIN_TXT_HT_TH_OVERLAY_PANEL::DRC_RE_MIN_TXT_HT_TH_OVERLAY_PANEL(
                                            minTextThicknessField->GetLabel(), false, false );
     minTextThicknessField->SetUnitBinder( m_minTextThicknessBinder.get() );
     minTextThicknessField->GetControl()->SetValidator( VALIDATOR_NUMERIC_CTRL( false, false ) );
-
-    auto notifyModified = [this]( wxCommandEvent& )
-    {
-        RULE_EDITOR_DIALOG_BASE* dlg = RULE_EDITOR_DIALOG_BASE::GetDialog( this );
-        if( dlg )
-            dlg->SetModified();
-    };
-
-    auto notifySave = [this]( wxCommandEvent& aEvent )
-    {
-        RULE_EDITOR_DIALOG_BASE* dlg = RULE_EDITOR_DIALOG_BASE::GetDialog( this );
-        if( dlg )
-            dlg->OnSave( aEvent );
-    };
-
-    minTextHeightField->GetControl()->Bind( wxEVT_TEXT, notifyModified );
-    minTextThicknessField->GetControl()->Bind( wxEVT_TEXT, notifyModified );
-
-    minTextHeightField->GetControl()->Bind( wxEVT_TEXT_ENTER, notifySave );
-    minTextThicknessField->GetControl()->Bind( wxEVT_TEXT_ENTER, notifySave );
 
     PositionFields();
     TransferDataToWindow();

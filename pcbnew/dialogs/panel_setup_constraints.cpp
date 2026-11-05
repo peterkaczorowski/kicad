@@ -18,6 +18,7 @@
  */
 
 #include <algorithm>
+#include <functional>
 #include <map>
 
 #include <board_design_settings.h>
@@ -27,13 +28,174 @@
 #include <panel_setup_constraints_base.h>
 #include <pcb_edit_frame.h>
 #include <widgets/field_warning_icon.h>
+#include <dialogs/constraint_rules_list.h>
+#include <dialogs/panel_setup_constraint_rules.h>
+#include <drc/rule_editor/drc_rule_document.h>
 #include <widgets/paged_dialog.h>
 #include <wx/treebook.h>
+#include <wx/hyperlink.h>
+#include <wx/popupwin.h>
+#include <wx/scrolwin.h>
+#include <wx/settings.h>
 #include <bitmaps.h>
 #include <advanced_config.h>
+#include <netclass.h>
+#include <project.h>
+#include <project/net_settings.h>
+#include <project/project_file.h>
 
 
-PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame ) :
+namespace
+{
+
+/// The height a popup grows to before its list starts scrolling, before DPI scaling
+constexpr int MAX_POPUP_HEIGHT = 360;
+
+/// The width a popup grows to before its lines are shortened to fit, before DPI scaling
+constexpr int MAX_POPUP_WIDTH = 720;
+
+/// The longest rule name shown in full. A hyperlink cannot shorten itself.
+constexpr size_t MAX_NAME_LENGTH = 60;
+
+/// The gap between a rule's name and the constraint it sets, before DPI scaling
+constexpr int NAME_GAP = 8;
+
+
+/**
+ * The rules overriding one board constraint, each one a link that opens it in its editor.
+ */
+class OVERRIDING_RULES_POPUP : public wxPopupTransientWindow
+{
+public:
+    OVERRIDING_RULES_POPUP( wxWindow* aParent ) :
+            wxPopupTransientWindow( aParent, wxBORDER_SIMPLE )
+    {
+        m_panel = new wxPanel( this, wxID_ANY );
+        m_panel->SetBackgroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOW ) );
+
+        m_scrolled = new wxScrolledWindow( m_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL );
+        m_scrolled->SetScrollRate( 0, 10 );
+        m_scrolled->SetBackgroundColour( m_panel->GetBackgroundColour() );
+
+        m_rows = new wxBoxSizer( wxVERTICAL );
+        m_scrolled->SetSizer( m_rows );
+
+        m_outer = new wxBoxSizer( wxVERTICAL );
+        m_outer->Add( m_scrolled, 1, wxEXPAND | wxALL, FromDIP( 8 ) );
+        m_panel->SetSizer( m_outer );
+    }
+
+    void AddHeading( const wxString& aText )
+    {
+        wxStaticText* heading = new wxStaticText( m_scrolled, wxID_ANY, aText );
+
+        heading->SetFont( heading->GetFont().Bold() );
+        m_naturalWidth = std::max( m_naturalWidth, heading->GetTextExtent( aText ).x );
+        m_rows->Add( heading, 0, wxTOP, m_rows->GetItemCount() ? FromDIP( 10 ) : 0 );
+    }
+
+    void AddLine( const wxString& aText ) { m_rows->Add( shortenable( aText ), 0, wxEXPAND | wxTOP, FromDIP( 3 ) ); }
+
+    void AddRule( const wxString& aName, const wxString& aDetail, std::function<void()> aOpen )
+    {
+        wxBoxSizer* row = new wxBoxSizer( wxHORIZONTAL );
+        wxString    name = aName;
+
+        if( name.length() > MAX_NAME_LENGTH )
+            name = name.Left( MAX_NAME_LENGTH ) + wxS( "..." );
+
+        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( m_scrolled, wxID_ANY, name, wxEmptyString );
+
+        if( name != aName )
+            link->SetToolTip( aName );
+
+        link->Bind( wxEVT_HYPERLINK,
+                    [this, aOpen]( wxHyperlinkEvent& )
+                    {
+                        Dismiss();
+                        aOpen();
+                    } );
+
+        row->Add( link, 0, wxALIGN_CENTER_VERTICAL );
+        row->Add( shortenable( aDetail, link->GetBestSize().x + FromDIP( NAME_GAP ) ), 1,
+                  wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP( NAME_GAP ) );
+
+        m_rows->Add( row, 0, wxEXPAND | wxTOP, FromDIP( 3 ) );
+    }
+
+    /// Destroyed on dismissal so repeated clicks do not leave hidden popups behind
+    void OnDismiss() override { Destroy(); }
+
+    void PopupUnder( wxWindow* aAnchor )
+    {
+        int contentHeight = m_rows->GetMinSize().y;
+        int width = std::min( m_naturalWidth, FromDIP( MAX_POPUP_WIDTH ) );
+        int height = contentHeight;
+
+        if( height > FromDIP( MAX_POPUP_HEIGHT ) )
+        {
+            height = FromDIP( MAX_POPUP_HEIGHT );
+            width += wxSystemSettings::GetMetric( wxSYS_VSCROLL_X, m_scrolled );
+        }
+
+        m_scrolled->SetMinSize( wxSize( width, height ) );
+
+        m_outer->Fit( m_panel );
+        SetClientSize( m_panel->GetSize() );
+
+        // Only the list scrolls, and only downwards, so the rows are laid out at the width they
+        // were given and shorten themselves to it.
+        m_scrolled->SetVirtualSize( wxSize( m_scrolled->GetClientSize().x, contentHeight ) );
+        m_scrolled->Layout();
+
+        Position( aAnchor->GetScreenPosition(), wxSize( 0, aAnchor->GetSize().y ) );
+        Popup();
+    }
+
+private:
+    /// A line that shortens itself rather than widening the popup, keeping its text on hover
+    wxStaticText* shortenable( const wxString& aText, int aLeading = 0 )
+    {
+        wxStaticText* line =
+                new wxStaticText( m_scrolled, wxID_ANY, aText, wxDefaultPosition, wxDefaultSize, wxST_ELLIPSIZE_END );
+
+        // A line that may shorten reports almost no width of its own, so the width it would like
+        // is remembered here and the popup is sized from that instead.
+        m_naturalWidth = std::max( m_naturalWidth, aLeading + line->GetTextExtent( aText ).x );
+
+        line->SetMinSize( wxSize( 1, -1 ) );
+        line->SetToolTip( aText );
+
+        return line;
+    }
+
+    wxPanel*          m_panel;
+    wxScrolledWindow* m_scrolled;
+    wxBoxSizer*       m_rows;
+    wxBoxSizer*       m_outer;
+    int               m_naturalWidth = 0;
+};
+
+
+/**
+ * Selects the tree page holding a constraint's rules and opens one of them in its editor.
+ */
+void openRuleInEditor( wxWindow* aContext, const wxString& aTitle, DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex )
+{
+    PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( aContext );
+
+    if( !dialog )
+        return;
+
+    if( auto* page = dynamic_cast<PANEL_SETUP_CONSTRAINT_RULES*>( dialog->ShowPage( aTitle ) ) )
+        page->ShowRule( aType, aIndex );
+}
+
+} // namespace
+
+
+PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame,
+                                                  DRC_RULE_DOCUMENT* aDocument ) :
         PANEL_SETUP_CONSTRAINTS_BASE( aParentWindow ),
         m_minClearance( aFrame, m_clearanceTitle, m_clearanceCtrl, m_clearanceUnits ),
         m_minConn( aFrame, m_MinConnTitle, m_MinConnCtrl, m_MinConnUnits ),
@@ -51,6 +213,7 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
         m_minTextHeight( aFrame, m_textHeightLabel, m_textHeightCtrl, m_textHeightUnits ),
         m_minTextThickness( aFrame, m_textThicknessLabel, m_textThicknessCtrl, m_textThicknessUnits ),
         m_maxError( aFrame, m_maxErrorTitle, m_maxErrorCtrl, m_maxErrorUnits ),
+        m_document( aDocument ),
         m_validationTimer( this )
 {
     m_Frame = aFrame;
@@ -84,28 +247,37 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( wxWindow* aParentWindow, PCB_E
         m_minGrooveWidthUnits->Show( false );
     }
 
-    m_fields = {
-        { wxS( "min_clearance" ),             m_clearanceCtrl,              nullptr },
-        { wxS( "min_connection" ),            m_MinConnCtrl,                nullptr },
-        { wxS( "min_track_width" ),           m_TrackMinWidthCtrl,          nullptr },
-        { wxS( "min_via_annular_width" ),     m_ViaMinAnnulusCtrl,          nullptr },
-        { wxS( "min_via_diameter" ),          m_SetViasMinSizeCtrl,         nullptr },
-        { wxS( "min_through_hole_diameter" ), m_MinDrillCtrl,               nullptr },
-        { wxS( "min_microvia_diameter" ),     m_uviaMinSizeCtrl,            nullptr },
-        { wxS( "min_microvia_drill" ),        m_uviaMinDrillCtrl,           nullptr },
-        { wxS( "min_hole_to_hole" ),          m_SetHoleToHoleCtrl,          nullptr },
-        { wxS( "min_hole_clearance" ),        m_HoleClearanceCtrl,          nullptr },
-        { wxS( "min_silk_clearance" ),        m_silkClearanceCtrl,          nullptr },
-        { wxS( "min_groove_width" ),          m_minGrooveWidthCtrl,         nullptr },
-        { wxS( "min_text_height" ),           m_textHeightCtrl,             nullptr },
-        { wxS( "min_text_thickness" ),        m_textThicknessCtrl,          nullptr },
-        { wxS( "min_copper_edge_clearance" ), m_EdgeClearanceCtrl,          nullptr },
-        { wxS( "max_error" ),                 m_maxErrorCtrl,               nullptr }
-    };
+    m_fields = { { wxS( "min_clearance" ), m_clearanceCtrl },
+                 { wxS( "min_connection" ), m_MinConnCtrl },
+                 { wxS( "min_track_width" ), m_TrackMinWidthCtrl },
+                 { wxS( "min_via_annular_width" ), m_ViaMinAnnulusCtrl },
+                 { wxS( "min_via_diameter" ), m_SetViasMinSizeCtrl },
+                 { wxS( "min_through_hole_diameter" ), m_MinDrillCtrl },
+                 { wxS( "min_microvia_diameter" ), m_uviaMinSizeCtrl },
+                 { wxS( "min_microvia_drill" ), m_uviaMinDrillCtrl },
+                 { wxS( "min_hole_to_hole" ), m_SetHoleToHoleCtrl },
+                 { wxS( "min_hole_clearance" ), m_HoleClearanceCtrl },
+                 { wxS( "min_silk_clearance" ), m_silkClearanceCtrl },
+                 { wxS( "min_groove_width" ), m_minGrooveWidthCtrl },
+                 { wxS( "min_text_height" ), m_textHeightCtrl },
+                 { wxS( "min_text_thickness" ), m_textThicknessCtrl },
+                 { wxS( "min_copper_edge_clearance" ), m_EdgeClearanceCtrl },
+                 { wxS( "max_error" ), m_maxErrorCtrl } };
 
     for( CONSTRAINT_FIELD& field : m_fields )
     {
         field.m_Warning = new FIELD_WARNING_ICON( field.m_Ctrl );
+
+        if( m_document && PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, nullptr, nullptr ) )
+        {
+            field.m_Override = new FIELD_WARNING_ICON( field.m_Ctrl, BITMAPS::small_new_window, 1 );
+            field.m_Override->SetCursor( wxCURSOR_HAND );
+            field.m_Override->Bind( wxEVT_LEFT_DOWN,
+                                    [this, setting = field.m_Setting, icon = field.m_Override]( wxMouseEvent& )
+                                    {
+                                        showOverridingRules( setting, icon );
+                                    } );
+        }
 
         // Debounced so a half-typed value does not flash a warning
         field.m_Ctrl->Bind( wxEVT_TEXT,
@@ -158,6 +330,7 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataToWindow()
     m_minTextThickness.SetValue( m_BrdSettings->m_MinSilkTextThickness );
 
     updateWarnings();
+    RefreshOverrides();
 
     return true;
 }
@@ -237,6 +410,114 @@ void PANEL_SETUP_CONSTRAINTS::applyValues( BOARD_DESIGN_SETTINGS& aSettings ) co
     aSettings.m_SilkClearance = m_silkClearance.GetValue();
     aSettings.m_MinSilkTextHeight = m_minTextHeight.GetValue();
     aSettings.m_MinSilkTextThickness = m_minTextThickness.GetValue();
+}
+
+
+void PANEL_SETUP_CONSTRAINTS::RefreshOverrides()
+{
+    if( !m_document )
+        return;
+
+    const NET_SETTINGS& netSettings = *m_Frame->Prj().GetProjectFile().NetSettings();
+
+    for( CONSTRAINT_FIELD& field : m_fields )
+    {
+        if( !field.m_Override )
+            continue;
+
+        DRC_RULE_EDITOR_CONSTRAINT_NAME type;
+
+        if( !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( field.m_Setting, &type, nullptr ) )
+            continue;
+
+        const std::vector<int> indices = m_document->IndicesFor( type );
+
+        if( !indices.empty() )
+        {
+            field.m_Override->SetWarning(
+                    wxString::Format( wxPLURAL( "%zu rule overrides this. Click to see it.",
+                                                "%zu rules override this. Click to see them.", indices.size() ),
+                                      indices.size() ) );
+        }
+        else if( !PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( field.m_Setting, netSettings ).empty() )
+        {
+            field.m_Override->SetWarning( _( "Net classes set their own value for this. Click to see them." ) );
+        }
+        else
+        {
+            field.m_Override->SetWarning( wxEmptyString );
+        }
+    }
+}
+
+
+void PANEL_SETUP_CONSTRAINTS::showOverridingRules( const wxString& aSetting, wxWindow* aAnchor )
+{
+    DRC_RULE_EDITOR_CONSTRAINT_NAME type;
+    wxString                        page;
+
+    if( !m_document || !PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( aSetting, &type, &page ) )
+        return;
+
+    const std::vector<int>                     indices = m_document->IndicesFor( type );
+    const NET_SETTINGS&                        netSettings = *m_Frame->Prj().GetProjectFile().NetSettings();
+    const std::map<int, std::vector<wxString>> netclasses =
+            PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( aSetting, netSettings );
+
+    if( indices.empty() && netclasses.empty() )
+        return;
+
+    OVERRIDING_RULES_POPUP* popup = new OVERRIDING_RULES_POPUP( this );
+
+    if( !indices.empty() )
+        popup->AddHeading( _( "Overridden by user rules" ) );
+
+    for( int index : indices )
+    {
+        const DRC_RE_LOADED_PANEL_ENTRY& entry = m_document->Entries()[index];
+        wxString                         value = CONSTRAINT_RULES_LIST::ConstraintText( entry, type, m_Frame );
+        wxString                         detail;
+
+        if( entry.condition.IsEmpty() && entry.layerSource.IsEmpty() )
+            detail = wxString::Format( _( "%s, everywhere" ), value );
+        else if( entry.condition.IsEmpty() )
+            detail = wxString::Format( _( "%s, on %s" ), value, entry.layerSource );
+        else if( entry.layerSource.IsEmpty() )
+            detail = wxString::Format( _( "%s, where %s" ), value, entry.condition );
+        else
+            detail = wxString::Format( _( "%s, on %s where %s" ), value, entry.layerSource, entry.condition );
+
+        popup->AddRule( entry.ruleName, detail,
+                        [this, page, type, index]()
+                        {
+                            openRuleInEditor( this, page, type, index );
+                        } );
+    }
+
+    // A net class sets its own value rather than displacing the board one, which stays the
+    // minimum, so these are listed apart from the rules and without links to a page that edits
+    // them here.
+    if( !netclasses.empty() )
+    {
+        popup->AddHeading( _( "Net class values" ) );
+
+        for( const auto& [value, names] : netclasses )
+        {
+            wxString classes;
+
+            for( const wxString& name : names )
+            {
+                if( !classes.IsEmpty() )
+                    classes << wxS( ", " );
+
+                classes << name;
+            }
+
+            popup->AddLine( wxString::Format( wxS( "%s: %s" ), m_Frame->StringFromValue( value, true ), classes ) );
+        }
+    }
+
+    popup->PopupUnder( aAnchor );
 }
 
 

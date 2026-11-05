@@ -21,6 +21,7 @@
 #ifndef PANEL_SETUP_RULES_H
 #define PANEL_SETUP_RULES_H
 
+#include <memory>
 #include <wx/regex.h>
 #include <panel_setup_rules_base.h>
 
@@ -30,20 +31,23 @@ class PAGED_DIALOG;
 class PCB_EDIT_FRAME;
 class SCINTILLA_TRICKS;
 class HTML_MESSAGE_BOX;
+class DRC_RULE_DOCUMENT;
 
 
 class PANEL_SETUP_RULES : public PANEL_SETUP_RULES_BASE
 {
 public:
-    PANEL_SETUP_RULES( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame );
+    PANEL_SETUP_RULES( wxWindow* aParentWindow, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument );
     ~PANEL_SETUP_RULES( ) override;
-
-    void ImportSettingsFrom( BOARD* aBoard );
 
     /**
      * @return true if the rules text differs from what was loaded and can be saved.
      */
     bool IsModified() const;
+
+    void RefreshFromDocument();
+
+    const DRC_RULE_DOCUMENT& GetSearchDocument() const;
 
 private:
     void onScintillaCharAdded( wxStyledTextEvent &aEvent );
@@ -61,8 +65,11 @@ private:
     bool TransferDataFromWindow() override;
 
     PCB_EDIT_FRAME*   m_frame;
+    DRC_RULE_DOCUMENT* m_document;
     SCINTILLA_TRICKS* m_scintillaTricks;
     wxString          m_originalText;
+
+    mutable std::unique_ptr<DRC_RULE_DOCUMENT> m_searchSnapshot;
 
     wxRegEx           m_netClassRegex;
     wxRegEx           m_netNameRegex;

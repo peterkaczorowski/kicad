@@ -36,9 +36,33 @@ public:
     bool AddLazySubPage( std::function<wxWindow*( wxWindow* aParent )> aLazyCtor,
                          const wxString& text, bool bSelect = false, int imageId = NO_IMAGE );
 
+    /**
+     * Add a lazy page one level below the page at aPos, at the end of its children.
+     */
+    bool InsertLazySubPage( size_t aPos, std::function<wxWindow*( wxWindow* aParent )> aLazyCtor, const wxString& text,
+                            bool bSelect = false, int imageId = NO_IMAGE );
+
     wxWindow* ResolvePage( size_t aPage );
 
+    /**
+     * Build a page for indexing without enabling validation or settings writeback.
+     * Showing the page or calling ResolvePage() enables both.
+     */
+    wxWindow* ResolvePageForSearch( size_t aPage );
+
+    /**
+     * @return the page contents, or nullptr for a lazy page that has not been shown or resolved.
+     */
     wxWindow* GetResolvedPage( size_t aPage );
+
+    wxWindow* GetBuiltPageForSearch( size_t aPage ) const;
+
+    bool IsLazyPage( size_t aPage ) const;
+
+    wxTreeItemId GetPageTreeItem( size_t aPage ) const { return m_treeIds[aPage]; }
+
+private:
+    bool m_resolvingForSearch;
 };
 
 

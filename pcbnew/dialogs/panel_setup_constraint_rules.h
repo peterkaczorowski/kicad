@@ -1,0 +1,171 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright The KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef PANEL_SETUP_CONSTRAINT_RULES_H
+#define PANEL_SETUP_CONSTRAINT_RULES_H
+
+#include <functional>
+#include <map>
+#include <optional>
+#include <utility>
+#include <vector>
+#include <wx/panel.h>
+
+#include <drc/rule_editor/drc_rule_editor_enums.h>
+
+class wxScrolledWindow;
+class wxStaticText;
+class BOARD;
+class BOARD_DESIGN_SETTINGS;
+class CONSTRAINT_RULES_LIST;
+class DRC_RULE_DOCUMENT;
+class NETCLASS;
+class NET_SETTINGS;
+class PCB_EDIT_FRAME;
+
+
+struct CONSTRAINT_DEFAULT_FIELD
+{
+    wxString label;
+    int BOARD_DESIGN_SETTINGS::* member;
+    wxString                     settingName;
+};
+
+
+/**
+ * One constraint on a Design Rules page: its board default, the net class values that apply
+ * to it, and the rules that override it.
+ */
+struct CONSTRAINT_SECTION
+{
+    wxString                                             title;
+    std::vector<CONSTRAINT_DEFAULT_FIELD>                defaults;
+    std::optional<DRC_RULE_EDITOR_CONSTRAINT_NAME>       ruleType;
+    std::function<std::optional<int>( const NETCLASS& )> netclassValue;
+
+    /// The page that owns this section's defaults.
+    wxString settingsPage = wxEmptyString;
+};
+
+
+class PANEL_SETUP_CONSTRAINT_RULES : public wxPanel
+{
+public:
+    enum class FAMILY
+    {
+        CLEARANCE,
+        TRACKS_AND_VIAS,
+        HOLES,
+        SILKSCREEN,
+        SOLDER_MASK,
+        HIGH_SPEED,
+        FOOTPRINTS
+    };
+
+    PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, PCB_EDIT_FRAME* aFrame, DRC_RULE_DOCUMENT* aDocument,
+                                  const CONSTRAINT_SECTION& aSection );
+
+    /**
+     * The sections of one family, in the order they are shown in the tree.
+     */
+    static std::vector<CONSTRAINT_SECTION> SectionsFor( FAMILY aFamily );
+
+    static bool RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType, wxString* aPage );
+
+    /**
+     * The classes setting their own value for a board constraint, grouped by the value they set.
+     * Empty where no class sets one, or where net classes cannot set this constraint at all.
+     */
+    static std::map<int, std::vector<wxString>> NetclassValuesFor( const wxString&     aSetting,
+                                                                   const NET_SETTINGS& aNetSettings );
+
+    /**
+     * Shows the board defaults from another board, but only where the page that owns them is
+     * among those being imported. The values on a rule page belong to another page, so they
+     * arrive with it rather than with the rules.
+     *
+     * @param aSettingsPage is the title of the settings page being imported.
+     */
+    void ImportSettingsFrom( BOARD* aBoard, const wxString& aSettingsPage );
+
+    /**
+     * Opens a rule of this constraint type in the editor, if this page holds that constraint.
+     */
+    void ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex );
+
+    void RefreshFromDocument();
+
+    void AppendSearchTerms( const DRC_RULE_DOCUMENT& aDocument, std::vector<wxString>& aTerms ) const;
+
+    static void AppendSearchTerms( const CONSTRAINT_SECTION& aSection, PCB_EDIT_FRAME* aFrame,
+                                   const DRC_RULE_DOCUMENT& aDocument, std::vector<wxString>& aTerms );
+
+    bool TransferDataToWindow() override;
+
+    /**
+     * Called when the dialog is accepted. A rule left in the form has not reached the document,
+     * so this is the last chance to add it.
+     */
+    bool TransferDataFromWindow() override;
+
+    /**
+     * The rule form is always on screen, so its fields are empty until a rule is being written.
+     * Their validators must not decide whether the page can be left, which is what the base
+     * class would use them for. The form reports its own errors when it is applied. What this
+     * does check is whether a rule is waiting to be added, since leaving the page would drop it.
+     */
+    bool Validate() override;
+
+private:
+    /// The section whose board defaults include a setting, where one holds it
+    static std::optional<CONSTRAINT_SECTION> sectionForSetting( const wxString& aSetting );
+
+    void buildSection();
+    void getNetclassText( wxString& aLabel, wxString& aTooltip ) const;
+    void updateNetclassLabels();
+    void wrapLabels();
+    void showPage( const wxString& aTitle );
+    void updateDefaultLabels();
+
+    /// The settings page that owns this page's board defaults
+    wxString settingsPage() const;
+
+    /**
+     * Offers what to do with a rule the form holds. False while the offer stands, which is what
+     * holds the page until it is answered.
+     */
+    bool confirmPendingRule();
+
+    PCB_EDIT_FRAME*        m_frame;
+    BOARD_DESIGN_SETTINGS* m_settings;
+    DRC_RULE_DOCUMENT*     m_document;
+    wxScrolledWindow*      m_scrolled;
+
+    CONSTRAINT_SECTION              m_section;
+    std::vector<wxStaticText*>      m_defaultLabels;
+    std::vector<std::optional<int>> m_importedDefaults;
+    wxStaticText*                   m_netclassLabel;
+    wxString                        m_netclassText;
+    wxStaticText*                   m_note;
+    wxString                        m_noteText;
+    /// Null until the section is built, and where a section carries no rules of its own.
+    CONSTRAINT_RULES_LIST* m_list;
+};
+
+#endif // PANEL_SETUP_CONSTRAINT_RULES_H

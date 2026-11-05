@@ -1,0 +1,646 @@
+/*
+ * This program source code file is part of KiCad, a free EDA CAD application.
+ *
+ * Copyright The KiCad Developers, see AUTHORS.txt for contributors.
+ *
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "panel_setup_constraint_rules.h"
+
+#include <map>
+
+#include <board.h>
+#include <board_design_settings.h>
+#include <netclass.h>
+#include <pcb_edit_frame.h>
+#include <project.h>
+#include <project/net_settings.h>
+#include <project/project_file.h>
+#include <confirm.h>
+#include <drc/rule_editor/drc_rule_document.h>
+#include <widgets/paged_dialog.h>
+#include <wx/hyperlink.h>
+#include <widgets/ui_common.h>
+#include <wx/scrolwin.h>
+#include <wx/sizer.h>
+#include <wx/statline.h>
+#include <wx/stattext.h>
+
+#include "constraint_rules_list.h"
+
+
+/**
+ * The classes that set their own value through aValue, grouped so classes sharing a value read
+ * as one entry.
+ */
+static std::map<int, std::vector<wxString>>
+groupByValue( const std::function<std::optional<int>( const NETCLASS& )>& aValue, const NET_SETTINGS& aNetSettings )
+{
+    std::map<int, std::vector<wxString>> byValue;
+
+    auto collect = [&]( const std::shared_ptr<NETCLASS>& aNetclass )
+    {
+        if( !aNetclass )
+            return;
+
+        if( std::optional<int> value = aValue( *aNetclass ) )
+            byValue[*value].push_back( aNetclass->GetName() );
+    };
+
+    collect( aNetSettings.GetDefaultNetclass() );
+
+    for( const auto& [name, netclass] : aNetSettings.GetNetclasses() )
+        collect( netclass );
+
+    return byValue;
+}
+
+
+PANEL_SETUP_CONSTRAINT_RULES::PANEL_SETUP_CONSTRAINT_RULES( wxWindow* aParent, PCB_EDIT_FRAME* aFrame,
+                                                            DRC_RULE_DOCUMENT*        aDocument,
+                                                            const CONSTRAINT_SECTION& aSection ) :
+        wxPanel( aParent, wxID_ANY ),
+        m_frame( aFrame ),
+        m_settings( &aFrame->GetBoard()->GetDesignSettings() ),
+        m_document( aDocument ),
+        m_section( aSection ),
+        m_netclassLabel( nullptr ),
+        m_note( nullptr ),
+        m_list( nullptr )
+{
+    wxBoxSizer* mainSizer = new wxBoxSizer( wxVERTICAL );
+
+    m_scrolled = new wxScrolledWindow( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL );
+    m_scrolled->SetScrollRate( 0, 10 );
+    m_scrolled->SetSizer( new wxBoxSizer( wxVERTICAL ) );
+
+    // The note describes the rule list, so it belongs wherever there is one. Most pages carry
+    // rules without carrying a board default.
+    if( m_section.ruleType )
+    {
+        m_noteText = _( "The rules below are read from top to bottom and the last one that matches "
+                        "decides the value." );
+
+        m_note = new wxStaticText( m_scrolled, wxID_ANY, m_noteText );
+        m_note->SetFont( KIUI::GetInfoFont( this ).Italic() );
+        m_scrolled->GetSizer()->Add( m_note, 0, wxALL, 8 );
+    }
+
+    buildSection();
+
+    mainSizer->Add( m_scrolled, 1, wxEXPAND );
+    SetSizer( mainSizer );
+
+    m_scrolled->Bind( wxEVT_SIZE,
+                      [this]( wxSizeEvent& aEvent )
+                      {
+                          wrapLabels();
+                          aEvent.Skip();
+                      } );
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::buildSection()
+{
+    wxSizer*      box = m_scrolled->GetSizer();
+    wxWindow*     parent = m_scrolled;
+    wxStaticText* heading = new wxStaticText( parent, wxID_ANY, m_section.title );
+    wxBoxSizer*   settings = new wxBoxSizer( wxVERTICAL );
+
+    heading->SetFont( heading->GetFont().Bold() );
+    box->Add( heading, 0, wxLEFT | wxTOP | wxBOTTOM, 8 );
+    box->Add( settings, 0, wxEXPAND | wxLEFT, 8 );
+
+    if( !m_section.defaults.empty() )
+    {
+        wxFlexGridSizer* grid = new wxFlexGridSizer( 0, 2, 4, 8 );
+
+        for( const CONSTRAINT_DEFAULT_FIELD& field : m_section.defaults )
+        {
+            wxStaticText* label = new wxStaticText( parent, wxID_ANY, field.label );
+            wxStaticText* value = new wxStaticText( parent, wxID_ANY, wxEmptyString );
+
+            label->SetFont( KIUI::GetInfoFont( this ) );
+            value->SetFont( KIUI::GetInfoFont( this ) );
+
+            grid->Add( label, 0, wxALIGN_CENTER_VERTICAL );
+            grid->Add( value, 0, wxALIGN_CENTER_VERTICAL );
+
+            m_defaultLabels.push_back( value );
+
+            if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+                dialog->ExcludeFromSearchIndex( value );
+        }
+
+        // The Constraints page owns these defaults. They are shown here because a rule is read
+        // against them, but they are edited in one place only.
+        wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
+        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( parent, wxID_ANY, _( "Edit constraints" ), wxEmptyString );
+
+        link->SetFont( KIUI::GetInfoFont( this ) );
+        wxString owner = settingsPage();
+
+        link->Bind( wxEVT_HYPERLINK,
+                    [this, owner]( wxHyperlinkEvent& )
+                    {
+                        showPage( owner );
+                    } );
+
+        // The net class row below ellipsizes to keep the dialog narrow, which anchors its link to
+        // the right edge. This link sits there too so the two read as a pair.
+        row->Add( grid, 0, wxALIGN_CENTER_VERTICAL );
+        row->AddStretchSpacer();
+        row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
+        settings->Add( row, 0, wxEXPAND | wxALL, 5 );
+    }
+
+    if( m_section.netclassValue )
+    {
+        wxBoxSizer*      row = new wxBoxSizer( wxHORIZONTAL );
+        wxStaticText*    label = new wxStaticText( parent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                                   wxST_ELLIPSIZE_END );
+        wxHyperlinkCtrl* link = new wxHyperlinkCtrl( parent, wxID_ANY, _( "Edit net classes" ), wxEmptyString );
+
+        label->SetFont( KIUI::GetInfoFont( this ) );
+        link->SetFont( KIUI::GetInfoFont( this ) );
+        link->Bind( wxEVT_HYPERLINK,
+                    [this]( wxHyperlinkEvent& )
+                    {
+                        showPage( _( "Net Classes" ) );
+                    } );
+
+        label->SetMinSize( wxSize( 1, -1 ) );
+        row->Add( label, 1, wxALIGN_CENTER_VERTICAL );
+        row->Add( link, 0, wxALIGN_CENTER_VERTICAL | wxLEFT | wxRIGHT, 12 );
+        settings->Add( row, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
+
+        m_netclassLabel = label;
+
+        if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+            dialog->ExcludeFromSearchIndex( m_netclassLabel );
+    }
+
+    if( m_section.ruleType )
+    {
+        if( !m_section.defaults.empty() )
+            box->Add( new wxStaticLine( parent ), 0, wxEXPAND | wxLEFT | wxRIGHT, 5 );
+
+        CONSTRAINT_RULES_LIST* list =
+                new CONSTRAINT_RULES_LIST( parent, m_frame, m_document, *m_section.ruleType, m_section.title );
+        list->SetTitleWindow( heading );
+
+        if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+            dialog->ExcludeFromSearchIndex( heading );
+
+        if( !m_section.defaults.empty() )
+        {
+            std::vector<std::pair<wxString, wxStaticText*>> defaults;
+
+            for( size_t d = 0; d < m_section.defaults.size(); ++d )
+            {
+                // One default belongs to the section, so the section name reads best. Several are
+                // separate values and each has to carry its own name.
+                wxString name = m_section.title;
+
+                if( m_section.defaults.size() > 1 )
+                {
+                    name = m_section.defaults[d].label;
+
+                    if( name.EndsWith( wxS( ":" ) ) )
+                        name.RemoveLast();
+                }
+
+                defaults.emplace_back( name, m_defaultLabels[d] );
+            }
+
+            list->SetDefaults( std::move( defaults ) );
+        }
+
+        list->SetChangeCallback(
+                [this]()
+                {
+                    RefreshFromDocument();
+                } );
+        list->RefreshRules();
+        box->Add( list, 1, wxEXPAND | wxALL, 8 );
+        m_list = list;
+    }
+}
+
+
+static void formatNetclassText( const CONSTRAINT_SECTION& aSection, PCB_EDIT_FRAME* aFrame, wxString& aLabel,
+                                wxString& aTooltip )
+{
+    aLabel.clear();
+    aTooltip.clear();
+
+    const NET_SETTINGS& netSettings = *aFrame->Prj().GetProjectFile().NetSettings();
+
+    for( const auto& [value, names] : groupByValue( aSection.netclassValue, netSettings ) )
+    {
+        if( !aLabel.IsEmpty() )
+        {
+            aLabel << wxS( "    " );
+            aTooltip << wxS( "\n" );
+        }
+
+        const wxString valueText = aFrame->StringFromValue( value, true ) + wxS( ": " );
+        aLabel << valueText;
+        aTooltip << valueText;
+
+        const size_t shown = 5;
+
+        for( size_t n = 0; n < names.size(); ++n )
+        {
+            aTooltip << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
+
+            if( n < shown )
+                aLabel << ( n ? wxS( ", " ) : wxS( "" ) ) << names[n];
+        }
+
+        if( names.size() > shown )
+            aLabel << wxString::Format( _( " and %zu more" ), names.size() - shown );
+    }
+
+    if( aLabel.IsEmpty() )
+        aLabel = _( "Net classes: no class sets this value" );
+    else
+        aLabel = _( "Net classes:  " ) + aLabel;
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::getNetclassText( wxString& aLabel, wxString& aTooltip ) const
+{
+    formatNetclassText( m_section, m_frame, aLabel, aTooltip );
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::updateNetclassLabels()
+{
+    if( m_netclassLabel )
+    {
+        wxString tooltip;
+        getNetclassText( m_netclassText, tooltip );
+        m_netclassLabel->SetToolTip( tooltip );
+    }
+
+    wrapLabels();
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::showPage( const wxString& aTitle )
+{
+    if( PAGED_DIALOG* dialog = PAGED_DIALOG::GetDialog( this ) )
+        dialog->ShowPage( aTitle );
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::wrapLabels()
+{
+    int width = m_scrolled->GetClientSize().x - 180;
+
+    if( width < 200 )
+        return;
+
+    if( m_note )
+    {
+        m_note->SetLabel( m_noteText );
+        m_note->Wrap( GetClientSize().x - 32 );
+    }
+
+    if( m_netclassLabel )
+    {
+        m_netclassLabel->SetLabel( m_netclassText );
+        m_netclassLabel->Wrap( width );
+    }
+
+    m_scrolled->Layout();
+    m_scrolled->FitInside();
+    m_scrolled->Layout();
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::updateDefaultLabels()
+{
+    for( size_t i = 0; i < m_defaultLabels.size(); ++i )
+    {
+        int value = m_settings->*( m_section.defaults[i].member );
+
+        if( i < m_importedDefaults.size() && m_importedDefaults[i] )
+            value = *m_importedDefaults[i];
+
+        m_defaultLabels[i]->SetLabel( m_frame->StringFromValue( value, true ) );
+    }
+
+    // A note on an open rule quotes the default, so it is rebuilt when the defaults change.
+    if( m_list )
+        m_list->RefreshOverrideNote();
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::confirmPendingRule()
+{
+    if( !m_list || !m_list->HasPendingRule() )
+        return true;
+
+    KICAD_MESSAGE_DIALOG_BASE dlg( this,
+                                   _( "This rule is still in the form. Only the rules in the "
+                                      "list apply." ),
+                                   _( "Rule Not Added" ),
+                                   wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxICON_WARNING | wxCENTRE );
+
+    dlg.SetYesNoCancelLabels( _( "Add Rule" ), _( "Discard" ), _( "Cancel" ) );
+
+    int choice = dlg.ShowModal();
+
+    if( choice == wxID_YES )
+        return m_list->ApplyPendingRule();
+
+    if( choice == wxID_CANCEL )
+        return false;
+
+    m_list->DiscardPendingRule();
+
+    return true;
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::Validate()
+{
+    return confirmPendingRule();
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataFromWindow()
+{
+    return confirmPendingRule();
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::TransferDataToWindow()
+{
+    updateDefaultLabels();
+    RefreshFromDocument();
+    return true;
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::RefreshFromDocument()
+{
+    updateDefaultLabels();
+    updateNetclassLabels();
+
+    if( m_list )
+        m_list->RefreshRules();
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::AppendSearchTerms( const DRC_RULE_DOCUMENT& aDocument,
+                                                      std::vector<wxString>&   aTerms ) const
+{
+    AppendSearchTerms( m_section, m_frame, aDocument, aTerms );
+
+    for( wxStaticText* label : m_defaultLabels )
+        aTerms.push_back( label->GetLabelText() );
+
+    if( m_list )
+        aTerms.push_back( m_list->GetSearchActionLabel() );
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::AppendSearchTerms( const CONSTRAINT_SECTION& aSection, PCB_EDIT_FRAME* aFrame,
+                                                      const DRC_RULE_DOCUMENT& aDocument,
+                                                      std::vector<wxString>&   aTerms )
+{
+    if( aSection.netclassValue )
+    {
+        wxString label;
+        wxString tooltip;
+        formatNetclassText( aSection, aFrame, label, tooltip );
+        aTerms.push_back( label );
+        aTerms.push_back( tooltip );
+    }
+
+    if( !aSection.ruleType || aDocument.HasUnparsedText() )
+        return;
+
+    for( int index : aDocument.IndicesFor( *aSection.ruleType ) )
+    {
+        const DRC_RE_LOADED_PANEL_ENTRY& entry = aDocument.Entries()[index];
+        const wxString comment = entry.constraintData ? entry.constraintData->GetComment() : wxString();
+
+        for( const wxString& term : { entry.ruleName, entry.condition, entry.layerSource, comment } )
+        {
+            if( !term.IsEmpty() )
+                aTerms.push_back( term );
+        }
+    }
+}
+
+
+wxString PANEL_SETUP_CONSTRAINT_RULES::settingsPage() const
+{
+    return m_section.settingsPage.IsEmpty() ? _( "Constraints" ) : m_section.settingsPage;
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::ImportSettingsFrom( BOARD* aBoard, const wxString& aSettingsPage )
+{
+    if( settingsPage() != aSettingsPage )
+        return;
+
+    BOARD_DESIGN_SETTINGS& other = aBoard->GetDesignSettings();
+
+    m_importedDefaults.resize( m_section.defaults.size() );
+
+    for( size_t i = 0; i < m_section.defaults.size(); ++i )
+        m_importedDefaults[i] = other.*( m_section.defaults[i].member );
+
+    updateDefaultLabels();
+}
+
+
+void PANEL_SETUP_CONSTRAINT_RULES::ShowRule( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, int aIndex )
+{
+    if( m_list && m_section.ruleType == aType )
+        m_list->EditRule( aIndex );
+}
+
+
+std::optional<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::sectionForSetting( const wxString& aSetting )
+{
+    for( FAMILY family : { FAMILY::CLEARANCE, FAMILY::TRACKS_AND_VIAS, FAMILY::HOLES, FAMILY::SILKSCREEN,
+                           FAMILY::SOLDER_MASK, FAMILY::HIGH_SPEED, FAMILY::FOOTPRINTS } )
+    {
+        for( CONSTRAINT_SECTION& section : SectionsFor( family ) )
+        {
+            for( const CONSTRAINT_DEFAULT_FIELD& field : section.defaults )
+            {
+                if( field.settingName == aSetting )
+                    return std::move( section );
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
+
+std::map<int, std::vector<wxString>> PANEL_SETUP_CONSTRAINT_RULES::NetclassValuesFor( const wxString&     aSetting,
+                                                                                      const NET_SETTINGS& aNetSettings )
+{
+    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
+
+    if( !section || !section->netclassValue )
+        return {};
+
+    return groupByValue( section->netclassValue, aNetSettings );
+}
+
+
+bool PANEL_SETUP_CONSTRAINT_RULES::RulesCanOverride( const wxString& aSetting, DRC_RULE_EDITOR_CONSTRAINT_NAME* aType,
+                                                     wxString* aPage )
+{
+    std::optional<CONSTRAINT_SECTION> section = sectionForSetting( aSetting );
+
+    if( !section || !section->ruleType )
+        return false;
+
+    if( aType )
+        *aType = *section->ruleType;
+
+    if( aPage )
+        *aPage = section->title;
+
+    return true;
+}
+
+
+std::vector<CONSTRAINT_SECTION> PANEL_SETUP_CONSTRAINT_RULES::SectionsFor( FAMILY aFamily )
+{
+    using BDS = BOARD_DESIGN_SETTINGS;
+
+    auto clearance = []( const NETCLASS& aNetclass )
+    {
+        return aNetclass.GetClearanceOpt();
+    };
+    auto trackWidth = []( const NETCLASS& aNetclass )
+    {
+        return aNetclass.GetTrackWidthOpt();
+    };
+    auto viaDiameter = []( const NETCLASS& aNetclass )
+    {
+        return aNetclass.GetViaDiameterOpt();
+    };
+    auto viaDrill = []( const NETCLASS& aNetclass )
+    {
+        return aNetclass.GetViaDrillOpt();
+    };
+
+    switch( aFamily )
+    {
+    case FAMILY::CLEARANCE:
+        return { { _( "Minimum clearance" ),
+                   { { _( "Board default:" ), &BDS::m_MinClearance, wxS( "min_clearance" ) } },
+                   MINIMUM_CLEARANCE,
+                   clearance },
+                 { _( "Copper to hole clearance" ),
+                   { { _( "Board default:" ), &BDS::m_HoleClearance, wxS( "min_hole_clearance" ) } },
+                   COPPER_TO_HOLE_CLEARANCE,
+                   {} },
+                 { _( "Copper to edge clearance" ),
+                   { { _( "Board default:" ), &BDS::m_CopperEdgeClearance, wxS( "min_copper_edge_clearance" ) } },
+                   COPPER_TO_EDGE_CLEARANCE,
+                   {} },
+                 { _( "Physical clearance" ), {}, PHYSICAL_CLEARANCE, {} },
+                 { _( "Creepage distance" ), {}, CREEPAGE_DISTANCE, {} },
+                 { _( "Minimum thermal relief spoke count" ), {}, MINIMUM_THERMAL_RELIEF_SPOKE_COUNT, {} } };
+
+    case FAMILY::TRACKS_AND_VIAS:
+        return { { _( "Minimum track width" ),
+                   { { _( "Board default:" ), &BDS::m_TrackMinWidth, wxS( "min_track_width" ) } },
+                   ROUTING_WIDTH,
+                   trackWidth },
+                 { _( "Minimum connection width" ),
+                   { { _( "Board default:" ), &BDS::m_MinConn, wxS( "min_connection" ) } },
+                   MINIMUM_CONNECTION_WIDTH,
+                   {} },
+                 { _( "Minimum annular width" ),
+                   { { _( "Board default:" ), &BDS::m_ViasMinAnnularWidth, wxS( "min_via_annular_width" ) } },
+                   MINIMUM_ANNULAR_WIDTH,
+                   {} },
+                 { _( "Minimum via diameter" ),
+                   { { _( "Board default:" ), &BDS::m_ViasMinSize, wxS( "min_via_diameter" ) } },
+                   MINIMUM_VIA_DIAMETER,
+                   viaDiameter },
+                 { _( "Via style" ), {}, VIA_STYLE, {} },
+                 { _( "Maximum via count" ), {}, MAXIMUM_VIA_COUNT, {} } };
+
+    case FAMILY::HOLES:
+        return { { _( "Minimum drill size" ),
+                   { { _( "Board default:" ), &BDS::m_MinThroughDrill, wxS( "min_through_hole_diameter" ) } },
+                   MINIMUM_DRILL_SIZE,
+                   viaDrill },
+                 { _( "Hole size" ), {}, HOLE_SIZE, {} },
+                 { _( "Hole to hole clearance" ),
+                   { { _( "Board default:" ), &BDS::m_HoleToHoleMin, wxS( "min_hole_to_hole" ) } },
+                   HOLE_TO_HOLE_DISTANCE,
+                   {} },
+                 { _( "Microvia stack depth" ), {}, MICROVIA_STACK_DEPTH, {} },
+                 { _( "Hole aspect ratio" ), {}, HOLE_ASPECT_RATIO, {} } };
+
+    case FAMILY::SILKSCREEN:
+        return { { _( "Silk to silk clearance" ),
+                   { { _( "Board default:" ), &BDS::m_SilkClearance, wxS( "min_silk_clearance" ) } },
+                   SILK_TO_SILK_CLEARANCE,
+                   {} },
+                 { _( "Minimum text height and thickness" ),
+                   { { _( "Minimum text height:" ), &BDS::m_MinSilkTextHeight, wxS( "min_text_height" ) },
+                     { _( "Minimum text thickness:" ), &BDS::m_MinSilkTextThickness, wxS( "min_text_thickness" ) } },
+                   MINIMUM_TEXT_HEIGHT_AND_THICKNESS,
+                   {} },
+                 { _( "Silk to solder mask clearance" ), {}, SILK_TO_SOLDERMASK_CLEARANCE, {} } };
+
+    case FAMILY::HIGH_SPEED:
+        return { { _( "Matched length for differential pairs" ), {}, MATCHED_LENGTH_DIFF_PAIR, {} },
+                 { _( "Absolute length" ), {}, ABSOLUTE_LENGTH, {} },
+                 { _( "Differential pair routing" ), {}, ROUTING_DIFF_PAIR, {} } };
+
+    case FAMILY::SOLDER_MASK:
+        return { { _( "Solder mask expansion" ),
+                   { { _( "Board default:" ), &BDS::m_SolderMaskExpansion, wxS( "solder_mask_expansion" ) } },
+                   SOLDERMASK_EXPANSION,
+                   {},
+                   _( "Solder Mask/Paste" ) },
+                 { _( "Minimum solder mask sliver" ),
+                   { { _( "Board default:" ), &BDS::m_SolderMaskMinWidth, wxS( "solder_mask_min_width" ) } },
+                   MINIMUM_SOLDERMASK_SLIVER,
+                   {},
+                   _( "Solder Mask/Paste" ) },
+                 { _( "Solder paste expansion" ),
+                   { { _( "Board default:" ), &BDS::m_SolderPasteMargin, wxS( "solder_paste_margin" ) } },
+                   SOLDERPASTE_EXPANSION,
+                   {},
+                   _( "Solder Mask/Paste" ) } };
+
+    case FAMILY::FOOTPRINTS:
+        return { { _( "Permitted layers" ), {}, PERMITTED_LAYERS, {} },
+                 { _( "Allowed orientation" ), {}, ALLOWED_ORIENTATION, {} },
+                 { _( "Vias under SMD pads" ), {}, VIAS_UNDER_SMD, {} },
+                 { _( "Courtyard clearance" ), {}, COURTYARD_CLEARANCE, {} } };
+    }
+
+    return {};
+}

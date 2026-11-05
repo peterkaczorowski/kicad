@@ -21,6 +21,8 @@
 #ifndef PANEL_EESCHEMA_BOM_PRESETS_H
 #define PANEL_EESCHEMA_BOM_PRESETS_H
 
+#include <vector>
+
 #include <panel_bom_presets_base.h>
 #include <schematic_settings.h>
 

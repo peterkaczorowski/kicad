@@ -20,11 +20,15 @@
 
 #pragma once
 
+#include <memory>
 #include <widgets/paged_dialog.h>
+#include <dialogs/panel_setup_constraint_rules.h>
 #include "panel_setup_formatting.h"
 
 class PCB_EDIT_FRAME;
+class DRC_RULE_DOCUMENT;
 class PANEL_SETUP_CONSTRAINTS;
+class PANEL_SETUP_CONSTRAINT_RULES;
 class PANEL_SETUP_LAYERS;
 class PANEL_SETUP_DEFAULTS;
 class PANEL_SETUP_NETCLASSES;
@@ -48,10 +52,14 @@ public:
 protected:
     // event handlers
     void onPageChanged( wxBookCtrlEvent& aEvent ) override;
-    void onPageChanging( wxBookCtrlEvent& aEvent ) override;
     void onAuxiliaryAction( wxCommandEvent& aEvent ) override;
     void onCancelButton( wxCommandEvent& aEvent );
     void onCloseWindow( wxCloseEvent& aEvent );
+
+    void AppendSearchTerms( size_t aPage, std::vector<wxString>& aTerms ) const override;
+
+    void refreshRulePage( size_t aPage );
+    void forEachOpenRulePage( const std::function<void( PANEL_SETUP_CONSTRAINT_RULES* )>& aAction );
 
     bool TransferDataFromWindow() override;
 
@@ -72,9 +80,11 @@ private:
     size_t m_boardFinishPage;
     size_t m_defaultsPage;
     size_t m_formattingPage;
+    size_t m_textVarsPage;
     size_t m_maskAndPastePage;
     size_t m_drillChartPage;
     size_t m_constraintsPage;
+    size_t m_customRulesPage;
     size_t m_tracksAndViasPage;
     size_t m_viaStacksPage;
     size_t m_zonesPage;
@@ -82,9 +92,11 @@ private:
     size_t m_tuningPatternsPage;
     size_t m_netclassesPage;
     size_t m_componentClassesPage;
-    size_t m_customRulesPage;
     size_t m_severitiesPage;
     size_t m_embeddedFilesPage;
     size_t m_tuningProfilesPage;
     bool   m_initComplete;
+
+    std::unique_ptr<DRC_RULE_DOCUMENT> m_ruleDocument;
+    std::map<size_t, CONSTRAINT_SECTION> m_ruleSearchSections;
 };

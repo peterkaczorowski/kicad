@@ -20,6 +20,8 @@
 #ifndef PANEL_EESCHEMA_DEFUALT_FIELDS_H
 #define PANEL_EESCHEMA_DEFUALT_FIELDS_H
 
+#include <vector>
+
 #include <template_fieldnames.h>
 #include "panel_template_fieldnames_base.h"
 

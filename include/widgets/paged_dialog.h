@@ -24,9 +24,12 @@
 #include <dialog_shim.h>
 #include <widgets/wx_treebook.h>
 
+#include <set>
+
 
 class WX_INFOBAR;
 class WX_TREEBOOK;
+class wxSearchCtrl;
 
 class PAGED_DIALOG : public DIALOG_SHIM
 {
@@ -39,6 +42,14 @@ public:
     WX_TREEBOOK* GetTreebook() { return m_treebook; }
 
     void SetInitialPage( const wxString& aPage, const wxString& aParentPage = wxEmptyString );
+
+    /**
+     * Select the page with the given title.
+     *
+     * @return the page, resolved if it was created lazily, or nullptr where no page carries
+     *         that title.
+     */
+    wxWindow* ShowPage( const wxString& aTitle );
 
     void SetModified() { m_modified = true; }
 
@@ -54,6 +65,37 @@ public:
 
     static PAGED_DIALOG* GetDialog( wxWindow* aWindow );
 
+    /**
+     * Keep aWindow and its children out of the search index, for text that repeats what the
+     * tree already shows or that names something the page does not own.
+     */
+    void ExcludeFromSearchIndex( wxWindow* aWindow );
+
+    /**
+     * Keep the tab titles of aBook out of the search index, where those titles are data the
+     * user named rather than fixed wording. The controls on each tab are still indexed.
+     */
+    void ExcludeBookTitlesFromSearchIndex( wxBookCtrlBase* aBook );
+
+    /**
+     * Refresh cached labels for the page containing aWindow after its controls change.
+     *
+     * Call this whenever a label is renamed, a control is added or removed, or a control is
+     * shown for the first time. Without it the page keeps matching its old wording.
+     */
+    void InvalidateSearchIndex( wxWindow* aWindow );
+
+    /**
+     * Let the listed pages keep their labels for the next dialog of the same aKey, so that
+     * reopening does not build them again.
+     *
+     * aScope names the dialog and aIdentity the project its labels were read from. Opening
+     * a different aIdentity replaces what was kept, so the labels of a closed project are not
+     * held for the rest of the session. Call it once the tree is complete: the pages are
+     * resolved to tree paths here and the indices are not kept.
+     */
+    void ReuseSearchLabels( const wxString& aScope, const wxString& aIdentity, const std::set<size_t>& aPages );
+
 protected:
     void finishInitialization();
 
@@ -66,6 +108,20 @@ protected:
     virtual void onPageChanged( wxBookCtrlEvent& aEvent );
     virtual void onPageChanging( wxBookCtrlEvent& aEvent );
     virtual void onCharHook( wxKeyEvent& aEvent );
+    void         onTreeLeftDown( wxMouseEvent& aEvent );
+
+    void onSearchText( wxCommandEvent& aEvent );
+    void onSearchEnter( wxCommandEvent& aEvent );
+    void onSearchCharHook( wxKeyEvent& aEvent );
+
+    virtual void AppendSearchTerms( size_t aPage, std::vector<wxString>& aTerms ) const;
+
+    /**
+     * Read current control values and choices without committing edits.
+     * Set aIncludeValues to false when a page supplies its values from a separate edit buffer.
+     */
+    static void AppendControlSearchTerms( wxWindow* aWindow, std::vector<wxString>& aTerms,
+                                          bool aIncludeValues = true );
 
     WX_TREEBOOK* m_treebook;
     wxButton*    m_auxiliaryButton;
@@ -74,7 +130,44 @@ protected:
     WX_INFOBAR*  m_infoBar;
 
 private:
+    enum class SEARCH_ACTION
+    {
+        REFRESH,
+        SELECT_PAGE,
+        FOCUS_TREE
+    };
+
+    /// Tree path used to identify collapsed sections.
+    wxString pagePath( size_t aPage ) const;
+
+    void saveTreeExpansion() const;
+    void loadTreeExpansion();
+
+    /// Tree path of a page, lowercased, prefixed by its parent so "schematic colors" finds Colors
+    wxString              pageSearchTitle( size_t aPage ) const;
+    void                  onSearchIdle( wxIdleEvent& aEvent );
+    std::vector<wxString> buildPageSearchIndex( size_t aPage );
+    void                  refreshSearch();
+    void                  updateSearch( SEARCH_ACTION aAction );
+
+    /**
+     * Bold the pages matching the search box and grey out the rest.
+     * @return the page to show: the current page if it matches, else the first matching page with controls,
+     *         or wxNOT_FOUND when nothing matches.
+     */
+    int applySearch();
+
     wxString    m_title;
+
+    wxSearchCtrl*                      m_searchCtrl;
+    std::vector<std::vector<wxString>> m_searchIndex; ///< Lowercased page title and labels, per page
+    std::set<wxWindow*>                m_searchExcludedControls;
+    std::set<wxBookCtrlBase*>          m_searchExcludedBookTitles;
+    wxString                           m_searchReuseScope;
+    std::set<wxString>                 m_reusableSearchPaths;
+    std::vector<bool>                  m_searchLabelsPending; ///< Pages still waiting for their labels
+    bool                               m_indexingSearch = false;
+    SEARCH_ACTION                      m_pendingSearchAction = SEARCH_ACTION::REFRESH;
 
     wxBoxSizer* m_buttonsSizer;
 

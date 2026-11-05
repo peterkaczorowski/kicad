@@ -88,6 +88,20 @@ static bool isSymmetricMinOptMax( const DRC_CONSTRAINT* aConstraint )
 }
 
 
+// An absent bound reads back as the largest value of its type, so a panel that writes a bound
+// out cannot be given a range that names only the other end.
+static bool hasBothBounds( const DRC_CONSTRAINT* aConstraint )
+{
+    return !aConstraint || ( aConstraint->GetValue().HasMin() && aConstraint->GetValue().HasMax() );
+}
+
+
+static bool hasMaxBound( const DRC_CONSTRAINT* aConstraint )
+{
+    return !aConstraint || aConstraint->GetValue().HasMax();
+}
+
+
 // The DRC lexer treats a line whose first non-blank character is # as a comment
 static bool isOnCommentLine( const wxString& aContent, size_t aPos )
 {
@@ -214,6 +228,16 @@ static std::pair<size_t, size_t> findNextRule( const wxString& aContent, size_t 
 }
 
 
+// No layer clause means all layers, which an entry stores as an empty set.
+static LSET ruleLayers( const DRC_RULE& aRule )
+{
+    if( aRule.m_LayerCondition == LSET::AllLayersMask() )
+        return LSET();
+
+    return aRule.m_LayerCondition;
+}
+
+
 static std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA> makeCustomRuleData( const DRC_RULE& aRule )
 {
     auto customData = std::make_shared<DRC_RE_CUSTOM_RULE_CONSTRAINT_DATA>();
@@ -330,7 +354,9 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
         if( viaDia )
         {
             data->SetMinViaDiameter( toMM( viaDia->GetValue().Min() ) );
-            data->SetMaxViaDiameter( toMM( viaDia->GetValue().Max() ) );
+
+            if( viaDia->GetValue().HasMax() )
+                data->SetMaxViaDiameter( toMM( viaDia->GetValue().Max() ) );
 
             if( viaDia->GetValue().HasOpt() )
                 data->SetOptViaDiameter( toMM( viaDia->GetValue().Opt() ) );
@@ -339,7 +365,9 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
         if( holeSize )
         {
             data->SetMinViaHoleSize( toMM( holeSize->GetValue().Min() ) );
-            data->SetMaxViaHoleSize( toMM( holeSize->GetValue().Max() ) );
+
+            if( holeSize->GetValue().HasMax() )
+                data->SetMaxViaHoleSize( toMM( holeSize->GetValue().Max() ) );
 
             if( holeSize->GetValue().HasOpt() )
                 data->SetOptViaHoleSize( toMM( holeSize->GetValue().Opt() ) );
@@ -377,7 +405,7 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
         const DRC_CONSTRAINT* diffGap = findConstraint( aRule, DIFF_PAIR_GAP_CONSTRAINT );
         const DRC_CONSTRAINT* uncoupled = findConstraint( aRule, MAX_UNCOUPLED_CONSTRAINT );
 
-        if( !isSymmetricMinOptMax( trackWidth ) || !isSymmetricMinOptMax( diffGap ) )
+        if( !isSymmetricMinOptMax( trackWidth ) || !isSymmetricMinOptMax( diffGap ) || !hasMaxBound( uncoupled ) )
         {
             return makeCustomRuleData( aRule );
         }
@@ -457,7 +485,7 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
     {
         const DRC_CONSTRAINT* length = findConstraint( aRule, LENGTH_CONSTRAINT );
 
-        if( !isSymmetricMinOptMax( length ) )
+        if( !isSymmetricMinOptMax( length ) || !hasBothBounds( length ) )
             return makeCustomRuleData( aRule );
 
         auto data = std::make_shared<DRC_RE_ABSOLUTE_LENGTH_TWO_CONSTRAINT_DATA>();
@@ -490,8 +518,9 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
     case MATCHED_LENGTH_DIFF_PAIR:
     {
         const DRC_CONSTRAINT* length = findConstraint( aRule, LENGTH_CONSTRAINT );
+        const DRC_CONSTRAINT* skew = findConstraint( aRule, SKEW_CONSTRAINT );
 
-        if( !isSymmetricMinOptMax( length ) )
+        if( !isSymmetricMinOptMax( length ) || !hasBothBounds( length ) || !hasMaxBound( skew ) )
             return makeCustomRuleData( aRule );
 
         auto data = std::make_shared<DRC_RE_MATCHED_LENGTH_DIFF_PAIR_CONSTRAINT_DATA>();
@@ -507,8 +536,6 @@ DRC_RULE_LOADER::createConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME   aPanel,
             data->SetOptimumLength( optMM );
             data->SetTolerance( ( maxMM - minMM ) / 2.0 );
         }
-
-        const DRC_CONSTRAINT* skew = findConstraint( aRule, SKEW_CONSTRAINT );
 
         if( skew )
         {
@@ -811,7 +838,7 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadRule( const DRC_RULE
             constraintData->SetRuleCondition( condition );
 
         DRC_RE_LOADED_PANEL_ENTRY entry( match.panelType, constraintData, aRule.m_Name, condition, aRule.m_Severity,
-                                         aRule.m_LayerCondition );
+                                         ruleLayers( aRule ) );
 
         // Preserve original layer source text for round-trip fidelity
         wxString source = aRule.m_LayerSource;
@@ -843,8 +870,8 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadRule( const DRC_RULE
 
         customData->SetRuleText( ExtractRuleBody( aOriginalText ) );
 
-        DRC_RE_LOADED_PANEL_ENTRY entry( CUSTOM_RULE, customData, aRule.m_Name, condition,
-                                         aRule.m_Severity, aRule.m_LayerCondition );
+        DRC_RE_LOADED_PANEL_ENTRY entry( CUSTOM_RULE, customData, aRule.m_Name, condition, aRule.m_Severity,
+                                         ruleLayers( aRule ) );
         wxString                  source = aRule.m_LayerSource;
         if( source.StartsWith( wxS( "'" ) ) && source.EndsWith( wxS( "'" ) ) )
             source = source.Mid( 1, source.Length() - 2 );
@@ -860,7 +887,7 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadRule( const DRC_RULE
 }
 
 
-std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wxString& aRulesText )
+std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wxString& aRulesText, bool* aParsed )
 {
     std::vector<DRC_RE_LOADED_PANEL_ENTRY> allEntries;
     std::vector<std::shared_ptr<DRC_RULE>> parsedRules;
@@ -883,8 +910,14 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wx
     }
     catch( const IO_ERROR& )
     {
+        if( aParsed )
+            *aParsed = false;
+
         return allEntries;
     }
+
+    if( aParsed )
+        *aParsed = true;
 
     // The parser accepted the text, so its non-version expressions are the rules in parse order
     // and everything between them is kept verbatim for the saver
@@ -914,6 +947,7 @@ std::vector<DRC_RE_LOADED_PANEL_ENTRY> DRC_RULE_LOADER::LoadFromString( const wx
         for( auto& entry : ruleEntries )
         {
             entry.sourceRule = ruleIndex;
+            entry.ruleGroupId = ruleIndex + 1;
             allEntries.push_back( std::move( entry ) );
         }
 
