@@ -44,6 +44,12 @@ public:
 
     void ImportSettingsFrom( BOARD* aBoard );
 
+    /**
+     * Reads the values a rule page edits back into their fields. This page only shows those, so
+     * it has to be told when the page that edits one has written it.
+     */
+    void RefreshDefaults();
+
 private:
     bool TransferDataToWindow() override;
     bool TransferDataFromWindow() override;
@@ -55,9 +61,18 @@ private:
 
     struct CONSTRAINT_FIELD
     {
-        wxString            m_Setting;
-        wxWindow*           m_Ctrl;
-        FIELD_WARNING_ICON* m_Warning;
+        wxString     m_Setting;
+        wxWindow*    m_Ctrl;
+        UNIT_BINDER* m_Binder = nullptr;
+        int BOARD_DESIGN_SETTINGS::* m_Member = nullptr;
+        FIELD_WARNING_ICON*          m_Warning = nullptr;
+
+        /// The rule page that also holds this value, where one does
+        wxString m_AlsoOn = {};
+
+        /// The value as this page last read it, so an untouched field does not write back over
+        /// an edit made to the same value on the page that also holds it
+        int m_Loaded = 0;
     };
 
 public:
@@ -81,6 +96,12 @@ public:
 private:
     PCB_EDIT_FRAME*               m_Frame;
     BOARD_DESIGN_SETTINGS*        m_BrdSettings;
+
+    /// The rule page that also holds the spoke count, a spin control rather than a bound field
+    wxString                      m_spokeCountPage;
+
+    /// The spoke count as this page last read it
+    int                           m_spokeCountLoaded = 0;
     std::vector<CONSTRAINT_FIELD> m_fields;
     wxTimer                       m_validationTimer;
 };

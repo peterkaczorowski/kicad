@@ -48,6 +48,13 @@ public:
 
     static std::shared_ptr<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA> CreateNumericConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME aType );
 
+    /**
+     * Create the data object that holds a rule of the given constraint type, taking the
+     * identity fields from aBase.
+     */
+    static std::shared_ptr<DRC_RE_BASE_CONSTRAINT_DATA>
+    CreateConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME aType, const DRC_RE_BASE_CONSTRAINT_DATA& aBase );
+
     static std::shared_ptr<DRC_RE_NUMERIC_INPUT_CONSTRAINT_DATA>
                             CreateNumericConstraintData( DRC_RULE_EDITOR_CONSTRAINT_NAME aType,
                             const DRC_RE_BASE_CONSTRAINT_DATA& aBase );
@@ -87,15 +94,6 @@ public:
      * @return The textual representation suitable for a rules file.
      */
     static wxString ConstraintToKicadDrc( DRC_RULE_EDITOR_CONSTRAINT_NAME aType );
-
-    /**
-     * Populate a constraint data object using a keyword from a .kicad_drc file.
-     *
-     * @param aCode The keyword read from the rules file.
-     * @param aData The constraint data instance to update.
-     * @return True if a matching constraint type was found.
-     */
-    static bool ConstraintFromKicadDrc( const wxString& aCode, DRC_RE_BASE_CONSTRAINT_DATA* aData );
 
     /**
      * Validates a numeric input control, checking if the value is valid, non-empty, and greater than zero.
