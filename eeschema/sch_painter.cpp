@@ -1027,7 +1027,9 @@ void SCH_PAINTER::draw( const SCH_PIN* aPin, int aLayer, bool aDimmed )
             attrs.m_StrokeWidth = GetPenSizeForDemiBold( textSize );
             attrs.m_Color = m_schSettings.GetLayerColor( LAYER_OP_CURRENTS );
 
-            knockoutText( *m_gal, aPin->GetOperatingPoint(), mid, attrs, aPin->GetFontMetrics() );
+            boxText( *m_gal, aPin->GetOperatingPoint(), mid, attrs, aPin->GetFontMetrics() );
+            attrs.m_Color = m_schSettings.GetLayerColor( LAYER_SCHEMATIC_BACKGROUND );
+            strokeText( *m_gal, aPin->GetOperatingPoint(), mid, attrs, aPin->GetFontMetrics() );
         }
     }
 
@@ -1873,7 +1875,9 @@ void SCH_PAINTER::draw( const SCH_LINE* aLine, int aLayer )
         attrs.m_StrokeWidth = GetPenSizeForDemiBold( textSize );
         attrs.m_Color = m_schSettings.GetLayerColor( LAYER_OP_VOLTAGES );
 
-        knockoutText( *m_gal, aLine->GetOperatingPoint(), pos, attrs, aLine->GetFontMetrics() );
+        boxText( *m_gal, aLine->GetOperatingPoint(), pos, attrs, aLine->GetFontMetrics() );
+        attrs.m_Color = m_schSettings.GetLayerColor( LAYER_SCHEMATIC_BACKGROUND );
+        strokeText( *m_gal, aLine->GetOperatingPoint(), pos, attrs, aLine->GetFontMetrics() );
     }
 
     if( drawingOP )
