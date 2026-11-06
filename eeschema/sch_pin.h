@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <functional>
 #include <mutex>
 #include <memory>
 #include <set>
@@ -35,6 +36,7 @@
 class LIB_SYMBOL;
 class TRANSFORM;
 class SCH_SYMBOL;
+class SCH_PIN;
 class LIB_ID;
 class SCH_SHEET_PATH;
 class PIN_LAYOUT_CACHE;
@@ -48,13 +50,76 @@ class FONT;
 #define TARGET_PIN_RADIUS   schIUScale.MilsToIU( 15 )
 
 /**
- * Break a stacked pin number of the form "[A,B,C]" into one number per line when it is too wide
- * to sit alongside the pin.  Anything else, and anything that already fits, is returned as-is.
+ * Render a pin number the way \a aDisplay asks for it.
  *
- * Everything that draws, plots or measures a pin number goes through here.
+ * Only bracketed stacked notation has anything to abbreviate; any other number is returned
+ * unchanged.  A full block that will not fit along the pin is broken onto one line per pad.
+ * The modes that draw a stack icon return only the text ahead of it, and
+ * SummarizeStackedPinForDisplay() supplies the rest.
  */
 wxString FormatStackedPinForDisplay( const wxString& aPinNumber, int aPinLength, int aTextSize,
-                                     KIFONT::FONT* aFont, const KIFONT::METRICS& aFontMetrics );
+                                     KIFONT::FONT* aFont, const KIFONT::METRICS& aFontMetrics,
+                                     PIN_NUMBER_DISPLAY aDisplay );
+
+/**
+ * The text either side of the stack icon when a pin shows a collapsed stack.
+ *
+ * `FIRST_AND_COUNT` reads `2` + icon + `+9` for a ten pad stack, so the icon keeps the count
+ * from being mistaken for a second pad number.  `ICON_ONLY` leaves both empty.
+ */
+struct STACKED_PIN_SUMMARY
+{
+    wxString m_Head;
+    wxString m_Tail;
+};
+
+/**
+ * Split a stacked pin number into the pieces drawn around the stack icon.
+ *
+ * @return nothing when \a aDisplay has no inline icon, or when the number is not a valid stack of
+ *         more than one pad.  The caller then draws \a aPinNumber as FormatStackedPinForDisplay()
+ *         renders it.
+ */
+std::optional<STACKED_PIN_SUMMARY> SummarizeStackedPinForDisplay( const wxString&   aPinNumber,
+                                                                  PIN_NUMBER_DISPLAY aDisplay );
+
+/// Nominal size of the stack icon drawn for \a aPin.
+int StackedPinIconSize( const SCH_PIN& aPin );
+
+/// Width along the reading direction and height across it of an icon of nominal size \a aSize.
+VECTOR2I StackedPinIconExtents( int aSize );
+
+/**
+ * Emit the three bars of the stack icon as boxes centred on the origin.
+ *
+ * The painter and the plotter place the icon in different coordinate frames, so they share the
+ * shape rather than the position.  The bars run along X unless \a aVertical, following the
+ * reading direction of the text the icon sits in.
+ */
+void BuildStackedPinIconBars( int aSize, bool aVertical, const std::function<void( const BOX2I& )>& aEmit );
+
+/**
+ * Where the pieces of a collapsed stack sit on its line.
+ *
+ * Every offset is measured along the reading direction from the centre of the whole line.
+ */
+struct STACKED_PIN_SUMMARY_LAYOUT
+{
+    VECTOR2I m_Extents;    ///< Width along the reading direction, height across it
+    int      m_HeadStart;  ///< Where the head text begins
+    int      m_IconCentre; ///< Centre of the icon
+    int      m_TailStart;  ///< Where the tail text begins
+};
+
+/**
+ * Lay a collapsed stack out on one line.
+ *
+ * A text size of zero is how a symbol hides one pin's number, and the icon has to outlive that, so
+ * the text then contributes no width.
+ */
+STACKED_PIN_SUMMARY_LAYOUT LayoutStackedPinSummary( const STACKED_PIN_SUMMARY& aSummary, int aTextSize, int aIconSize,
+                                                    KIFONT::FONT* aFont, const KIFONT::METRICS& aFontMetrics );
+
 
 
 class SCH_PIN : public SCH_ITEM
@@ -145,6 +210,32 @@ public:
     const wxString&       GetShownNumber() const;
     std::vector<wxString> GetStackedPinNumbers( bool* aValid = nullptr ) const;
 
+    PIN_NUMBER_DISPLAY GetNumberDisplay() const;
+    void SetNumberDisplay( PIN_NUMBER_DISPLAY aDisplay );
+
+    /**
+     * Return true when the pin's number is bracketed stacked notation naming more than one pad.
+     */
+    bool IsStackedNotation() const;
+
+    /**
+     * Return true when the number is drawn as a collapsed stack with the stack icon in its line.
+     */
+    bool ShowsStackIconInline() const;
+
+    /**
+     * Whether the symbol author asked for the stack icon beside the pin name.
+     *
+     * An instance reads the flag from its library pin.
+     */
+    bool GetStackIconOnName() const;
+    void SetStackIconOnName( bool aShow );
+
+    /**
+     * Return true when the stack icon is drawn beside the name of this pin.
+     */
+    bool ShowsStackIconOnName() const;
+
     /**
      * Return the count of logical pins represented by this pin's stacked notation.
      *
@@ -158,15 +249,9 @@ public:
     int GetStackedPinCount( bool* aValid = nullptr ) const;
 
     /**
-     * Return the smallest logical pin number if this pin uses stacked
-     * notation and it is valid.  Otherwise returns std::nullopt.
-     */
-    std::optional<wxString> GetSmallestLogicalNumber() const;
-
-    /**
      * Return the pin number to be used for deterministic operations such as
-     * auto‑generated net names.  For stacked pins this is the smallest logical
-     * number; otherwise it is the shown number.
+     * auto-generated net names.  For stacked pins this is the first authored logical
+     * number, preserving existing net names; otherwise it is the shown number.
      */
     wxString GetSmallestStackedPadNumber() const;
 
@@ -478,6 +563,7 @@ private:
      *      - Visibility (true > false)
      *      - Number text size
      *      - Name text size
+     *      - Number display
      *      - Alternates, name, type shape
      */
     int compare( const SCH_ITEM& aOther, int aCompareFlags = 0 ) const override;
@@ -500,6 +586,8 @@ protected:
     std::optional<int>      m_numTextSize;     // Pin num and Pin name sizes
     std::optional<int>      m_nameTextSize;
     wxString                m_alt;             // The current alternate for an instance
+    PIN_NUMBER_DISPLAY      m_numberDisplay;   // How much of a stacked number block is drawn
+    bool                    m_stackIconOnName; // Draw the stack icon beside the pin name
 
     wxString                m_operatingPoint;
 
