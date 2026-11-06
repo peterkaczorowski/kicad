@@ -45,6 +45,9 @@ public:
     PCB_LAYER_ID GetCurrentLayer() const;
 
 private:
+    // Repaint the currently selected page's canvas
+    void refreshCurrentCanvas() const;
+
     PCB_BASE_FRAME* m_pcbFrame;
     bool            m_hasSavedZoom;
     double          m_savedScale;

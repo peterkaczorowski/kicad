@@ -48,16 +48,24 @@ enum LAYER_ICON_SIZE
 class ZONE_PREVIEW_NOTEBOOK_PAGE : public wxPanel
 {
 public:
-    ZONE_PREVIEW_NOTEBOOK_PAGE( wxWindow* aParent, BOARD* aBoard, ZONE* aZone, PCB_LAYER_ID aLayer,
-                                GAL_DISPLAY_OPTIONS_IMPL& aOpts, EDA_DRAW_PANEL_GAL::GAL_TYPE aGalType ) :
+    ZONE_PREVIEW_NOTEBOOK_PAGE( wxWindow* aParent, PCB_LAYER_ID aLayer ) :
             wxPanel( aParent ),
             m_layer( aLayer ),
             m_canvas( nullptr )
     {
         SetSizer( new wxBoxSizer( wxHORIZONTAL ) );
+    }
 
-        m_canvas = new ZONE_PREVIEW_CANVAS( aBoard, std::unique_ptr<ZONE>( aZone->Clone( aLayer ) ), aLayer, this,
-                                            aOpts, aGalType );
+    // Create the preview canvas.  Must run after AddPage()
+    void BuildCanvas( BOARD* aBoard, ZONE* aZone, GAL_DISPLAY_OPTIONS_IMPL& aOpts,
+                      EDA_DRAW_PANEL_GAL::GAL_TYPE aGalType )
+    {
+        wxCHECK( !m_canvas, /* void */ );
+
+        PCB_LAYER_ID layer = static_cast<PCB_LAYER_ID>( m_layer );
+
+        m_canvas = new ZONE_PREVIEW_CANVAS( aBoard, std::unique_ptr<ZONE>( aZone->Clone( layer ) ), layer, this, aOpts,
+                                            aGalType );
         GetSizer()->Add( m_canvas, 1, wxEXPAND );
         Layout();
         GetSizer()->Fit( this );
@@ -138,12 +146,11 @@ void ZONE_PREVIEW_NOTEBOOK::OnZoneSelectionChanged( ZONE* aZone )
     {
         BOARD*                      board = m_pcbFrame->GetBoard();
         wxString                    layerName = board->GetLayerName( layer );
-        ZONE_PREVIEW_NOTEBOOK_PAGE* page =
-                new ZONE_PREVIEW_NOTEBOOK_PAGE( this, board, aZone, layer,
-                                               m_pcbFrame->GetGalDisplayOptions(),
-                                               m_pcbFrame->GetCanvas()->GetBackend() );
+        ZONE_PREVIEW_NOTEBOOK_PAGE* page = new ZONE_PREVIEW_NOTEBOOK_PAGE( this, layer );
 
+        // The canvas may only be built once the page is parented for good; see BuildCanvas().
         AddPage( page, layerName, false, layer );
+        page->BuildCanvas( board, aZone, m_pcbFrame->GetGalDisplayOptions(), m_pcbFrame->GetCanvas()->GetBackend() );
         page->Layout();
 
         if( m_hasSavedZoom )
@@ -166,6 +173,12 @@ void ZONE_PREVIEW_NOTEBOOK::OnZoneSelectionChanged( ZONE* aZone )
 
     // Reinit canvas size parameters and display
     PostSizeEvent();
+
+    CallAfter(
+            [this]()
+            {
+                refreshCurrentCanvas();
+            } );
 }
 
 
@@ -175,6 +188,26 @@ void ZONE_PREVIEW_NOTEBOOK::OnPageChanged( wxNotebookEvent& aEvent )
 
     // Reinit canvas size parameters and display
     PostSizeEvent();
+
+    CallAfter(
+            [this]()
+            {
+                refreshCurrentCanvas();
+            } );
+}
+
+
+void ZONE_PREVIEW_NOTEBOOK::refreshCurrentCanvas() const
+{
+    int sel = GetSelection();
+
+    if( sel < 0 || sel >= (int) GetPageCount() )
+        return;
+
+    ZONE_PREVIEW_NOTEBOOK_PAGE* page = dynamic_cast<ZONE_PREVIEW_NOTEBOOK_PAGE*>( GetPage( sel ) );
+
+    if( page && page->GetCanvas() )
+        page->GetCanvas()->ForceRefresh();
 }
 
 
