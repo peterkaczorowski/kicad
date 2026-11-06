@@ -28,11 +28,12 @@
 #include "wx_html_report_box.h"
 
 
-WX_HTML_REPORT_BOX::WX_HTML_REPORT_BOX( wxWindow* parent, wxWindowID id, const wxPoint& pos,
-                                        const wxSize& size, long style ) :
+WX_HTML_REPORT_BOX::WX_HTML_REPORT_BOX( wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxSize& size,
+                                        long style ) :
         HTML_WINDOW( parent, id, pos, size, style ),
         m_units( EDA_UNITS::MM ),
-        m_immediateMode( false )
+        m_immediateMode( false ),
+        m_severityMask( ~0 )
 {
     Flush();
 
@@ -57,6 +58,9 @@ void WX_HTML_REPORT_BOX::onThemeChanged( wxSysColourChangedEvent &aEvent )
 
 REPORTER& WX_HTML_REPORT_BOX::Report( const wxString& aText, SEVERITY aSeverity )
 {
+    if( !( aSeverity & m_severityMask ) )
+        return *this;
+
     KI_ERROR msg;
     msg.SetTitle( aText ).SetSeverity( aSeverity );
     m_messages.push_back( std::move( msg ) );
@@ -76,6 +80,9 @@ REPORTER& WX_HTML_REPORT_BOX::Report( const wxString& aText, SEVERITY aSeverity 
 
 REPORTER& WX_HTML_REPORT_BOX::Report( const KI_ERROR& aError )
 {
+    if( !( aError.GetSeverity() & m_severityMask ) )
+        return *this;
+
     REPORTER::Report( aError );
     m_messages.push_back( aError );
 

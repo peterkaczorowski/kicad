@@ -114,7 +114,10 @@ public:
     static SCH_FILE_T GuessPluginTypeFromSchPath( const wxString& aSchematicPath, int aCtl = 0 );
 
     /**
-     * Convert a schematic symbol library to the latest KiCad format
+     * Convert a schematic symbol library to the latest KiCad format.
+     *
+     * @return true if at least one symbol was converted, false if the library could
+     *         not be converted at all
      */
     static bool ConvertLibrary( std::map<std::string, UTF8>* aOldFileProps, const wxString& aOldFilePath,
                                 const wxString& aNewFilepath, REPORTER* aReporter = nullptr );

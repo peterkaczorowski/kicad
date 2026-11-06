@@ -382,6 +382,11 @@ private:
      * @param aCompressedData
      * @param aIsNew is set when the model was embedded by this call and so still owes a
      *               CompressAndEncode(), which the caller may run inline or on the pool.
+     *
+     * Models are deduplicated by @p aCompressedData content: an identical model already
+     * embedded in @p aFootprint is reused, and one embedded in another footprint under the
+     * same name is shared rather than duplicated. A same-name model with different content
+     * is embedded under a suffixed name.
      */
     std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE>
     HelperEmbedModel( FOOTPRINT* aFootprint, const wxString& aModelName,
@@ -407,6 +412,8 @@ private:
     std::map<PCB_LAYER_ID, int>          m_padstackLayerIndex;
 
     std::map<wxString, ALTIUM_EMBEDDED_MODEL_DATA>  m_EmbeddedModels;
+
+    std::map<std::string, std::map<wxString, std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE>>> m_embeddedModelFiles;
     std::map<ALTIUM_RULE_KIND, std::vector<ARULE6>> m_rules;
     std::map<ALTIUM_RECORD, std::multimap<int, const AEXTENDED_PRIMITIVE_INFORMATION>>
             m_extendedPrimitiveInformationMaps;

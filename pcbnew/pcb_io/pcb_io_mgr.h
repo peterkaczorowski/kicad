@@ -249,7 +249,10 @@ public:
                       const std::map<std::string, UTF8>* aProperties = nullptr );
 
     /**
-     * Convert a schematic symbol library to the latest KiCad format
+     * Convert a footprint library to the latest KiCad format.
+     *
+     * @return true if at least one footprint was converted, false if the library could
+     *         not be converted at all
      */
     static bool ConvertLibrary( const std::map<std::string, UTF8>& aOldFileProps,
                                 const wxString& aOldFilePath,

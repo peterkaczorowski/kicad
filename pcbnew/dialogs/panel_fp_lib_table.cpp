@@ -25,6 +25,7 @@
 #include <wx/dirdlg.h>
 #include <wx/filedlg.h>
 #include <wx/msgdlg.h>
+#include <wx/checkbox.h>
 #include <functional>
 
 #include <project.h>
@@ -373,6 +374,23 @@ PANEL_FP_LIB_TABLE::PANEL_FP_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent, PRO
     m_browseButton->SetWidthPadding( 4 );
     m_browseButton->SetMinSize( buttonSize );
 
+    PCBNEW_SETTINGS* cfg = GetAppSettings<PCBNEW_SETTINGS>( "pcbnew" );
+
+    m_showImportIssues = new wxCheckBox( this, wxID_ANY, _( "Show import issues" ) );
+    m_showImportIssues->SetValue( cfg && cfg->m_System.show_import_issues );
+
+    if( wxSizer* btnSizer = m_resetGlobal->GetContainingSizer() )
+    {
+        for( size_t i = 0; i < btnSizer->GetChildren().size(); ++i )
+        {
+            if( btnSizer->GetItem( i )->GetWindow() == m_resetGlobal )
+            {
+                btnSizer->Insert( static_cast<int>( i ), m_showImportIssues, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5 );
+                break;
+            }
+        }
+    }
+
     // Populate the browse library options
     wxMenu* browseMenu = m_browseButton->GetSplitButtonMenu();
 
@@ -533,6 +551,10 @@ void PANEL_FP_LIB_TABLE::onMigrateLibraries( wxCommandEvent& event )
     wxString   msg;
     DIALOG_HTML_REPORTER errorReporter( this );
 
+    errorReporter.m_Reporter->SetSeverityMask( ~( RPT_SEVERITY_ACTION | RPT_SEVERITY_INFO | RPT_SEVERITY_DEBUG ) );
+    REPORTER* migrateReporter =
+            m_showImportIssues->GetValue() ? errorReporter.m_Reporter : &NULL_REPORTER::GetInstance();
+
     for( int row : selectedRows )
     {
         const wxString& type = cur_grid()->GetCellValue( row, COL_TYPE );
@@ -598,8 +620,7 @@ void PANEL_FP_LIB_TABLE::onMigrateLibraries( wxCommandEvent& event )
         wxString options = cur_grid()->GetCellValue( row, COL_OPTIONS );
         std::map<std::string, UTF8> props( LIBRARY_TABLE::ParseOptions( options.ToStdString() ) );
 
-        if( PCB_IO_MGR::ConvertLibrary( props, legacyLib.GetFullPath(), newLib.GetFullPath(),
-                                        errorReporter.m_Reporter ) )
+        if( PCB_IO_MGR::ConvertLibrary( props, legacyLib.GetFullPath(), newLib.GetFullPath(), migrateReporter ) )
         {
             relPath = NormalizePath( newLib.GetFullPath(), &Pgm().GetLocalEnvVariables(), m_project );
 
@@ -883,6 +904,9 @@ bool PANEL_FP_LIB_TABLE::TransferDataFromWindow()
 
     if( !verifyTables() )
         return false;
+
+    if( PCBNEW_SETTINGS* cfg = GetAppSettings<PCBNEW_SETTINGS>( "pcbnew" ) )
+        cfg->m_System.show_import_issues = m_showImportIssues->GetValue();
 
     bool                          success = true;
     LIBRARY_MANAGER&              manager = Pgm().GetLibraryManager();

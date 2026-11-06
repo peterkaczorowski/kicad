@@ -24,6 +24,7 @@
 #include <config.h>
 #include <board.h>
 #include <footprint.h>
+#include <ki_exception.h>
 #include <kiway_player.h>
 #include <wildcards_and_files_ext.h>
 #include <libraries/library_table.h>
@@ -241,10 +242,19 @@ void PCB_IO_MGR::Save( PCB_FILE_T aFileType, const wxString& aFileName, BOARD& a
 bool PCB_IO_MGR::ConvertLibrary( const std::map<std::string, UTF8>& aOldFileProps, const wxString& aOldFilePath,
                                  const wxString& aNewFilePath, REPORTER* aReporter )
 {
+    auto report = [&]( const wxString& aMessage, SEVERITY aSeverity )
+    {
+        if( aReporter )
+            aReporter->Report( aMessage, aSeverity );
+    };
+
     PCB_IO_MGR::PCB_FILE_T oldFileType = PCB_IO_MGR::GuessPluginTypeFromLibPath( aOldFilePath );
 
     if( oldFileType == PCB_IO_MGR::FILE_TYPE_NONE )
+    {
+        report( _( "Unrecognized library type" ), RPT_SEVERITY_ERROR );
         return false;
+    }
 
     // A nested library table has no plugin to enumerate it; reject it before dereferencing
     // the null plugin below.
@@ -256,6 +266,9 @@ bool PCB_IO_MGR::ConvertLibrary( const std::map<std::string, UTF8>& aOldFileProp
 
     if( !oldFilePI || !kicadPI )
         return false;
+
+    if( aReporter )
+        oldFilePI->SetReporter( aReporter );
 
     wxArrayString fpNames;
     wxFileName newFileName( aNewFilePath );
@@ -269,7 +282,15 @@ bool PCB_IO_MGR::ConvertLibrary( const std::map<std::string, UTF8>& aOldFileProp
     }
 
     if( !newFileName.DirExists() && !wxFileName::Mkdir( aNewFilePath, wxS_DIR_DEFAULT ) )
+    {
+        report( wxString::Format( _( "Library path '%s' could not be created.\n" ), newFileName.GetAbsolutePath() ),
+                RPT_SEVERITY_ERROR );
         return false;
+    }
+
+    report( wxString::Format( _( "Loading footprints..." ) ), RPT_SEVERITY_ACTION );
+
+    int convertedCount = 0;
 
     try
     {
@@ -279,45 +300,49 @@ bool PCB_IO_MGR::ConvertLibrary( const std::map<std::string, UTF8>& aOldFileProp
 
         for ( const wxString& fpName : fpNames )
         {
-            std::unique_ptr<const FOOTPRINT> fp( oldFilePI->GetEnumeratedFootprint( aOldFilePath, fpName,
-                                                                                    &aOldFileProps ) );
-
+            report( wxString::Format( _( "Loading footprint '%s'" ), fpName ), RPT_SEVERITY_ACTION );
             try
             {
+                std::unique_ptr<const FOOTPRINT> fp(
+                        oldFilePI->GetEnumeratedFootprint( aOldFilePath, fpName, &aOldFileProps ) );
+
+                if( !fp )
+                {
+                    report( wxString::Format( _( "Error loading footprint '%s'" ), fpName ), RPT_SEVERITY_WARNING );
+                    continue;
+                }
+
                 kicadPI->FootprintSave( aNewFilePath, fp.get(), &props );
+                convertedCount++;
+            }
+            catch( const IO_ERROR& io_err )
+            {
+                report( wxString::Format( _( "Error loading footprint '%s': %s" ), fpName, io_err.What() ),
+                        RPT_SEVERITY_WARNING );
             }
             catch( ... )
             {
-                // Footprints that cannot be saved are just skipped. This is not see
-                // as a fatal error.
+                // Footprints that cannot be saved are just skipped. This is not
+                // seen as a fatal error.
                 // this can be just a illegal filename used for the footprint
-                if( aReporter )
-                {
-                    aReporter->Report( wxString::Format( "Footprint \"%s\" can't be saved. Skipped",
-                                                         fpName ),
-                                       SEVERITY::RPT_SEVERITY_WARNING );
-                }
+                report( wxString::Format( _( "Error loading footprint '%s'" ), fpName ), RPT_SEVERITY_WARNING );
             }
         }
     }
-    catch( IO_ERROR& io_err )
+    catch( const IO_ERROR& io_err )
     {
-        if( aReporter )
-        {
-            aReporter->Report( wxString::Format( "Library '%s' Convert err: \"%s\"",
-                                                 aOldFilePath,
-                                                 io_err.What() ),
-                                SEVERITY::RPT_SEVERITY_ERROR );
-        }
-
+        report( wxString::Format( _( "Library '%s' Convert err: \"%s\"" ), aOldFilePath, io_err.What() ),
+                RPT_SEVERITY_ERROR );
         return false;
     }
     catch( ... )
     {
+        report( wxString::Format( _( "Library '%s' Convert err: \"%s\"" ), aOldFilePath, "unknown" ),
+                RPT_SEVERITY_ERROR );
         return false;
     }
 
-    return true;
+    return convertedCount > 0;
 }
 
 

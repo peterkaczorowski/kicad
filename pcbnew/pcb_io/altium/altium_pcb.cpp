@@ -48,6 +48,7 @@
 #include <router/pns_meander.h>
 #include <geometry/shape_circle.h>
 #include <geometry/shape_line_chain.h>
+#include <mmh3_hash.h>
 #include <core/profile.h>
 #include <string_utils.h>
 #include <tools/pad_tool.h>
@@ -207,55 +208,132 @@ FOOTPRINT* ALTIUM_PCB::HelperGetFootprint( uint16_t aComponent ) const
 }
 
 
+// Return "base_<index>.ext" or "base_<index>" when there is no extension
+static wxString suffixedModelName( const wxString& aName, int aIndex )
+{
+    if( aName.Contains( '.' ) )
+    {
+        wxString ext;
+        wxString base = aName.BeforeLast( '.', &ext );
+        return wxString::Format( wxT( "%s_%d.%s" ), base, aIndex, ext );
+    }
+
+    return wxString::Format( wxT( "%s_%d" ), aName, aIndex );
+}
+
+
 std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE>
 ALTIUM_PCB::HelperEmbedModel( FOOTPRINT* aFootprint, const wxString& aModelName,
                               const std::vector<char>& aCompressedData, bool& aIsNew )
 {
     EMBEDDED_FILES* embeddedFiles = aFootprint->GetEmbeddedFiles();
     const auto&     files = embeddedFiles->EmbeddedFileMap();
-    auto            it = files.find( aModelName );
 
-    aIsNew = it == files.end();
+    // Hash the compressed payload; available immediately cf. the
+    // asynchronous CompressAndEncode() EMBEDDED_FILE::data_hash
+    MMH3_HASH sourceHash( EMBEDDED_FILES::Seed() );
+    sourceHash.add( aCompressedData );
 
-    // Several bodies of one component routinely share a model, and inflating it per body would
-    // cost a full STEP decompression each time
-    if( !aIsNew )
-        return it->second;
+    // Files embedded for this payload so far, by the name each was embedded under
+    auto& known = m_embeddedModelFiles[sourceHash.digest().ToString()];
 
-    auto file = std::make_shared<EMBEDDED_FILES::EMBEDDED_FILE>();
-    file->name = aModelName;
-    file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL;
-
-    wxMemoryInputStream compressedStream( aCompressedData.data(), aCompressedData.size() );
-    wxZlibInputStream   zlibStream( compressedStream );
-
-    // Altium compresses STEP at roughly 5:1, so guess high and double rather than reallocate
-    // on every read
-    file->decompressedData.resize( aCompressedData.size() * 6 );
-    size_t offset = 0;
-
-    while( !zlibStream.Eof() )
+    auto isShared = [&]( const wxString& aName, const std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE>& aExisting )
     {
-        zlibStream.Read( file->decompressedData.data() + offset,
-                         file->decompressedData.size() - offset );
+        auto it = known.find( aName );
+        return it != known.end() && it->second == aExisting;
+    };
 
-        size_t bytesRead = zlibStream.LastRead();
+    wxString effectiveName = aModelName;
 
-        if( !bytesRead )
-            break;
+    if( auto it = files.find( aModelName ); it != files.end() )
+    {
+        if( isShared( aModelName, it->second ) )
+        {
+            aIsNew = false;
+            return it->second;
+        }
 
-        offset += bytesRead;
+        for( int i = 1;; i++ )
+        {
+            wxString candidate = suffixedModelName( aModelName, i );
+            auto     candidateIt = files.find( candidate );
 
-        if( offset >= file->decompressedData.size() )
-            file->decompressedData.resize( 2 * file->decompressedData.size() );
+            if( candidateIt == files.end() )
+            {
+                effectiveName = candidate;
+                break;
+            }
+
+            if( isShared( candidate, candidateIt->second ) )
+            {
+                aIsNew = false;
+                return candidateIt->second;
+            }
+        }
     }
 
-    file->decompressedData.resize( offset );
+    std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE> file;
+    auto                                           knownIt = known.find( effectiveName );
 
-    // The guess above overshoots by up to 6x and resize() keeps the capacity, which the board
-    // would then hold for as long as it is open
-    file->decompressedData.shrink_to_fit();
+    if( knownIt != known.end() )
+    {
+        // Already embedded under this name, by this or by another footprint
+        file = knownIt->second;
+        aIsNew = false;
+    }
+    else if( !known.empty() )
+    {
+        // Same payload under another name, so the inflated data is there for the taking
+        file = std::make_shared<EMBEDDED_FILES::EMBEDDED_FILE>();
+        file->name = effectiveName;
+        file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL;
+        file->decompressedData = known.begin()->second->decompressedData;
 
+        aIsNew = true;
+    }
+    else
+    {
+        file = std::make_shared<EMBEDDED_FILES::EMBEDDED_FILE>();
+        file->name = effectiveName;
+        file->type = EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL;
+
+        wxMemoryInputStream compressedStream( aCompressedData.data(), aCompressedData.size() );
+        wxZlibInputStream   zlibStream( compressedStream );
+
+        // Altium compresses STEP at roughly 5:1, so guess high and double rather than reallocate
+        // on every read
+        file->decompressedData.resize( aCompressedData.size() * 6 );
+        size_t offset = 0;
+
+        while( !zlibStream.Eof() )
+        {
+            zlibStream.Read( file->decompressedData.data() + offset, file->decompressedData.size() - offset );
+
+            size_t bytesRead = zlibStream.LastRead();
+
+            if( !bytesRead )
+                break;
+
+            offset += bytesRead;
+
+            if( offset >= file->decompressedData.size() )
+                file->decompressedData.resize( 2 * file->decompressedData.size() );
+        }
+
+        file->decompressedData.resize( offset );
+
+        // The guess above overshoots by up to 6x and resize() keeps the capacity, which the board
+        // would then hold for as long as it is open
+        file->decompressedData.shrink_to_fit();
+
+        aIsNew = true;
+    }
+
+    if( aIsNew )
+        known[effectiveName] = file;
+
+    // effectiveName is unused in this collection by construction, so AddFile() stores the file
+    // instead of dropping it as a duplicate
     embeddedFiles->AddFile( file );
 
     return file;
@@ -319,6 +397,12 @@ void HelperShapeLineChainFromAltiumVertices( SHAPE_LINE_CHAIN& aLine,
     }
 
     aLine.SetClosed( true );
+}
+
+
+static wxString buildFootprintName( FOOTPRINT* aFootprint )
+{
+    return wxString::Format( wxT( "%s (%s)" ), aFootprint->GetReference(), aFootprint->GetFPIDAsString() );
 }
 
 
@@ -2701,8 +2785,8 @@ void ALTIUM_PCB::ConvertComponentBody6ToFootprintItem( const ALTIUM_PCB_COMPOUND
     {
         if( m_reporter )
         {
-            m_reporter->Report( wxString::Format( wxT( "Model %s not found for footprint %s" ),
-                                                  aElem.modelId, aFootprint->GetReference() ),
+            m_reporter->Report( wxString::Format( wxT( "Model %s not found for footprint %s" ), aElem.modelId,
+                                                  buildFootprintName( aFootprint ) ),
                                 RPT_SEVERITY_ERROR );
         }
 
@@ -3376,19 +3460,7 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_PCB_COMPOUND_FILE&     aAltiumPcb
             if( modelTuple == m_EmbeddedModels.end() )
                 continue;
 
-            wxString modelName = modelTuple->second.m_modelname;
-
-            if( modelName.Contains( "." ) )
-            {
-                wxString ext;
-                wxString baseName = modelName.BeforeLast( '.', &ext );
-
-                modelTuple->second.m_modelname = baseName + '_' + std::to_string( i ) + '.' + ext;
-            }
-            else
-            {
-                modelTuple->second.m_modelname = modelName + '_' + std::to_string( i );
-            }
+            modelTuple->second.m_modelname = suffixedModelName( modelTuple->second.m_modelname, static_cast<int>( i ) );
         }
     }
 
@@ -4011,7 +4083,7 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToBoardItem( const AREGION6& aElem, co
                 wxString msg;
                 msg.Printf( _( "Dashed outline found on an Altium layer (%d) with no KiCad equivalent. "
                                "It has been moved to KiCad layer Eco1_User." ), aElem.layer );
-                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                m_reporter->Report( msg, RPT_SEVERITY_INFO );
             }
 
             klayer = Eco1_User;
@@ -4052,7 +4124,7 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToBoardItem( const AREGION6& aElem, co
         {
             wxString msg;
             msg.Printf( _( "Ignored polygon shape of kind %d (not yet supported)." ), aElem.kind );
-            m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            m_reporter->Report( msg, RPT_SEVERITY_WARNING );
         }
     }
 }
@@ -4132,7 +4204,7 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItem( FOOTPRINT*      aFoot
                               m_library,
                               m_footprintName,
                               aElem.layer );
-                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                    m_reporter->Report( msg, RPT_SEVERITY_INFO );
                 }
             }
             else
@@ -4141,10 +4213,9 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItem( FOOTPRINT*      aFoot
                 {
                     wxString msg;
                     msg.Printf( _( "Footprint %s contains a dashed outline on Altium layer (%d) with "
-                                 "no KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
-                              aFootprint->GetReference(),
-                              aElem.layer );
-                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                                   "no KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
+                                buildFootprintName( aFootprint ), aElem.layer );
+                    m_reporter->Report( msg, RPT_SEVERITY_INFO );
                 }
             }
 
@@ -4197,9 +4268,8 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItem( FOOTPRINT*      aFoot
             {
                 wxString msg;
                 msg.Printf( _( "Footprint %s contains polygon shape of kind %d (not yet supported)." ),
-                        aFootprint->GetReference(),
-                        aElem.kind );
-                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                            buildFootprintName( aFootprint ), aElem.kind );
+                m_reporter->Report( msg, RPT_SEVERITY_WARNING );
             }
         }
     }
@@ -4935,9 +5005,8 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
                 {
                     wxString msg;
                     msg.Printf( _( "Footprint %s pad %s is not marked as multilayer, but is a TH pad." ),
-                            aFootprint->GetReference(),
-                            aElem.name );
-                    m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                                buildFootprintName( aFootprint ), aElem.name );
+                    m_reporter->Report( msg, RPT_SEVERITY_INFO );
                 }
             }
         }
@@ -4977,8 +5046,7 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
                     {
                         wxString msg;
                         msg.Printf( _( "Footprint %s pad %s has a square hole (not yet supported)." ),
-                                  aFootprint->GetReference(),
-                                  aElem.name );
+                                    buildFootprintName( aFootprint ), aElem.name );
                         m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
                     }
                 }
@@ -5022,10 +5090,9 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
                         {
                             wxString msg;
                             msg.Printf( _( "Footprint %s pad %s has a hole-rotation of %d degrees. "
-                                         "KiCad only supports 90 degree rotations." ),
-                                      aFootprint->GetReference(),
-                                      aElem.name,
-                                      KiROUND( slotRotation.AsDegrees() ) );
+                                           "KiCad only supports 90 degree rotations." ),
+                                        buildFootprintName( aFootprint ), aElem.name,
+                                        KiROUND( slotRotation.AsDegrees() ) );
                             m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
                         }
                     }
@@ -5056,9 +5123,7 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
                     {
                         wxString msg;
                         msg.Printf( _( "Footprint %s pad %s uses a hole of unknown kind %d." ),
-                                aFootprint->GetReference(),
-                                aElem.name,
-                                aElem.sizeAndShape->holeshape );
+                                    buildFootprintName( aFootprint ), aElem.name, aElem.sizeAndShape->holeshape );
                         m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
                     }
                 }
@@ -5136,8 +5201,7 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, con
                         {
                             wxString msg;
                             msg.Printf( _( "Footprint %s pad %s uses an unknown pad shape." ),
-                                        aFootprint->GetReference(),
-                                        aElem.name );
+                                        buildFootprintName( aFootprint ), aElem.name );
                             m_reporter->Report( msg, RPT_SEVERITY_DEBUG );
                         }
                     }
@@ -5293,10 +5357,8 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItemOnNonCopper( FOOTPRINT* aFootprint, 
             {
                 wxString msg;
                 msg.Printf( _( "Footprint %s non-copper pad %s found on an Altium layer (%d) with no "
-                             "KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
-                          aFootprint->GetReference(),
-                          aElem.name,
-                          aElem.layer );
+                               "KiCad equivalent. It has been moved to KiCad layer Eco1_User." ),
+                            buildFootprintName( aFootprint ), aElem.name, aElem.layer );
                 m_reporter->Report( msg, RPT_SEVERITY_INFO );
             }
         }

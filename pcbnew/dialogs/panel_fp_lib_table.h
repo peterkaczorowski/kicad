@@ -27,6 +27,7 @@ class LIBRARY_TABLE;
 class FP_LIB_TABLE;
 class FP_LIB_TABLE_GRID_DATA_MODEL;
 class PROJECT;
+class wxCheckBox;
 
 
 /**
@@ -87,6 +88,7 @@ private:
     DIALOG_EDIT_LIBRARY_TABLES* m_parent;
     bool                        m_suppressNotebookPageEvents;
     wxArrayString               m_pluginChoices;
+    wxCheckBox*                 m_showImportIssues;
 
     wxString                    m_lastProjectLibDir;   //< Transient (unsaved) last browsed folder when adding a
                                                        // project level library.

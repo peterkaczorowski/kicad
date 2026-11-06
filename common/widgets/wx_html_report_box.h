@@ -61,6 +61,15 @@ public:
     void Flush();
 
     /**
+     * Set a bitmask of severities that will be kept by the report box.
+     *
+     * Messages with a severity not present in the mask are dropped.  The default mask keeps
+     * all severities.
+     */
+    void SetSeverityMask( int aMask ) { m_severityMask = aMask; }
+    int  GetSeverityMask() const { return m_severityMask; }
+
+    /**
      * Delete the stored messages
      */
     void Clear() override;
@@ -77,6 +86,9 @@ private:
     /// Indicates messages should be flushed as they are added.  Required for progress-related
     /// reports, but can be very slow for larger reports.
     bool                  m_immediateMode;
+
+    /// Bitmask of severities to keep
+    int m_severityMask;
 
     /// copy of the report, stored for filtering.
     std::vector<KI_ERROR> m_messages;

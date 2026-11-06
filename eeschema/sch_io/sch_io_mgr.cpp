@@ -342,7 +342,7 @@ bool SCH_IO_MGR::ConvertLibrary( std::map<std::string, UTF8>* aOldFileProps, con
         return false;
     }
 
-    bool ok = true;
+    int convertedCount = 0;
 
     for( std::unique_ptr<LIB_SYMBOL>& symbol : newSymbols )
     {
@@ -351,26 +351,23 @@ bool SCH_IO_MGR::ConvertLibrary( std::map<std::string, UTF8>* aOldFileProps, con
         try
         {
             kicadPI->SaveSymbol( aNewFilepath, std::move( symbol ) );
+            convertedCount++;
         }
         catch( const IO_ERROR& io_err )
         {
             report( wxString::Format( _( "Error saving symbol '%s': %s" ), symbolName, io_err.What() ),
                     RPT_SEVERITY_ERROR );
-            ok = false;
         }
         catch( const std::exception& e )
         {
-            report( wxString::Format( _( "Error saving symbol '%s': %s" ), symbolName, e.what() ),
-                    RPT_SEVERITY_ERROR );
-            ok = false;
+            report( wxString::Format( _( "Error saving symbol '%s': %s" ), symbolName, e.what() ), RPT_SEVERITY_ERROR );
         }
         catch( ... )
         {
             report( wxString::Format( _( "Error saving symbol '%s': unknown error" ), symbolName ),
                     RPT_SEVERITY_ERROR );
-            ok = false;
         }
     }
 
-    return ok;
+    return convertedCount > 0;
 }
