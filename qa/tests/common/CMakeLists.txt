@@ -109,6 +109,7 @@ set( QA_COMMON_SRCS
     test_scoped_temp_path.cpp
     test_wx_data_view_hyperlink_renderer.cpp
     test_grid_helper.cpp
+    test_grid_tricks.cpp
     test_priority_thread_pool_task.cpp
     test_snapping_options.cpp
     test_string_any_map.cpp

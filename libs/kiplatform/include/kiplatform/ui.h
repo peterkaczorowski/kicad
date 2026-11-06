@@ -26,6 +26,7 @@
 class wxChoice;
 class wxDataViewCtrl;
 class wxDialog;
+class wxKeyEvent;
 class wxNonOwnedWindow;
 class wxTopLevelWindow;
 class wxWindow;
@@ -170,6 +171,10 @@ namespace KIPLATFORM
          * On GTK, this requires an active X11 display.
          */
         bool SupportsKeyState();
+
+        wxKeyEvent GetNativePopupDismissalEvent();
+
+        bool PrepareChoicePopup( wxWindow* aControl );
 
         /**
          * Returns the mouse position in screen coordinates.
