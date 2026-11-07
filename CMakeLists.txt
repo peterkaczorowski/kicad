@@ -985,11 +985,26 @@ print(\"%s\"%sysconfig.get_path('platlib', vars={'platbase': '.'}, scheme=scheme
     endif()
 endif()
 
+# Keep the embedded framework layout in sync with the interpreter used to
+# build the Python module.  A stale PYTHON_DEST cache entry can otherwise
+# leave the bundle with paths for a different Homebrew Python version.
+execute_process( COMMAND "${PYTHON_EXECUTABLE}" -c
+    "import sys; print('%d;%d' % (sys.version_info[0], sys.version_info[1]))"
+    OUTPUT_VARIABLE _KICAD_PYTHON_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE )
+list( GET _KICAD_PYTHON_VERSION 0 PYTHON_VERSION_MAJOR )
+list( GET _KICAD_PYTHON_VERSION 1 PYTHON_VERSION_MINOR )
+execute_process( COMMAND "${PYTHON_EXECUTABLE}" -c
+    "import sysconfig; print(sysconfig.get_path('platlib'))"
+    OUTPUT_VARIABLE KICAD_PYTHON_HOST_SITE_PACKAGES_PATH OUTPUT_STRIP_TRAILING_WHITESPACE )
+
+set( KICAD_WXPYTHON_SOURCE_DIR "" CACHE PATH
+    "wxPython source tree built against the wxWidgets used by KiCad" )
+
 if( APPLE )
     set( OSX_BUNDLE_PYTHON_SITE_PACKAGES_DIR ${OSX_BUNDLE_LIB_DIR}/Python.framework/Versions/${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/lib/python${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/site-packages)
     set( OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR "${OSX_BUNDLE_INSTALL_DIR}/${OSX_BUNDLE_PYTHON_SITE_PACKAGES_DIR}")
     set( PYTHON_DEST "${OSX_BUNDLE_BUILD_DIR}/${OSX_BUNDLE_PYTHON_SITE_PACKAGES_DIR}"
-        CACHE PATH "Python module install path."
+        CACHE PATH "Python module install path." FORCE
         )
 
     add_compile_definitions( OSX_BUNDLE_PYTHON_SITE_PACKAGES_DIR="${OSX_BUNDLE_PYTHON_SITE_PACKAGES_DIR}" )

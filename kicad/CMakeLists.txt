@@ -240,7 +240,17 @@ if( APPLE )
     install( CODE "
         set( KICAD_CMAKE_MODULE_PATH \"${KICAD_CMAKE_MODULE_PATH}\" )
         set( OSX_BUNDLE_INSTALL_BIN_DIR \"${OSX_BUNDLE_INSTALL_BIN_DIR}\" )
+        set( OSX_BUNDLE_INSTALL_DIR \"${OSX_BUNDLE_INSTALL_DIR}\" )
         set( OSX_BUNDLE_INSTALL_LIB_DIR \"${OSX_BUNDLE_INSTALL_LIB_DIR}\" )
+        set( OSX_BUNDLE_BUILD_PLUGIN_DIR \"${OSX_BUNDLE_BUILD_PLUGIN_DIR}\" )
+        set( OSX_BUNDLE_INSTALL_PLUGIN_DIR \"${OSX_BUNDLE_INSTALL_PLUGIN_DIR}\" )
+        set( OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR \"${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}\" )
+        set( PCBNEW_PYTHON_MODULE \"${CMAKE_BINARY_DIR}/pcbnew/_pcbnew.so\" )
+        set( PYTHON_DEST \"${PYTHON_DEST}\" )
+        set( PYTHON_SITE_PACKAGE_PATH \"${PYTHON_SITE_PACKAGE_PATH}\" )
+        set( KICAD_PYTHON_HOST_SITE_PACKAGES_PATH \"${KICAD_PYTHON_HOST_SITE_PACKAGES_PATH}\" )
+        set( KICAD_WXPYTHON_SOURCE_DIR \"${KICAD_WXPYTHON_SOURCE_DIR}\" )
+        set( KICAD_BIN \"${KICAD_BIN}\" )
         set( PYTHON_FRAMEWORK \"${PYTHON_FRAMEWORK}\" )
     " )
 
@@ -248,7 +258,9 @@ if( APPLE )
         include( ${KICAD_CMAKE_MODULE_PATH}/InstallSteps/InstallMacOS.cmake )
 
         # Install the main bundle
-        install_runtime_deps( "${OSX_BUNDLE_INSTALL_BIN_DIR}/kicad"
+        # The GUI executable is first installed into its own bundle. The main
+        # KiCad.app bundle is assembled from it later in this install script.
+        install_runtime_deps( "${KICAD_BIN}/kicad.app/Contents/MacOS/kicad"
             ""
             ""
             )
@@ -256,6 +268,26 @@ if( APPLE )
         # Now install Python framework properly (GET_RUNTIME_DEPENDENCIES can't do this)
         execute_process( COMMAND rm ${OSX_BUNDLE_INSTALL_LIB_DIR}/Python )
         execute_process( COMMAND cp -RP ${PYTHON_FRAMEWORK} ${OSX_BUNDLE_INSTALL_LIB_DIR}/ )
+
+        # Include the KiCad Python extension and wxPython with the embedded
+        # Python framework so scripting works outside the build environment.
+        file( REMOVE_RECURSE "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
+        file( MAKE_DIRECTORY "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
+        file( COPY "${PYTHON_DEST}/" DESTINATION "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
+        file( COPY "${PCBNEW_PYTHON_MODULE}" DESTINATION "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
+        if( KICAD_WXPYTHON_SOURCE_DIR AND EXISTS "${KICAD_WXPYTHON_SOURCE_DIR}/wx" )
+            # Use wxPython built against the same KiCad wxWidgets library. A
+            # pip wheel bundles a second wxWidgets runtime, which conflicts
+            # with the one already loaded by the KiCad editor process.
+            file( COPY "${KICAD_WXPYTHON_SOURCE_DIR}/wx"
+                DESTINATION "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
+        else()
+            file( COPY "${KICAD_PYTHON_HOST_SITE_PACKAGES_PATH}/wx"
+                DESTINATION "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
+        endif()
+
+        file( COPY "${KICAD_PYTHON_HOST_SITE_PACKAGES_PATH}/wxwidgets"
+            DESTINATION "${OSX_BUNDLE_INSTALL_PYTHON_SITE_PACKAGES_DIR}" )
     ]] )
 
     # move all individual app bundles into main bundle
@@ -282,6 +314,25 @@ if( APPLE )
         move_to_main_bundle( \"pcb_calculator.app\" \"PCB Calculator.app\" )
         move_to_main_bundle( \"pcbnew.app\" \"PCB Editor.app\" )
         move_to_main_bundle( \"pl_editor.app\" \"Page Layout Editor.app\" )
+
+        # The GUI target is installed as kicad.app, then folded into the
+        # combined KiCad.app bundle alongside its command-line tools.
+        file( INSTALL DESTINATION \"${OSX_BUNDLE_INSTALL_DIR}/Contents\" TYPE FILE
+            FILES \"${KICAD_BIN}/kicad.app/Contents/Info.plist\" )
+        file( INSTALL DESTINATION \"${OSX_BUNDLE_INSTALL_DIR}/Contents/Resources\" TYPE FILE
+            FILES \"${KICAD_BIN}/kicad.app/Contents/Resources/kicad.icns\"
+                  \"${KICAD_BIN}/kicad.app/Contents/Resources/kicad_doc.icns\" )
+        file( INSTALL DESTINATION \"${OSX_BUNDLE_INSTALL_BIN_DIR}\" TYPE EXECUTABLE
+            FILES \"${KICAD_BIN}/kicad.app/Contents/MacOS/kicad\"
+                  \"${OSX_BUNDLE_BUILD_BIN_DIR}/kicad-cli\"
+                  \"${OSX_BUNDLE_BUILD_BIN_DIR}/dxf2idf\"
+                  \"${OSX_BUNDLE_BUILD_BIN_DIR}/idf2vrml\"
+                  \"${OSX_BUNDLE_BUILD_BIN_DIR}/idfcyl\"
+                  \"${OSX_BUNDLE_BUILD_BIN_DIR}/idfrect\" )
+        file( MAKE_DIRECTORY \"${OSX_BUNDLE_INSTALL_PLUGIN_DIR}\" )
+        file( GLOB _KICAD_KIFACE_FILES \"${OSX_BUNDLE_BUILD_PLUGIN_DIR}/*.kiface\" )
+        file( COPY \${_KICAD_KIFACE_FILES} DESTINATION \"${OSX_BUNDLE_INSTALL_PLUGIN_DIR}\" )
+        file( REMOVE_RECURSE \"${KICAD_BIN}/kicad.app\" )
 
         cmake_policy( SET CMP0012 NEW )
         if ( ${PYTHON_FRAMEWORK_HELPER} AND ${KICAD_APPLE_MAKE_RELOCATEABLE_BUNDLE} )
