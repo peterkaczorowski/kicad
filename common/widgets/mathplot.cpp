@@ -1307,6 +1307,10 @@ mpScaleY::mpScaleY( const wxString& name, int flags, bool ticks )
 
 void mpScaleY::Plot( wxDC& dc, mpWindow& w )
 {
+    // An axis that was never ranged has m_minV == m_maxV.
+    if( mpIsDegenerateRange( m_minV, m_maxV ) )
+        mpPadDegenerateRange( m_minV, m_maxV );
+
     m_offset    = -m_minV;
     m_scale     = 1.0 / ( m_maxV - m_minV );
 
@@ -1410,24 +1414,25 @@ void mpScaleY::Plot( wxDC& dc, mpWindow& w )
         // Draw axis name
         dc.GetTextExtent( m_name, &tx, &ty );
 
+        // Keep long names inside the window.
+        int nameX = orgx - ( tx / 2 );
+        nameX = std::min( nameX, w.GetScrX() - tx );
+        nameX = std::max( nameX, 0 );
+
         switch( m_nameFlags )
         {
         case mpALIGN_BORDER_LEFT:
             dc.DrawText( m_name, labelW + 8, 4 );
             break;
 
-        case mpALIGN_LEFT:
-            dc.DrawText( m_name, orgx - ( tx / 2 ), minYpx - ty - 4 );
-            break;
+        case mpALIGN_LEFT: dc.DrawText( m_name, nameX, minYpx - ty - 4 ); break;
 
         case mpALIGN_CENTER:
             dc.DrawText( m_name, orgx + 4, 4 );
             break;
 
         case mpALIGN_RIGHT:
-        case mpALIGN_FAR_RIGHT:
-            dc.DrawText( m_name, orgx - ( tx / 2 ), minYpx - ty - 4 );
-            break;
+        case mpALIGN_FAR_RIGHT: dc.DrawText( m_name, nameX, minYpx - ty - 4 ); break;
 
         case mpALIGN_BORDER_RIGHT:
             dc.DrawText( m_name, orgx - 6 - tx - labelW, 4 );
@@ -1759,6 +1764,14 @@ void mpWindow::Fit( double xMin, double xMax, double yMin, double yMax, const wx
     double newDesiredXmax = xMax;
     double newDesiredYmin = yMin;
     double newDesiredYmax = yMax;
+
+    // Near-constant data gives a range too narrow to label.
+    if( mpIsDegenerateRange( yMin, yMax ) )
+    {
+        mpPadDegenerateRange( yMin, yMax );
+        newDesiredYmin = yMin;
+        newDesiredYmax = yMax;
+    }
 
     // Provide a gap between the extrema of the curve and the top/bottom edges of the
     // plot area. Not to be confused with the left/right/top/bottom margins outside the plot area.
@@ -2214,9 +2227,21 @@ void mpWindow::OnPaint( wxPaintEvent& WXUNUSED( event ) )
     targetDC->SetTextForeground( m_fgColour );
     targetDC->DrawRectangle( 0, 0, m_scrX, m_scrY );
 
-    // Draw all the layers:
-    for( mpLayer* layer : m_layers )
-        layer->Plot( *targetDC, *this );
+    // Info layers (legend, cursors) paint over the traces.
+    for( int pass = 0; pass < 2; ++pass )
+    {
+        const bool infoPass = ( pass == 1 );
+
+        for( mpLayer* layer : m_layers )
+        {
+            if( layer->IsInfo() != infoPass )
+                continue;
+
+            // Undo any text colour the previous layer set.
+            targetDC->SetTextForeground( m_fgColour );
+            layer->Plot( *targetDC, *this );
+        }
+    }
 
     if( m_zooming )
     {
@@ -2229,6 +2254,8 @@ void mpWindow::OnPaint( wxPaintEvent& WXUNUSED( event ) )
     // If doublebuffer, draw now to the window:
     if( m_enableDoubleBuffer )
         paintDC.Blit( 0, 0, m_scrX, m_scrY, targetDC, 0, 0 );
+
+    onPaintFinished();
 }
 
 

@@ -78,6 +78,7 @@
 #include <wx/print.h>
 #include <wx/image.h>
 
+#include <cmath>
 #include <vector>
 #include <deque>
 #include <stack>
@@ -103,6 +104,34 @@
 // -----------------------------------------------------------------------------
 
 class WXDLLIMPEXP_MATHPLOT mpLayer;
+
+
+/// @return true if [aMin, aMax] is non-finite, empty, or too narrow relative to the values to label.
+inline bool mpIsDegenerateRange( double aMin, double aMax )
+{
+    if( !std::isfinite( aMin ) || !std::isfinite( aMax ) )
+        return true;
+
+    double span = aMax - aMin;
+    double magnitude = std::max( std::abs( aMin ), std::abs( aMax ) );
+
+    return !( span > 0.0 ) || span <= magnitude * 1e-9;
+}
+
+
+/// Widen a degenerate range around its midpoint.  A constant zero is padded by +/-1.
+inline void mpPadDegenerateRange( double& aMin, double& aMax )
+{
+    double mid = ( aMin + aMax ) / 2.0;
+
+    if( !std::isfinite( mid ) )
+        mid = 0.0;
+
+    double pad = mid != 0.0 ? std::abs( mid ) * 1e-3 : 1.0;
+
+    aMin = mid - pad;
+    aMax = mid + pad;
+}
 class WXDLLIMPEXP_MATHPLOT mpFX;
 class WXDLLIMPEXP_MATHPLOT mpFY;
 class WXDLLIMPEXP_MATHPLOT mpFXY;
@@ -415,7 +444,7 @@ protected:
     wxRect  m_dim;          // !< The bounding rectangle of the box. It may be resized dynamically
                             //    by the Plot method.
     wxPoint m_reference;    // !< Holds the reference point for movements
-    wxBrush m_brush;        // !< The brush to be used for the background
+                            // The background brush is mpLayer::m_brush.
     int     m_winX;         // !< Holds the mpWindow size. Used to rescale position when window is
     int     m_winY;         //    resized.
 
@@ -696,11 +725,8 @@ public:
             m_maxV  = std::max( maxV, m_maxV );
         }
 
-        if( m_minV == m_maxV )
-        {
-            m_minV = m_minV - 1.0;
-            m_maxV = m_maxV + 1.0;
-        }
+        if( mpIsDegenerateRange( m_minV, m_maxV ) )
+            mpPadDegenerateRange( m_minV, m_maxV );
     }
 
     /** Force this axis' data range to an explicit [minV, maxV], as if it had been computed by
@@ -713,11 +739,8 @@ public:
         m_maxV = maxV;
         m_rangeSet = true;
 
-        if( m_minV == m_maxV )
-        {
-            m_minV = m_minV - 1.0;
-            m_maxV = m_maxV + 1.0;
-        }
+        if( mpIsDegenerateRange( m_minV, m_maxV ) )
+            mpPadDegenerateRange( m_minV, m_maxV );
     }
 
     virtual void ResetDataRange()
@@ -734,6 +757,8 @@ public:
     {
         return m_absVisibleMaxV;
     }
+
+    int GetMaxLabelWidth() const { return m_maxLabelWidth; }
 
     void SetAxisMinMax( bool lock, double minV, double maxV )
     {
@@ -1343,6 +1368,10 @@ protected:
     void pushZoomUndo( const std::array<double, 4>& aZoom );
 
     void OnPaint( wxPaintEvent& event );             // !< Paint handler, will plot all attached layers
+
+    /// Called at the end of OnPaint(), once the scales have measured their labels.
+    virtual void onPaintFinished() {}
+
     void OnSize( wxSizeEvent& event );               // !< Size handler, will update scroll bar sizes
 
     void OnShowPopupMenu( wxMouseEvent& event );     // !< Mouse handler, will show context menu

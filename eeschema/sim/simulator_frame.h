@@ -30,12 +30,14 @@
 
 #include <kiway_player.h>
 #include <dialogs/dialog_sim_command.h>
+#include <reporter.h>
 
 #include <wx/event.h>
 
 #include <list>
 #include <memory>
 #include <map>
+#include <vector>
 
 class SCH_EDIT_FRAME;
 class SCH_SYMBOL;
@@ -44,6 +46,17 @@ class SIM_CONSOLE_REPORTER;
 class SIM_FRAME_STATE_LISTENER;
 class ACTION_TOOLBAR;
 class SPICE_SIMULATOR;
+
+
+struct SIM_CONSOLE_ENTRY
+{
+    SEVERITY severity;
+    wxString text;
+};
+
+
+/// @return \a aSignal without its " (gain)", " (phase)" or " (amplitude)" suffix.
+wxString SimSignalBaseName( const wxString& aSignal );
 
 
 /**
@@ -119,6 +132,12 @@ public:
      */
     const std::vector<wxString> Signals();
 
+    /// @return the schematic net names.
+    const std::vector<wxString>& Netnames();
+
+    /// @return the component voltages, such as "V(R1)".
+    std::vector<wxString> DeviceVoltages();
+
     const std::map<int, wxString>& UserDefinedSignals();
 
     void SetUserDefinedSignals( const std::map<int, wxString>& aSignals );
@@ -193,7 +212,7 @@ public:
 
     bool SimFinished() const { return m_simFinished; }
 
-    wxString TakeSimReportMessages();
+    std::vector<SIM_CONSOLE_ENTRY> TakeSimReportEntries();
 
     // Simulator doesn't host a canvas
     wxWindow* GetToolCanvas() const override { return nullptr; }

@@ -21,7 +21,9 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
+#include <set>
 #include <type_traits>
 
 #include <wx/event.h>
@@ -31,6 +33,7 @@
 #include <wx/stdstream.h>
 #include <wx/debug.h>
 #include <wx/clipbrd.h>
+#include <wx/colordlg.h>
 #include <wx/log.h>
 #include <wx/tokenzr.h>
 
@@ -68,17 +71,6 @@ SIM_TRACE_TYPE operator|( SIM_TRACE_TYPE aFirst, SIM_TRACE_TYPE aSecond )
 }
 
 
-enum SIGNALS_GRID_COLUMNS
-{
-    COL_SIGNAL_NAME = 0,
-    COL_SIGNAL_SHOW,
-    COL_Y_SCALE,
-    COL_SIGNAL_COLOR,
-    COL_CURSOR_1,
-    COL_CURSOR_2
-};
-
-
 enum CURSORS_GRID_COLUMNS
 {
     COL_CURSOR_NAME = 0,
@@ -107,265 +99,422 @@ static bool smithColumnsShown( const WX_GRID* aGrid )
 }
 
 
-enum MEASUREMENTS_GIRD_COLUMNS
-{
-    COL_MEASUREMENT = 0,
-    COL_MEASUREMENT_VALUE,
-    COL_MEASUREMENT_FORMAT
-};
-
-
 enum
 {
-    MYID_MEASURE_MIN = GRIDTRICKS_FIRST_CLIENT_ID,
-    MYID_MEASURE_MAX,
-    MYID_MEASURE_AVG,
-    MYID_MEASURE_RMS,
-    MYID_MEASURE_PP,
-    MYID_MEASURE_MIN_AT,
-    MYID_MEASURE_MAX_AT,
-    MYID_MEASURE_INTEGRAL,
-    MYID_FOURIER,
+    MYID_FOURIER = GRIDTRICKS_FIRST_CLIENT_ID,
 
     MYID_FORMAT_VALUE,
-    MYID_DELETE_MEASUREMENT
+    MYID_DELETE_MEASUREMENT,
+    MYID_MEASUREMENT_ADD,
+    MYID_MEASURE_ALL
 };
 
 
-class SIGNALS_GRID_TRICKS : public GRID_TRICKS
+/// Signals-tree context menu ids; "..._BASE" ids have an index added.
+enum
+{
+    MYID_TREE_COPY = 30000,
+    MYID_TREE_NEW_CURSOR,
+    MYID_TREE_DELETE_CURSOR,
+    MYID_TREE_COLOR,
+
+    MYID_TREE_VIEW_BASE = 30100,   // + index into getViewChoices() (0 == unplotted)
+    MYID_TREE_YSCALE_BASE = 30200, // + index into getYScaleChoices()
+    MYID_TREE_CURSOR_BASE = 30300  // + cursor id
+};
+
+
+/// Plot indicator: a dot in the trace colour when plotted, a hollow ring otherwise.
+static wxBitmapBundle makeSignalDot( const wxColour& aColor, bool aFilled )
+{
+    const int    size = 12;
+    const double center = size / 2.0;
+    const double outer = center - 1.0;
+    const double inner = outer - 1.8; // ring thickness, hollow state only
+    const int    ss = 3;              // supersampling steps per axis
+
+    wxImage image( size, size );
+    image.InitAlpha();
+
+    wxColour fg = aFilled ? aColor : wxSystemSettings::GetColour( wxSYS_COLOUR_GRAYTEXT );
+
+    for( int y = 0; y < size; ++y )
+    {
+        for( int x = 0; x < size; ++x )
+        {
+            int hits = 0;
+
+            for( int sy = 0; sy < ss; ++sy )
+            {
+                for( int sx = 0; sx < ss; ++sx )
+                {
+                    double px = x + ( sx + 0.5 ) / ss - center;
+                    double py = y + ( sy + 0.5 ) / ss - center;
+                    double r = std::hypot( px, py );
+
+                    if( r <= outer && ( aFilled || r >= inner ) )
+                        hits++;
+                }
+            }
+
+            image.SetRGB( x, y, fg.Red(), fg.Green(), fg.Blue() );
+            image.SetAlpha( x, y, static_cast<unsigned char>( 255 * hits / ( ss * ss ) ) );
+        }
+    }
+
+    return wxBitmapBundle( wxBitmap( image ) );
+}
+
+
+wxBitmapBundle SIMULATOR_FRAME_UI::signalDot( const wxColour& aColor, bool aFilled )
+{
+    // The key must match the colour makeSignalDot() draws.
+    const wxColour colour = aFilled ? aColor : wxSystemSettings::GetColour( wxSYS_COLOUR_GRAYTEXT );
+
+    for( const SIGNAL_DOT& dot : m_signalDotCache )
+    {
+        if( dot.filled == aFilled && dot.colour == colour )
+            return dot.bitmap;
+    }
+
+    if( m_signalDotCache.size() >= SIGNAL_DOT_CACHE_LIMIT )
+        m_signalDotCache.clear();
+
+    wxBitmapBundle bitmap = makeSignalDot( aColor, aFilled );
+    m_signalDotCache.push_back( { colour, aFilled, bitmap } );
+
+    return bitmap;
+}
+
+
+/// Fixed row height for every tree cell: wxGTK mis-measures unrealized rows.
+static int simTreeRowHeight( wxWindow* aWindow )
+{
+    // Fallback for a renderer not yet attached to a view.
+    int fontHeight = aWindow ? aWindow->GetCharHeight() : 16;
+
+    return std::max( fontHeight, 12 );
+}
+
+
+/// Draws the plain-text cell of both trees without measuring it (see simTreeRowHeight()).
+class SIM_TREE_TEXT_RENDERER : public wxDataViewCustomRenderer
 {
 public:
-    SIGNALS_GRID_TRICKS( SIMULATOR_FRAME_UI* aParent, WX_GRID* aGrid ) :
-            GRID_TRICKS( aGrid ),
-            m_parent( aParent ),
-            m_menuRow( 0 ),
-            m_menuCol( 0 )
+    SIM_TREE_TEXT_RENDERER() :
+            wxDataViewCustomRenderer( wxS( "string" ), wxDATAVIEW_CELL_INERT, wxALIGN_LEFT | wxALIGN_CENTRE_VERTICAL )
     {
     }
 
-protected:
-    void showPopupMenu( wxMenu& menu, wxGridEvent& aEvent ) override;
-    void doPopupSelection( wxCommandEvent& event ) override;
+    bool SetValue( const wxVariant& aValue ) override
+    {
+        m_value = aValue.GetString();
+        return true;
+    }
 
-protected:
-    SIMULATOR_FRAME_UI* m_parent;
-    int                 m_menuRow;
-    int                 m_menuCol;
+    bool GetValue( wxVariant& aValue ) const override
+    {
+        aValue = m_value;
+        return true;
+    }
+
+    wxSize GetSize() const override
+    {
+        return wxSize( std::max( GetTextExtent( m_value ).x, 1 ), simTreeRowHeight( GetView() ) );
+    }
+
+    bool Render( wxRect aRect, wxDC* aDC, int aState ) override
+    {
+        RenderText( m_value, 0, aRect, aDC, aState );
+        return true;
+    }
+
+private:
+    wxString m_value;
 };
 
 
-void SIGNALS_GRID_TRICKS::showPopupMenu( wxMenu& menu, wxGridEvent& aEvent )
+/// Draws the "[dot] name" cell of both trees without measuring it (see simTreeRowHeight()).
+class SIM_TREE_ICON_TEXT_RENDERER : public wxDataViewCustomRenderer
 {
-    SIM_TAB* panel = m_parent->GetCurrentSimTab();
-
-    if( !panel )
-        return;
-
-    m_menuRow = aEvent.GetRow();
-    m_menuCol = aEvent.GetCol();
-
-    if( m_menuCol == COL_SIGNAL_NAME )
+public:
+    SIM_TREE_ICON_TEXT_RENDERER() :
+            wxDataViewCustomRenderer( wxS( "wxDataViewIconText" ), wxDATAVIEW_CELL_INERT,
+                                      wxALIGN_LEFT | wxALIGN_CENTRE_VERTICAL )
     {
-        if( !( m_grid->IsInSelection( m_menuRow, m_menuCol ) ) )
-            m_grid->ClearSelection();
+    }
 
-        m_grid->SetGridCursor( m_menuRow, m_menuCol );
+    bool SetValue( const wxVariant& aValue ) override
+    {
+        m_value << aValue;
+        return true;
+    }
 
-        if( panel->GetSimType() == ST_TRAN || panel->GetSimType() == ST_AC || panel->GetSimType() == ST_DC
-            || panel->GetSimType() == ST_SP )
+    bool GetValue( wxVariant& aValue ) const override
+    {
+        aValue << m_value;
+        return true;
+    }
+
+    wxSize GetSize() const override
+    {
+        int width = GetTextExtent( m_value.GetText() ).x + bitmapSize().x + gap();
+
+        // A zero size would make wxDataViewCtrl fall back to measuring.
+        return wxSize( std::max( width, 1 ), simTreeRowHeight( GetView() ) );
+    }
+
+    bool Render( wxRect aRect, wxDC* aDC, int aState ) override
+    {
+        int xoffset = 0;
+
+        const wxBitmapBundle& bundle = m_value.GetBitmapBundle();
+
+        if( bundle.IsOk() )
         {
-            menu.Append( MYID_MEASURE_MIN, _( "Measure Min" ) );
-            menu.Append( MYID_MEASURE_MAX, _( "Measure Max" ) );
-            menu.Append( MYID_MEASURE_AVG, _( "Measure Average" ) );
-            menu.Append( MYID_MEASURE_RMS, _( "Measure RMS" ) );
-            menu.Append( MYID_MEASURE_PP, _( "Measure Peak-to-peak" ) );
+            wxSize   bmpSize = bitmapSize();
+            wxBitmap bmp = bundle.GetBitmapFor( GetView() );
 
-            if( panel->GetSimType() == ST_AC || panel->GetSimType() == ST_SP )
-            {
-                menu.Append( MYID_MEASURE_MIN_AT, _( "Measure Frequency of Min" ) );
-                menu.Append( MYID_MEASURE_MAX_AT, _( "Measure Frequency of Max" ) );
-            }
-            else
-            {
-                menu.Append( MYID_MEASURE_MIN_AT, _( "Measure Time of Min" ) );
-                menu.Append( MYID_MEASURE_MAX_AT, _( "Measure Time of Max" ) );
-            }
-
-            menu.Append( MYID_MEASURE_INTEGRAL, _( "Measure Integral" ) );
-
-            if( panel->GetSimType() == ST_TRAN )
-            {
-                menu.AppendSeparator();
-                menu.Append( MYID_FOURIER, _( "Perform Fourier Analysis..." ) );
-            }
-
-            menu.AppendSeparator();
-            menu.Append( GRIDTRICKS_ID_COPY, _( "Copy Signal Name" ) + "\tCtrl+C" );
-
-            menu.AppendSeparator();
-            menu.Append( GRIDTRICKS_ID_SELECT, _( "Create new cursor..." ) );
-
-            m_grid->PopupMenu( &menu );
+            aDC->DrawBitmap( bmp, aRect.x, aRect.y + ( aRect.height - bmpSize.y ) / 2, true );
+            xoffset = bmpSize.x + gap();
         }
+
+        RenderText( m_value.GetText(), xoffset, aRect, aDC, aState );
+        return true;
     }
-    else if( m_menuCol > static_cast<int>( COL_CURSOR_2 ) )
+
+private:
+    wxSize bitmapSize() const
     {
-        menu.Append( GRIDTRICKS_ID_SELECT, _( "Create new cursor..." ) );
+        const wxBitmapBundle& bundle = m_value.GetBitmapBundle();
 
-        menu.AppendSeparator();
-
-        wxString msg = m_grid->GetColLabelValue( m_grid->GetNumberCols() - 1 );
-
-        menu.AppendSeparator();
-        menu.Append( GRIDTRICKS_ID_DELETE, wxString::Format( _( "Delete %s..." ), msg ) );
-
-        m_grid->PopupMenu( &menu );
+        return bundle.IsOk() ? bundle.GetPreferredBitmapSizeFor( GetView() ) : wxSize( 0, 0 );
     }
-    else
-    {
-        menu.Append( GRIDTRICKS_ID_SELECT, _( "Create new cursor..." ) );
 
-        m_grid->PopupMenu( &menu );
-    }
-}
+    int gap() const { return m_value.GetBitmapBundle().IsOk() ? 4 : 0; }
+
+    wxDataViewIconText m_value;
+};
 
 
-void SIGNALS_GRID_TRICKS::doPopupSelection( wxCommandEvent& event )
+/// Two-column grouped tree (name + value) shared by the signals and measurements panels.
+class SIM_TREE_MODEL : public wxDataViewModel
 {
-    std::vector<wxString> signals;
-
-    wxGridCellCoordsArray cells1 = m_grid->GetSelectionBlockTopLeft();
-    wxGridCellCoordsArray cells2 = m_grid->GetSelectionBlockBottomRight();
-
-    for( size_t i = 0; i < cells1.Count(); i++ )
+public:
+    enum COLUMN
     {
-        if( cells1[i].GetCol() == COL_SIGNAL_NAME )
+        COL_NAME = 0,
+        COL_VALUE,
+        COL_COUNT
+    };
+
+    struct NODE
+    {
+        NODE( const wxString& aName, NODE* aParent ) :
+                name( aName ),
+                parent( aParent )
         {
-            for( int j = cells1[i].GetRow(); j < cells2[i].GetRow() + 1; j++ )
-            {
-                signals.push_back( m_grid->GetCellValue( j, cells1[i].GetCol() ) );
-            }
         }
+
+        wxString name;
+        wxString key; ///< Group identity, independent of the label; empty for leaves.
+
+        NODE*                              parent;
+        std::vector<std::unique_ptr<NODE>> children;
+
+        // Leaf state; the icon is cached because GetValue() runs per repaint.
+        wxString       value;
+        wxBitmapBundle icon;
+        bool           greyed = false;
+
+        // Leaf payload: plotted state and colour for signals, the measurement index for measurements.
+        bool     plotted = false;
+        wxColour color;
+        int      index = -1;
+
+        /// A node with children is a group, so groups can nest.
+        bool IsGroup() const { return !children.empty(); }
+    };
+
+    struct ENTRY
+    {
+        wxString name;
+        int      index = -1;
+    };
+
+    /// One group passed to SetContents().  Empty groups are dropped.
+    struct GROUP
+    {
+        wxString           name;
+        wxString           key; ///< See NODE::key.
+        std::vector<ENTRY> entries;
+        std::vector<GROUP> subGroups;
+
+        bool IsEmpty() const
+        {
+            return entries.empty()
+                   && std::all_of( subGroups.begin(), subGroups.end(),
+                                   []( const GROUP& aSub )
+                                   {
+                                       return aSub.IsEmpty();
+                                   } );
+        }
+    };
+
+    SIM_TREE_MODEL() = default;
+
+    void SetContents( const std::vector<GROUP>& aGroups )
+    {
+        m_groups.clear();
+
+        for( const GROUP& group : aGroups )
+        {
+            if( group.IsEmpty() )
+                continue;
+
+            m_groups.push_back( buildGroup( group, nullptr ) );
+        }
+
+        Cleared();
     }
 
-    wxGridCellCoordsArray cells3 = m_grid->GetSelectedCells();
-
-    for( size_t i = 0; i < cells3.Count(); i++ )
+    std::vector<NODE*> Groups() const
     {
-        if( cells3[i].GetCol() == COL_SIGNAL_NAME )
-            signals.push_back( m_grid->GetCellValue( cells3[i].GetRow(), cells3[i].GetCol() ) );
+        std::vector<NODE*> groups;
+
+        for( const std::unique_ptr<NODE>& group : m_groups )
+            collect( group.get(), true, groups );
+
+        return groups;
     }
 
-    if( signals.size() < 1 )
-        signals.push_back( m_grid->GetCellValue( m_menuRow, m_menuCol ) );
+    std::vector<NODE*> Leaves() const
+    {
+        std::vector<NODE*> leaves;
 
-    auto addMeasurement =
-            [this]( const wxString& cmd, wxString signal )
-            {
-                if( signal.EndsWith( _( " (phase)" ) ) )
-                    return;
+        for( const std::unique_ptr<NODE>& group : m_groups )
+            collect( group.get(), false, leaves );
 
-                if( signal.EndsWith( _( " (gain)" ) ) || signal.EndsWith( _( " (amplitude)" ) ) )
-                {
-                    signal = signal.Left( signal.length() - 7 );
+        return leaves;
+    }
 
-                    if( signal.Upper().StartsWith( wxS( "V(" ) ) )
-                        signal = wxS( "vdb" ) + signal.Mid( 1 );
-                }
+    static wxDataViewItem ToItem( NODE* aNode ) { return wxDataViewItem( aNode ); }
 
-                m_parent->AddMeasurement( cmd + wxS( " " ) + signal );
-            };
+    static NODE* ToNode( const wxDataViewItem& aItem ) { return static_cast<NODE*>( aItem.GetID() ); }
 
-    if( event.GetId() == MYID_MEASURE_MIN )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "MIN" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_MAX )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "MAX" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_AVG )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "AVG" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_RMS )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "RMS" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_PP )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "PP" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_MIN_AT )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "MIN_AT" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_MAX_AT )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "MAX_AT" ), signal );
-    }
-    else if( event.GetId() == MYID_MEASURE_INTEGRAL )
-    {
-        for( const wxString& signal : signals )
-            addMeasurement( wxS( "INTEG" ), signal );
-    }
-    else if( event.GetId() == MYID_FOURIER )
-    {
-        wxString title;
-        wxString fundamental = wxT( "1K" );
+    // wxDataViewModel
+    unsigned int GetColumnCount() const override { return COL_COUNT; }
 
-        if( signals.size() == 1 )
-            title.Printf( _( "Fourier Analysis of %s" ), signals[0] );
-        else
-            title = _( "Fourier Analyses of Multiple Signals" );
+    wxString GetColumnType( unsigned int aCol ) const override
+    {
+        return aCol == COL_NAME ? wxS( "wxDataViewIconText" ) : wxS( "string" );
+    }
 
-        WX_TEXT_ENTRY_DIALOG dlg( m_parent, _( "Fundamental frequency:" ), title, fundamental );
+    bool IsContainer( const wxDataViewItem& aItem ) const override
+    {
+        if( !aItem.IsOk() ) // the invisible root
+            return true;
 
-        if( dlg.ShowModal() != wxID_OK )
+        return ToNode( aItem )->IsGroup();
+    }
+
+    wxDataViewItem GetParent( const wxDataViewItem& aItem ) const override
+    {
+        if( !aItem.IsOk() )
+            return wxDataViewItem( nullptr );
+
+        return wxDataViewItem( ToNode( aItem )->parent );
+    }
+
+    unsigned int GetChildren( const wxDataViewItem& aItem, wxDataViewItemArray& aChildren ) const override
+    {
+        if( !aItem.IsOk() )
+        {
+            for( const std::unique_ptr<NODE>& group : m_groups )
+                aChildren.Add( wxDataViewItem( group.get() ) );
+
+            return aChildren.GetCount();
+        }
+
+        for( const std::unique_ptr<NODE>& child : ToNode( aItem )->children )
+            aChildren.Add( wxDataViewItem( child.get() ) );
+
+        return aChildren.GetCount();
+    }
+
+    void GetValue( wxVariant& aVariant, const wxDataViewItem& aItem, unsigned int aCol ) const override
+    {
+        NODE* node = ToNode( aItem );
+
+        if( !node )
             return;
 
-        if( !dlg.GetValue().IsEmpty() )
-            fundamental = dlg.GetValue();
-
-        for( const wxString& signal : signals )
-            m_parent->DoFourier( signal, fundamental );
+        if( aCol == COL_NAME )
+            aVariant << wxDataViewIconText( node->name, node->icon );
+        else
+            aVariant = node->value;
     }
-    else if( event.GetId() == GRIDTRICKS_ID_COPY )
+
+    bool SetValue( const wxVariant& aVariant, const wxDataViewItem& aItem, unsigned int aCol ) override
     {
-        wxLogNull doNotLog; // disable logging of failed clipboard actions
-        wxString  txt;
+        return false; // the tree is driven by its context menu, never edited in place
+    }
 
-        for( const wxString& signal : signals )
+    bool GetAttr( const wxDataViewItem& aItem, unsigned int aCol, wxDataViewItemAttr& aAttr ) const override
+    {
+        NODE* node = ToNode( aItem );
+
+        if( !node )
+            return false;
+
+        if( node->IsGroup() )
         {
-            if( !txt.IsEmpty() )
-                txt += '\r';
-
-            txt += signal;
+            aAttr.SetBold( true );
+            return true;
         }
 
-        if( wxTheClipboard->Open() )
+        if( node->greyed )
         {
-            wxTheClipboard->SetData( new wxTextDataObject( txt ) );
-            wxTheClipboard->Flush(); // Allow data to be available after closing KiCad
-            wxTheClipboard->Close();
+            aAttr.SetColour( wxSystemSettings::GetColour( wxSYS_COLOUR_GRAYTEXT ) );
+            return true;
         }
+
+        return false;
     }
-    else if( event.GetId() == GRIDTRICKS_ID_SELECT )
+
+private:
+    static std::unique_ptr<NODE> buildGroup( const GROUP& aGroup, NODE* aParent )
     {
-        m_parent->CreateNewCursor();
+        std::unique_ptr<NODE> node = std::make_unique<NODE>( aGroup.name, aParent );
+        node->key = aGroup.key;
+
+        for( const ENTRY& entry : aGroup.entries )
+        {
+            std::unique_ptr<NODE> leaf = std::make_unique<NODE>( entry.name, node.get() );
+            leaf->index = entry.index;
+            node->children.push_back( std::move( leaf ) );
+        }
+
+        for( const GROUP& sub : aGroup.subGroups )
+        {
+            if( !sub.IsEmpty() )
+                node->children.push_back( buildGroup( sub, node.get() ) );
+        }
+
+        return node;
     }
-    else if( event.GetId() == GRIDTRICKS_ID_DELETE )
+
+    static void collect( NODE* aNode, bool aWantGroups, std::vector<NODE*>& aResult )
     {
-        m_parent->DeleteCursor();
+        if( aNode->IsGroup() == aWantGroups )
+            aResult.push_back( aNode );
+
+        for( const std::unique_ptr<NODE>& child : aNode->children )
+            collect( child.get(), aWantGroups, aResult );
     }
-}
+
+    std::vector<std::unique_ptr<NODE>> m_groups;
+};
 
 
 class CURSORS_GRID_TRICKS : public GRID_TRICKS
@@ -442,109 +591,6 @@ void CURSORS_GRID_TRICKS::doPopupSelection( wxCommandEvent& event )
 }
 
 
-class MEASUREMENTS_GRID_TRICKS : public GRID_TRICKS
-{
-public:
-    MEASUREMENTS_GRID_TRICKS( SIMULATOR_FRAME_UI* aParent, WX_GRID* aGrid ) :
-            GRID_TRICKS( aGrid ),
-            m_parent( aParent ),
-            m_menuRow( 0 ),
-            m_menuCol( 0 )
-    {
-    }
-
-protected:
-    void showPopupMenu( wxMenu& menu, wxGridEvent& aEvent ) override;
-    void doPopupSelection( wxCommandEvent& event ) override;
-
-protected:
-    SIMULATOR_FRAME_UI* m_parent;
-    int                 m_menuRow;
-    int                 m_menuCol;
-};
-
-
-void MEASUREMENTS_GRID_TRICKS::showPopupMenu( wxMenu& menu, wxGridEvent& aEvent )
-{
-    m_menuRow = aEvent.GetRow();
-    m_menuCol = aEvent.GetCol();
-
-    if( !( m_grid->IsInSelection( m_menuRow, m_menuCol ) ) )
-        m_grid->ClearSelection();
-
-    m_grid->SetGridCursor( m_menuRow, m_menuCol );
-
-    if( m_menuCol == COL_MEASUREMENT_VALUE )
-        menu.Append( MYID_FORMAT_VALUE, _( "Format Value..." ) );
-
-    if( m_menuRow < ( m_grid->GetNumberRows() - 1 ) )
-        menu.Append( MYID_DELETE_MEASUREMENT, _( "Delete Measurement" ) );
-
-    menu.AppendSeparator();
-
-    GRID_TRICKS::showPopupMenu( menu, aEvent );
-}
-
-
-void MEASUREMENTS_GRID_TRICKS::doPopupSelection( wxCommandEvent& event )
-{
-    if( event.GetId() == MYID_FORMAT_VALUE )
-    {
-        SPICE_VALUE_FORMAT      format = m_parent->GetMeasureFormat( m_menuRow );
-        DIALOG_SIM_FORMAT_VALUE formatDialog( m_parent, &format );
-
-        if( formatDialog.ShowModal() == wxID_OK )
-        {
-            m_parent->SetMeasureFormat( m_menuRow, format );
-            m_parent->UpdateMeasurement( m_menuRow );
-            m_parent->OnModify();
-        }
-    }
-    else if( event.GetId() == MYID_DELETE_MEASUREMENT )
-    {
-        std::vector<int> measurements;
-
-        wxGridCellCoordsArray cells1 = m_grid->GetSelectionBlockTopLeft();
-        wxGridCellCoordsArray cells2 = m_grid->GetSelectionBlockBottomRight();
-
-        for( size_t i = 0; i < cells1.Count(); i++ )
-        {
-            if( cells1[i].GetCol() == COL_MEASUREMENT )
-            {
-                for( int j = cells1[i].GetRow(); j < cells2[i].GetRow() + 1; j++ )
-                    measurements.push_back( j );
-            }
-        }
-
-        wxGridCellCoordsArray cells3 = m_grid->GetSelectedCells();
-
-        for( size_t i = 0; i < cells3.Count(); i++ )
-        {
-            if( cells3[i].GetCol() == COL_MEASUREMENT )
-                measurements.push_back( cells3[i].GetRow() );
-        }
-
-        if( measurements.size() < 1 )
-            measurements.push_back( m_menuRow );
-
-        // When deleting a row, we'll change the indexes.
-        // To avoid problems, we can start with the highest indexes.
-        sort( measurements.begin(), measurements.end(), std::greater<>() );
-
-        for( int row : measurements )
-            m_parent->DeleteMeasurement( row );
-
-        m_grid->ClearSelection();
-
-        m_parent->OnModify();
-    }
-    else
-    {
-        GRID_TRICKS::doPopupSelection( event );
-    }
-}
-
-
 class SUPPRESS_GRID_CELL_EVENTS
 {
 public:
@@ -554,10 +600,7 @@ public:
         m_frame->m_SuppressGridEvents++;
     }
 
-    ~SUPPRESS_GRID_CELL_EVENTS()
-    {
-        m_frame->m_SuppressGridEvents--;
-    }
+    ~SUPPRESS_GRID_CELL_EVENTS() { m_frame->m_SuppressGridEvents--; }
 
 private:
     SIMULATOR_FRAME_UI* m_frame;
@@ -565,7 +608,7 @@ private:
 
 
 #define ID_SIM_REFRESH 10207
-#define REFRESH_INTERVAL 50   // 20 frames/second.
+#define REFRESH_INTERVAL 50 // 20 frames/second.
 
 
 SIMULATOR_FRAME_UI::SIMULATOR_FRAME_UI( SIMULATOR_FRAME* aSimulatorFrame, SCH_EDIT_FRAME* aSchematicFrame ) :
@@ -577,6 +620,18 @@ SIMULATOR_FRAME_UI::SIMULATOR_FRAME_UI( SIMULATOR_FRAME* aSimulatorFrame, SCH_ED
         m_plotNumber( 0 ),
         m_refreshTimer( this, ID_SIM_REFRESH )
 {
+    // The base class' idle handlers would override the sash positions SetSubWindowsSashSize() restores.
+    m_splitterLeftRight->Disconnect(
+            wxEVT_IDLE, wxIdleEventHandler( SIMULATOR_FRAME_UI_BASE::m_splitterLeftRightOnIdle ), nullptr, this );
+    m_splitterCenterRight->Disconnect(
+            wxEVT_IDLE, wxIdleEventHandler( SIMULATOR_FRAME_UI_BASE::m_splitterCenterRightOnIdle ), nullptr, this );
+    m_splitterPlotAndConsole->Disconnect(
+            wxEVT_IDLE, wxIdleEventHandler( SIMULATOR_FRAME_UI_BASE::m_splitterPlotAndConsoleOnIdle ), nullptr, this );
+    m_splitterSignals->Disconnect( wxEVT_IDLE, wxIdleEventHandler( SIMULATOR_FRAME_UI_BASE::m_splitterSignalsOnIdle ),
+                                   nullptr, this );
+    m_splitterCursors->Disconnect( wxEVT_IDLE, wxIdleEventHandler( SIMULATOR_FRAME_UI_BASE::m_splitterCursorsOnIdle ),
+                                   nullptr, this );
+
     // Get the previous size and position of windows:
     LoadSettings( m_schematicFrame->eeconfig() );
 
@@ -585,24 +640,63 @@ SIMULATOR_FRAME_UI::SIMULATOR_FRAME_UI( SIMULATOR_FRAME* aSimulatorFrame, SCH_ED
     Bind( EVT_SIM_VIEWS_CHANGED,
           [&]( wxCommandEvent& aEvent )
           {
-              rebuildSignalsGrid( m_filter->GetValue() );
+              rebuildSignalsTree( m_filter->GetValue() );
               updatePlotCursors();
               OnModify();
           } );
 
-    m_signalsGrid->wxGrid::SetLabelFont( KIUI::GetStatusFont( this ) );
     m_cursorsGrid->wxGrid::SetLabelFont( KIUI::GetStatusFont( this ) );
-    m_measurementsGrid->wxGrid::SetLabelFont( KIUI::GetStatusFont( this ) );
 
-    m_signalsGrid->PushEventHandler( new SIGNALS_GRID_TRICKS( this, m_signalsGrid ) );
     m_cursorsGrid->PushEventHandler( new CURSORS_GRID_TRICKS( this, m_cursorsGrid ) );
-    m_measurementsGrid->PushEventHandler( new MEASUREMENTS_GRID_TRICKS( this, m_measurementsGrid ) );
+
+    // Ctrl+C, as advertised in the context menu.
+    m_signalsTree->Bind( wxEVT_CHAR_HOOK,
+                         [this]( wxKeyEvent& aEvent )
+                         {
+                             if( aEvent.GetModifiers() == wxMOD_CONTROL && aEvent.GetKeyCode() == 'C' )
+                                 copySignalNames( getSelectedSignals( wxDataViewItem() ) );
+                             else
+                                 aEvent.Skip();
+                         } );
+
+    m_signalsModel = new SIM_TREE_MODEL();
+    m_signalsTree->AssociateModel( m_signalsModel );
+    m_signalsModel->DecRef(); // AssociateModel() took its own reference
+
+    m_signalsTree->AppendColumn( new wxDataViewColumn( _( "Signal" ), new SIM_TREE_ICON_TEXT_RENDERER(),
+                                                       SIM_TREE_MODEL::COL_NAME, 180, wxALIGN_LEFT,
+                                                       wxDATAVIEW_COL_RESIZABLE ) );
+    m_signalsTree->AppendColumn( new wxDataViewColumn( _( "Plot" ), new SIM_TREE_TEXT_RENDERER(),
+                                                       SIM_TREE_MODEL::COL_VALUE, 60, wxALIGN_LEFT,
+                                                       wxDATAVIEW_COL_RESIZABLE ) );
+
+    m_tunerNotebook = new wxNotebook( m_panelTuners, wxID_ANY );
+    m_sizerTuners->Add( m_tunerNotebook, 1, wxEXPAND, 0 );
+
+    for( wxScrolledWindow*& page : m_tunerPages )
+        page = nullptr;
+
+    m_measurementsModel = new SIM_TREE_MODEL();
+    m_measurementsTree->AssociateModel( m_measurementsModel );
+    m_measurementsModel->DecRef(); // AssociateModel() took its own reference
+
+    m_measurementsTree->AppendColumn( new wxDataViewColumn( _( "Measurement" ), new SIM_TREE_ICON_TEXT_RENDERER(),
+                                                            SIM_TREE_MODEL::COL_NAME, 200, wxALIGN_LEFT,
+                                                            wxDATAVIEW_COL_RESIZABLE ) );
+    m_measurementsTree->AppendColumn( new wxDataViewColumn( _( "Value" ), new SIM_TREE_TEXT_RENDERER(),
+                                                            SIM_TREE_MODEL::COL_VALUE, 90, wxALIGN_LEFT,
+                                                            wxDATAVIEW_COL_RESIZABLE ) );
+
+    applyTreeRowHeight();
+
+    // Re-apply once realized so GTK doesn't keep a height measured too early.
+    CallAfter(
+            [this]()
+            {
+                applyTreeRowHeight();
+            } );
 
     wxGridCellAttr* attr = new wxGridCellAttr;
-    attr->SetReadOnly();
-    m_signalsGrid->SetColAttr( COL_SIGNAL_NAME, attr );
-
-    attr = new wxGridCellAttr;
     attr->SetReadOnly();
     m_cursorsGrid->SetColAttr( COL_CURSOR_NAME, attr );
 
@@ -615,10 +709,6 @@ SIMULATOR_FRAME_UI::SIMULATOR_FRAME_UI( SIMULATOR_FRAME* aSimulatorFrame, SCH_ED
     m_cursorsGrid->SetColAttr( COL_CURSOR_Y, attr );
 
     CustomCursorsInit();
-
-    attr = new wxGridCellAttr;
-    attr->SetReadOnly();
-    m_measurementsGrid->SetColAttr( COL_MEASUREMENT_VALUE, attr );
 
     // Prepare the color list to plot traces
     SIM_PLOT_COLORS::FillDefaultColorList( m_darkMode );
@@ -645,9 +735,7 @@ SIMULATOR_FRAME_UI::SIMULATOR_FRAME_UI( SIMULATOR_FRAME* aSimulatorFrame, SCH_ED
 SIMULATOR_FRAME_UI::~SIMULATOR_FRAME_UI()
 {
     // Delete the GRID_TRICKS.
-    m_signalsGrid->PopEventHandler( true );
     m_cursorsGrid->PopEventHandler( true );
-    m_measurementsGrid->PopEventHandler( true );
 }
 
 
@@ -671,25 +759,8 @@ void SIMULATOR_FRAME_UI::CustomCursorsInit()
             m_cursorFormatsDyn[index].push_back( m_cursorFormats[index][index2] );
     }
 
-    // Dump string helper, tries to get the current higher cursor name to form the next one.
-    // Based on the column labeling
-    // TODO: "Cursor n" may translate as "n Cursor" in other languages
-    //       TBD how to handle; just forbid for now.
-    int nameMax = 0;
-
-    for( int i = 0; i < m_signalsGrid->GetNumberCols(); i++ )
-    {
-        wxString maxCursor = m_signalsGrid->GetColLabelValue( i );
-
-        maxCursor.Replace( _( "Cursor " ), "" );
-
-        int tmpMax = wxAtoi( maxCursor );
-
-        if( nameMax < tmpMax )
-            nameMax = tmpMax;
-    }
-
-    m_customCursorsCnt = nameMax + 1; // Init with a +1 on top of current cursor 2, defaults to 3
+    // Cursors 1 and 2 always exist.
+    m_customCursorsCnt = static_cast<int>( std::size( m_cursorFormats ) );
 }
 
 
@@ -702,17 +773,9 @@ void SIMULATOR_FRAME_UI::CreateNewCursor()
     m_cursorFormatsDyn[m_customCursorsCnt].push_back( { 3, wxS( "~s" ) } );
     m_cursorFormatsDyn[m_customCursorsCnt].push_back( { 3, wxS( "~V" ) } );
 
-    wxString cursor_name = wxString( _( "Cursor " ) ) << m_customCursorsCnt;
-
-    m_signalsGrid->InsertCols( m_signalsGrid->GetNumberCols(), 1, true );
-    m_signalsGrid->SetColLabelValue( m_signalsGrid->GetNumberCols() - 1, cursor_name );
-
-    wxGridCellAttr* attr = new wxGridCellAttr;
-    m_signalsGrid->SetColAttr( COL_CURSOR_2 + m_customCursorsCnt, attr );
-
     m_customCursorsCnt++;
 
-    updateSignalsGrid();
+    updateSignalsTree();
     updatePlotCursors();
     OnModify();
 }
@@ -720,32 +783,36 @@ void SIMULATOR_FRAME_UI::CreateNewCursor()
 
 void SIMULATOR_FRAME_UI::DeleteCursor()
 {
-    int col = m_signalsGrid->GetNumberCols();
-    int rows = m_signalsGrid->GetNumberRows();
+    // Cursors 1 and 2 are permanent; delete the extras last-first.
+    if( m_customCursorsCnt <= static_cast<int>( std::size( m_cursorFormats ) ) )
+        return;
 
-    if( col > COL_CURSOR_2 )
+    int doomed = m_customCursorsCnt - 1;
+
+    // Any tab may hold it; a leftover would index past the formats popped below.
+    for( size_t ii = 0; ii < m_plotNotebook->GetPageCount(); ++ii )
     {
-        // Now we need to find the active cursor and deactivate before removing the column,
-        // Send the dummy event to update the UI
-        for( int i = 0; i < rows; i++ )
+        SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( m_plotNotebook->GetPage( ii ) );
+
+        if( !plotTab )
+            continue;
+
+        for( const auto& [name, trace] : plotTab->GetTraces() )
         {
-            if( m_signalsGrid->GetCellValue( i, col - 1 ) == wxS( "1" ) )
+            if( trace->HasCursor( doomed ) )
             {
-                m_signalsGrid->SetCellValue( i, col - 1, wxEmptyString );
-                wxGridEvent aDummy( wxID_ANY, wxEVT_GRID_CELL_CHANGED, m_signalsGrid, i, col - 1 );
-                onSignalsGridCellChanged( aDummy );
+                plotTab->DisableCursor( trace, doomed );
                 break;
             }
         }
-
-        m_signalsGrid->DeleteCols( col - 1, 1, false );
-        m_cursorFormatsDyn.pop_back();
-        m_customCursorsCnt--;
-        m_plotNotebook->Refresh();
-        updateSignalsGrid();
-        updatePlotCursors();
-        OnModify();
     }
+
+    m_cursorFormatsDyn.pop_back();
+    m_customCursorsCnt--;
+    m_plotNotebook->Refresh();
+    updateSignalsTree();
+    updatePlotCursors();
+    OnModify();
 }
 
 
@@ -766,12 +833,28 @@ void SIMULATOR_FRAME_UI::ShowChangedLanguage()
 
     m_filter->SetHint( _( "Filter" ) );
 
-    m_signalsGrid->SetColLabelValue( COL_SIGNAL_NAME, _( "Signal" ) );
-    m_signalsGrid->SetColLabelValue( COL_SIGNAL_SHOW, _( "Plot" ) );
-    m_signalsGrid->SetColLabelValue( COL_Y_SCALE, _( "Y Scale" ) );
-    m_signalsGrid->SetColLabelValue( COL_SIGNAL_COLOR, _( "Color" ) );
-    m_signalsGrid->SetColLabelValue( COL_CURSOR_1, _( "Cursor 1" ) );
-    m_signalsGrid->SetColLabelValue( COL_CURSOR_2, _( "Cursor 2" ) );
+    m_consoleFilterAll->SetLabel( _( "All" ) );
+    m_consoleFilterWarnings->SetLabel( _( "Warnings" ) );
+    m_consoleFilterErrors->SetLabel( _( "Errors" ) );
+    m_panelConsole->Layout();
+
+    if( m_signalsTree->GetColumnCount() >= 2 )
+    {
+        m_signalsTree->GetColumn( SIM_TREE_MODEL::COL_NAME )->SetTitle( _( "Signal" ) );
+        m_signalsTree->GetColumn( SIM_TREE_MODEL::COL_VALUE )->SetTitle( _( "Plot" ) );
+    }
+
+    rebuildSignalsTree( m_filter->GetValue() );
+
+    if( m_measurementsTree->GetColumnCount() >= 2 )
+    {
+        m_measurementsTree->GetColumn( SIM_TREE_MODEL::COL_NAME )->SetTitle( _( "Measurement" ) );
+        m_measurementsTree->GetColumn( SIM_TREE_MODEL::COL_VALUE )->SetTitle( _( "Value" ) );
+    }
+
+    // Group names and function labels are set by the rebuild.
+    std::map<wxString, wxString> measurementValues = shownMeasurementValues();
+    rebuildMeasurementsTree( &measurementValues );
 
     m_cursorsGrid->SetColLabelValue( COL_CURSOR_NAME, _( "Cursor" ) );
     m_cursorsGrid->SetColLabelValue( COL_CURSOR_SIGNAL, _( "Signal" ) );
@@ -782,6 +865,17 @@ void SIMULATOR_FRAME_UI::ShowChangedLanguage()
 
     for( TUNER_SLIDER* tuner : m_tuners )
         tuner->ShowChangedLanguage();
+
+    for( int ii = 0; ii < TUNERGRP_COUNT; ++ii )
+    {
+        if( m_tunerPages[ii] )
+        {
+            int pos = m_tunerNotebook->FindPage( m_tunerPages[ii] );
+
+            if( pos != wxNOT_FOUND )
+                m_tunerNotebook->SetPageText( pos, tunerGroupLabel( (TUNER_GROUP) ii ) );
+        }
+    }
 }
 
 
@@ -790,12 +884,12 @@ void SIMULATOR_FRAME_UI::LoadSettings( EESCHEMA_SETTINGS* aCfg )
     const EESCHEMA_SETTINGS::SIMULATOR& settings = aCfg->m_Simulator;
 
     // Read subwindows sizes (should be > 0 )
-    m_splitterLeftRightSashPosition      = settings.view.plot_panel_width;
+    m_splitterLeftRightSashPosition = settings.view.side_panel_width;
     m_splitterPlotAndConsoleSashPosition = settings.view.plot_panel_height;
-    m_splitterSignalsSashPosition        = settings.view.signal_panel_height;
-    m_splitterCursorsSashPosition        = settings.view.cursors_panel_height;
-    m_splitterTuneValuesSashPosition     = settings.view.measurements_panel_height;
-    m_darkMode                           = !settings.view.white_background;
+    m_splitterSignalsSashPosition = settings.view.signals_tuners_height;
+    m_splitterCursorsSashPosition = settings.view.cursors_panel_height;
+    m_splitterCenterRightSashPosition = settings.view.center_panel_width;
+    m_darkMode = !settings.view.white_background;
     m_smithCursorColumns = settings.view.smith_cursor_columns;
 
     m_preferences = settings.preferences;
@@ -806,12 +900,18 @@ void SIMULATOR_FRAME_UI::SaveSettings( EESCHEMA_SETTINGS* aCfg )
 {
     EESCHEMA_SETTINGS::SIMULATOR& settings = aCfg->m_Simulator;
 
-    settings.view.plot_panel_width          = m_splitterLeftRight->GetSashPosition();
-    settings.view.plot_panel_height         = m_splitterPlotAndConsole->GetSashPosition();
-    settings.view.signal_panel_height       = m_splitterSignals->GetSashPosition();
-    settings.view.cursors_panel_height      = m_splitterCursors->GetSashPosition();
-    settings.view.measurements_panel_height = m_splitterMeasurements->GetSashPosition();
-    settings.view.white_background          = !m_darkMode;
+    // A hidden panel's splitter is unsplit; save where its sash will go back to.
+    auto sashPosition = []( wxSplitterWindow* aSplitter, int aHiddenPosition )
+    {
+        return aSplitter->IsSplit() ? aSplitter->GetSashPosition() : aHiddenPosition;
+    };
+
+    settings.view.side_panel_width = sashPosition( m_splitterLeftRight, m_splitterLeftRightSashPosition );
+    settings.view.plot_panel_height = sashPosition( m_splitterPlotAndConsole, m_splitterPlotAndConsoleSashPosition );
+    settings.view.signals_tuners_height = m_splitterSignals->GetSashPosition();
+    settings.view.cursors_panel_height = m_splitterCursors->GetSashPosition();
+    settings.view.center_panel_width = m_splitterCenterRight->GetSashPosition();
+    settings.view.white_background = !m_darkMode;
 
     if( smithColumnsShown( m_cursorsGrid ) )
         rememberSmithCursorColumns();
@@ -874,7 +974,7 @@ void SIMULATOR_FRAME_UI::InitWorkbook()
         }
 
         rebuildSignalsList();
-        rebuildSignalsGrid( m_filter->GetValue() );
+        rebuildSignalsTree( m_filter->GetValue() );
     }
 }
 
@@ -893,8 +993,8 @@ void SIMULATOR_FRAME_UI::SetSubWindowsSashSize()
     if( m_splitterCursorsSashPosition > 0 )
         m_splitterCursors->SetSashPosition( m_splitterCursorsSashPosition );
 
-    if( m_splitterTuneValuesSashPosition > 0 )
-        m_splitterMeasurements->SetSashPosition( m_splitterTuneValuesSashPosition );
+    if( m_splitterCenterRightSashPosition > 0 )
+        m_splitterCenterRight->SetSashPosition( m_splitterCenterRightSashPosition );
 }
 
 
@@ -914,19 +1014,151 @@ void sortSignals( std::vector<wxString>& signals )
 }
 
 
-void SIMULATOR_FRAME_UI::rebuildSignalsGrid( wxString aFilter )
-{
-    SUPPRESS_GRID_CELL_EVENTS raii( this );
+wxString vectorNameFromSignalId( int aUserDefinedSignalId );
 
-    m_signalsGrid->ClearRows();
+
+wxString SimSignalBaseName( const wxString& aSignal )
+{
+    for( const wxString& suffix : { _( " (gain)" ), _( " (phase)" ), _( " (amplitude)" ) } )
+    {
+        if( aSignal.EndsWith( suffix ) )
+            return aSignal.Left( aSignal.Length() - suffix.Length() );
+    }
+
+    return aSignal;
+}
+
+
+/// Signal identity across language changes: the translated suffix becomes a tag.
+static wxString signalViewKey( const wxString& aSignal )
+{
+    wxString tag;
+
+    if( aSignal.EndsWith( _( " (gain)" ) ) )
+        tag = wxS( "gain" );
+    else if( aSignal.EndsWith( _( " (phase)" ) ) )
+        tag = wxS( "phase" );
+    else if( aSignal.EndsWith( _( " (amplitude)" ) ) )
+        tag = wxS( "amplitude" );
+
+    if( tag.IsEmpty() )
+        return aSignal;
+
+    return SimSignalBaseName( aSignal ) + wxString( wxUniChar( 0x1f ) ) + tag;
+}
+
+
+enum SIGNAL_GROUP
+{
+    SIGGRP_VOLTAGES = 0,
+    SIGGRP_CURRENTS,
+    SIGGRP_POWER,
+    SIGGRP_OTHER,
+    SIGGRP_USER_DEFINED,
+
+    SIGGRP_COUNT
+};
+
+
+/// Bucket a signal by its netlist-exporter prefix ("V(..)", "I(..)", ...).
+static SIGNAL_GROUP signalGroup( const wxString& aSignal, bool aUserDefined )
+{
+    if( aUserDefined )
+        return SIGGRP_USER_DEFINED;
+
+    wxString upper = aSignal.Upper();
+
+    if( upper.StartsWith( wxS( "V(" ) ) || upper.StartsWith( wxS( "VDB(" ) ) )
+        return SIGGRP_VOLTAGES;
+    else if( upper.StartsWith( wxS( "I(" ) ) )
+        return SIGGRP_CURRENTS;
+    else if( upper.StartsWith( wxS( "P(" ) ) )
+        return SIGGRP_POWER;
+
+    return SIGGRP_OTHER;
+}
+
+
+static wxString signalGroupLabel( SIGNAL_GROUP aGroup )
+{
+    switch( aGroup )
+    {
+    case SIGGRP_VOLTAGES: return _( "Voltages" );
+    case SIGGRP_CURRENTS: return _( "Currents" );
+    case SIGGRP_POWER: return _( "Power" );
+    case SIGGRP_USER_DEFINED: return _( "User-defined" );
+    default: return _( "Other" );
+    }
+}
+
+
+/// The language-independent counterpart of signalGroupLabel().
+static wxString signalGroupKey( SIGNAL_GROUP aGroup )
+{
+    switch( aGroup )
+    {
+    case SIGGRP_VOLTAGES: return wxS( "voltages" );
+    case SIGGRP_CURRENTS: return wxS( "currents" );
+    case SIGGRP_POWER: return wxS( "power" );
+    case SIGGRP_USER_DEFINED: return wxS( "user-defined" );
+    default: return wxS( "other" );
+    }
+}
+
+
+void SIMULATOR_FRAME_UI::applyTreeRowHeight()
+{
+    if( !m_signalsTree || !m_measurementsTree )
+        return;
+
+    // wxGTK re-measures invalidated container rows against their subtree; use a uniform height.
+    int rowHeight = std::max( m_signalsTree->GetCharHeight(), FromDIP( 12 ) ) + FromDIP( 6 );
+
+    m_signalsTree->SetRowHeight( rowHeight );
+    m_measurementsTree->SetRowHeight( rowHeight );
+}
+
+
+/// Group identity across rebuilds and language changes.
+static wxString signalTreeGroupKey( const SIM_TREE_MODEL::NODE* aGroup )
+{
+    wxString key;
+
+    for( const SIM_TREE_MODEL::NODE* node = aGroup; node; node = node->parent )
+        key = node->key + wxS( "/" ) + key;
+
+    return key;
+}
+
+
+void SIMULATOR_FRAME_UI::rebuildSignalsTree( wxString aFilter )
+{
+    if( !m_signalsModel )
+        return;
+
+    // Both "" and "*" match everything.
+    bool filtering = !aFilter.IsEmpty() && aFilter != wxS( "*" );
+
+    // A filtered tree is force-expanded, so don't record its state.
+    if( !m_signalsTreeFiltered )
+    {
+        for( SIM_TREE_MODEL::NODE* group : m_signalsModel->Groups() )
+            m_signalGroupExpanded[signalTreeGroupKey( group )] =
+                    m_signalsTree->IsExpanded( SIM_TREE_MODEL::ToItem( group ) );
+    }
 
     SIM_PLOT_TAB* plotPanel = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
 
     if( !plotPanel )
+    {
+        m_signalsTreeFiltered = filtering;
+        m_signalsModel->SetContents( {} );
         return;
+    }
 
     SIM_TYPE              simType = plotPanel->GetSimType();
     std::vector<wxString> signals;
+    std::set<wxString>    userDefined;
 
     if( plotPanel->GetSimType() == ST_FFT )
     {
@@ -947,152 +1179,279 @@ void SIMULATOR_FRAME_UI::rebuildSignalsGrid( wxString aFilter )
         for( const wxString& signal : m_signals )
             signals.push_back( signal );
 
+        auto addUserDefined = [&]( const wxString& aSignal )
+        {
+            signals.push_back( aSignal );
+            userDefined.insert( aSignal );
+        };
+
         for( const auto& [id, signal] : m_userDefinedSignals )
         {
             if( simType == ST_AC )
             {
-                signals.push_back( signal + _( " (gain)" ) );
-                signals.push_back( signal + _( " (phase)" ) );
+                addUserDefined( signal + _( " (gain)" ) );
+                addUserDefined( signal + _( " (phase)" ) );
             }
             else if( simType == ST_SP )
             {
                 if( plotPanel->IsSmithMode() )
                 {
-                    signals.push_back( signal );
+                    addUserDefined( signal );
                 }
                 else
                 {
-                    signals.push_back( signal + _( " (amplitude)" ) );
-                    signals.push_back( signal + _( " (phase)" ) );
+                    addUserDefined( signal + _( " (amplitude)" ) );
+                    addUserDefined( signal + _( " (phase)" ) );
                 }
             }
             else
             {
-                signals.push_back( signal );
+                addUserDefined( signal );
             }
         }
-
-        sortSignals( signals );
     }
 
     if( aFilter.IsEmpty() )
         aFilter = wxS( "*" );
 
     EDA_COMBINED_MATCHER matcher( aFilter.Upper(), CTX_SIGNAL );
-    int                  row = 0;
+
+    std::vector<std::vector<wxString>> buckets( SIGGRP_COUNT );
+    std::vector<wxString>              componentVoltages;
 
     for( const wxString& signal : signals )
     {
-        if( matcher.Find( signal.Upper() ) )
+        if( !matcher.Find( signal.Upper() ) )
+            continue;
+
+        // Component voltages get a sub-group so they don't swamp the node voltages.
+        if( m_deviceVoltageIds.count( SimSignalBaseName( signal ) ) > 0 )
+            componentVoltages.push_back( signal );
+        else
+            buckets[signalGroup( signal, userDefined.count( signal ) > 0 )].push_back( signal );
+    }
+
+    auto sortSignalNames = []( std::vector<wxString>& aNames )
+    {
+        std::sort( aNames.begin(), aNames.end(),
+                   []( const wxString& lhs, const wxString& rhs )
+                   {
+                       return StrNumCmp( lhs, rhs, true /* ignore case */ ) < 0;
+                   } );
+    };
+
+    auto toEntries = []( const std::vector<wxString>& aNames )
+    {
+        std::vector<SIM_TREE_MODEL::ENTRY> entries;
+
+        for( const wxString& signal : aNames )
+            entries.push_back( { signal, -1 } );
+
+        return entries;
+    };
+
+    sortSignalNames( componentVoltages );
+
+    std::vector<SIM_TREE_MODEL::GROUP> groups;
+
+    for( int ii = 0; ii < SIGGRP_COUNT; ++ii )
+    {
+        std::vector<wxString>& bucket = buckets[ii];
+        SIGNAL_GROUP           groupId = static_cast<SIGNAL_GROUP>( ii );
+        bool                   nestComponents = groupId == SIGGRP_VOLTAGES && !componentVoltages.empty();
+
+        if( bucket.empty() && !nestComponents )
+            continue;
+
+        sortSignalNames( bucket );
+
+        SIM_TREE_MODEL::GROUP group;
+        size_t                count = bucket.size();
+
+        group.entries = toEntries( bucket );
+
+        if( nestComponents )
         {
-            int      traceType = SPT_UNKNOWN;
-            wxString vectorName = vectorNameFromSignalName( plotPanel, signal, &traceType );
-            TRACE*   trace = plotPanel->GetTrace( vectorName, traceType );
+            count += componentVoltages.size();
 
-            // A trace can exist but not be plotted on any view (e.g. after its view was removed);
-            // such an orphan is shown the same as a never-plotted signal.
-            bool plotted = trace && trace->GetView();
+            SIM_TREE_MODEL::GROUP components;
+            components.name = wxString::Format( wxS( "%s [%zu]" ), _( "Components" ), componentVoltages.size() );
+            components.key = wxS( "components" );
+            components.entries = toEntries( componentVoltages );
+            group.subGroups.push_back( components );
+        }
 
-            m_signalsGrid->AppendRows( 1 );
-            m_signalsGrid->SetCellValue( row, COL_SIGNAL_NAME, signal );
+        group.name = wxString::Format( wxS( "%s [%zu]" ), signalGroupLabel( groupId ), count );
+        group.key = signalGroupKey( groupId );
+        groups.push_back( group );
+    }
 
-            wxGridCellAttr* attr = new wxGridCellAttr;
-            attr->SetEditor( new GRID_CELL_COMBOBOX( getViewChoices( plotPanel ) ) );
-            attr->SetRenderer( new GRID_CELL_COMBOBOX_RENDERER() );
-            attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
+    m_signalsModel->SetContents( groups );
 
-            if( !plotted )
-                attr->SetTextColour( *wxLIGHT_GREY );
+    for( SIM_TREE_MODEL::NODE* group : m_signalsModel->Groups() )
+    {
+        auto it = m_signalGroupExpanded.find( signalTreeGroupKey( group ) );
 
-            m_signalsGrid->SetAttr( row, COL_SIGNAL_SHOW, attr );
-            m_signalsGrid->SetCellValue( row, COL_SIGNAL_SHOW, getViewLabel( plotPanel, trace ? trace->GetView()
-                                                                                              : nullptr ) );
+        if( filtering || it == m_signalGroupExpanded.end() || it->second )
+            m_signalsTree->Expand( SIM_TREE_MODEL::ToItem( group ) );
+    }
 
-            if( !plotted )
-            {
-                attr = new wxGridCellAttr;
-                attr->SetReadOnly();
-                m_signalsGrid->SetAttr( row, COL_Y_SCALE, attr );
-                m_signalsGrid->SetCellValue( row, COL_Y_SCALE, wxEmptyString );
+    m_signalsTreeFiltered = filtering;
 
-                attr = new wxGridCellAttr;
-                attr->SetReadOnly();
-                m_signalsGrid->SetAttr( row, COL_SIGNAL_COLOR, attr );
-                m_signalsGrid->SetCellValue( row, COL_SIGNAL_COLOR, wxEmptyString );
+    applyTreeRowHeight();
+    updateSignalsTree();
+}
 
-                attr = new wxGridCellAttr;
-                attr->SetReadOnly();
-                m_signalsGrid->SetAttr( row, COL_CURSOR_1, attr );
 
-                attr = new wxGridCellAttr;
-                attr->SetReadOnly();
-                m_signalsGrid->SetAttr( row, COL_CURSOR_2, attr );
+void SIMULATOR_FRAME_UI::updateSignalsTree()
+{
+    if( !m_signalsModel )
+        return;
 
-                if( m_customCursorsCnt > 3 )
-                {
-                    for( int i = 1; i <= m_customCursorsCnt - 3; i++ )
-                    {
-                        attr = new wxGridCellAttr;
-                        attr->SetReadOnly();
-                        m_signalsGrid->SetAttr( row, COL_CURSOR_2 + i, attr );
-                    }
-                }
-            }
-            else
-            {
-                attr = new wxGridCellAttr;
-                attr->SetEditor( new GRID_CELL_COMBOBOX( getYScaleChoices( plotPanel, trace->GetView() ) ) );
-                attr->SetRenderer( new GRID_CELL_COMBOBOX_RENDERER() );
-                attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                m_signalsGrid->SetAttr( row, COL_Y_SCALE, attr );
-                m_signalsGrid->SetCellValue( row, COL_Y_SCALE, getYScaleLabel( plotPanel, trace ) );
+    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
 
-                attr = new wxGridCellAttr;
-                attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( this ) );
-                attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( this, m_signalsGrid ) );
-                attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                m_signalsGrid->SetAttr( row, COL_SIGNAL_COLOR, attr );
-                KIGFX::COLOR4D color( trace->GetPen().GetColour() );
-                m_signalsGrid->SetCellValue( row, COL_SIGNAL_COLOR, color.ToCSSString() );
+    std::set<const SIM_TAB*> liveTabs;
 
-                attr = new wxGridCellAttr;
-                attr->SetRenderer( new wxGridCellBoolRenderer() );
-                attr->SetReadOnly(); // not really; we delegate interactivity to GRID_TRICKS
-                attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                m_signalsGrid->SetAttr( row, COL_CURSOR_1, attr );
-                m_signalsGrid->SetCellValue( row, COL_CURSOR_1, trace->GetCursor( 1 ) ? "1" : "0" );
+    for( size_t ii = 0; ii < m_plotNotebook->GetPageCount(); ++ii )
+        liveTabs.insert( dynamic_cast<SIM_TAB*>( m_plotNotebook->GetPage( ii ) ) );
 
-                attr = new wxGridCellAttr;
-                attr->SetRenderer( new wxGridCellBoolRenderer() );
-                attr->SetReadOnly(); // not really; we delegate interactivity to GRID_TRICKS
-                attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                m_signalsGrid->SetAttr( row, COL_CURSOR_2, attr );
-                m_signalsGrid->SetCellValue( row, COL_CURSOR_2, trace->GetCursor( 2 ) ? "1" : "0" );
+    std::erase_if( m_lastSignalView,
+                   [&]( const auto& aEntry )
+                   {
+                       return liveTabs.find( aEntry.first ) == liveTabs.end();
+                   } );
 
-                if( m_customCursorsCnt > 3 )
-                {
-                    for( int i = 1; i <= m_customCursorsCnt - 3; i++ )
-                    {
-                        attr = new wxGridCellAttr;
-                        attr->SetRenderer( new wxGridCellBoolRenderer() );
-                        attr->SetReadOnly(); // not really; we delegate interactivity to GRID_TRICKS
-                        attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                        m_signalsGrid->SetAttr( row, COL_CURSOR_2 + i, attr );
-                        m_signalsGrid->SetCellValue( row, COL_CURSOR_2 + i, trace->GetCursor( i ) ? "1" : "0" );
-                    }
-                }
-            }
-            row++;
+    for( SIM_TREE_MODEL::NODE* leaf : m_signalsModel->Leaves() )
+    {
+        int      traceType = SPT_UNKNOWN;
+        wxString vectorName = vectorNameFromSignalName( plotTab, leaf->name, &traceType );
+        TRACE*   trace = plotTab ? plotTab->GetTrace( vectorName, traceType ) : nullptr;
+
+        bool plotted = trace && trace->GetView();
+
+        wxColour color = plotted ? trace->GetPen().GetColour() : wxColour();
+
+        // Rebuilding the dot is expensive; only when it changes.
+        if( leaf->plotted != plotted || leaf->color != color || !leaf->icon.IsOk() )
+            leaf->icon = signalDot( color, plotted );
+
+        leaf->plotted = plotted;
+        leaf->color = color;
+        leaf->greyed = !plotted;
+        leaf->value = plotted ? getViewLabel( plotTab, trace->GetView() ) : wxString();
+
+        if( plotted )
+            m_lastSignalView[plotTab][signalViewKey( leaf->name )] = plotTab->GetViewIndex( trace->GetView() );
+
+        m_signalsModel->ItemChanged( SIM_TREE_MODEL::ToItem( leaf ) );
+    }
+
+    // The measurement groups show the same dots.
+    if( refreshMeasurementGroupIcons() )
+    {
+        std::map<wxString, wxString> values = shownMeasurementValues();
+        rebuildMeasurementsTree( &values );
+    }
+}
+
+
+void SIMULATOR_FRAME_UI::copySignalNames( const std::vector<wxString>& aSignals )
+{
+    if( aSignals.empty() )
+        return;
+
+    wxLogNull doNotLog; // disable logging of failed clipboard actions
+    wxString  txt;
+
+    for( const wxString& signal : aSignals )
+    {
+        if( !txt.IsEmpty() )
+            txt += '\r';
+
+        txt += signal;
+    }
+
+    if( wxTheClipboard->Open() )
+    {
+        wxTheClipboard->SetData( new wxTextDataObject( txt ) );
+        wxTheClipboard->Flush(); // Allow data to be available after closing KiCad
+        wxTheClipboard->Close();
+    }
+}
+
+
+std::vector<wxString> SIMULATOR_FRAME_UI::getSelectedSignals( const wxDataViewItem& aClickedItem ) const
+{
+    std::vector<wxString> signals;
+    wxDataViewItemArray   selection;
+
+    m_signalsTree->GetSelections( selection );
+
+    for( const wxDataViewItem& item : selection )
+    {
+        SIM_TREE_MODEL::NODE* node = SIM_TREE_MODEL::ToNode( item );
+
+        if( node && !node->IsGroup() )
+            signals.push_back( node->name );
+    }
+
+    SIM_TREE_MODEL::NODE* clicked = SIM_TREE_MODEL::ToNode( aClickedItem );
+
+    if( clicked && !clicked->IsGroup() && std::find( signals.begin(), signals.end(), clicked->name ) == signals.end() )
+    {
+        signals.clear();
+        signals.push_back( clicked->name );
+    }
+
+    return signals;
+}
+
+
+SIM_VIEW* SIMULATOR_FRAME_UI::lastSignalView( SIM_PLOT_TAB* aPlotTab, const wxString& aSignal ) const
+{
+    if( !aPlotTab || aPlotTab->GetViewCount() == 0 )
+        return nullptr;
+
+    auto tabIt = m_lastSignalView.find( aPlotTab );
+
+    if( tabIt != m_lastSignalView.end() )
+    {
+        auto signalIt = tabIt->second.find( signalViewKey( aSignal ) );
+
+        // The remembered view may be gone.
+        if( signalIt != tabIt->second.end() && signalIt->second >= 0 && signalIt->second < aPlotTab->GetViewCount() )
+        {
+            return aPlotTab->GetView( signalIt->second );
         }
     }
 
-    autoSizeGridColumn( m_signalsGrid, COL_SIGNAL_NAME, 207 );
-    autoSizeGridColumn( m_signalsGrid, COL_SIGNAL_SHOW, 32, 22 );
-    autoSizeGridColumn( m_signalsGrid, COL_Y_SCALE, 40, 22 );
-    autoSizeGridColumn( m_signalsGrid, COL_SIGNAL_COLOR, 38 );
+    return aPlotTab->GetView( 0 );
+}
 
-    for( int col = COL_CURSOR_1; col < m_signalsGrid->GetNumberCols(); ++col )
-        autoSizeGridColumn( m_signalsGrid, col, 55 );
+
+void SIMULATOR_FRAME_UI::setSignalView( const wxString& aSignal, SIM_VIEW* aView )
+{
+    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+
+    if( !plotTab )
+        return;
+
+    int      traceType = SPT_UNKNOWN;
+    wxString vectorName = vectorNameFromSignalName( plotTab, aSignal, &traceType );
+
+    if( !aView )
+    {
+        plotTab->DeleteTrace( vectorName, traceType );
+    }
+    else
+    {
+        TRACE* existing = plotTab->GetTrace( vectorName, traceType );
+
+        if( existing && existing->GetView() != aView )
+            plotTab->DeleteTrace( existing );
+
+        updateTrace( vectorName, traceType, plotTab, nullptr, false, aView );
+    }
 }
 
 
@@ -1177,9 +1536,85 @@ wxString SIMULATOR_FRAME_UI::getYScaleLabel( SIM_PLOT_TAB* aPlotTab, TRACE* aTra
 }
 
 
+void SIMULATOR_FRAME_UI::rebuildDeviceVoltages()
+{
+    m_deviceVoltageIds.clear();
+    m_deviceVoltageExprs.clear();
+    m_deviceVoltageVectors.clear();
+
+    // Ids are re-evaluated per plot.
+    m_appliedDeviceVoltages.clear();
+
+    auto isGround = []( const wxString& aNet )
+    {
+        return aNet.IsSameAs( wxS( "GND" ), false ) || aNet == wxS( "0" );
+    };
+
+    if( !circuitModel() )
+        return;
+
+    const std::set<wxString> nets = circuitModel()->GetNets();
+
+    for( const SPICE_ITEM& item : circuitModel()->GetItems() )
+    {
+        // Only enabled two-pin parts have a voltage across them.
+        if( !item.model || !item.model->IsEnabled() || item.model->GetPinCount() != 2 || item.pinNetNames.size() != 2 )
+            continue;
+
+        wxString netA = item.pinNetNames[0];
+        wxString netB = item.pinNetNames[1];
+
+        NETLIST_EXPORTER_SPICE::ConvertToSpiceMarkup( &netA );
+        NETLIST_EXPORTER_SPICE::ConvertToSpiceMarkup( &netB );
+
+        if( netA.IsEmpty() || netB.IsEmpty() || netA == netB )
+            continue;
+
+        if( isGround( netA ) && isGround( netB ) )
+            continue;
+
+        wxString refName = item.model->SpiceGenerator().ItemName( item );
+        wxString name = wxString::Format( wxS( "V(%s)" ), refName );
+
+        // A net named "R1" owns V(R1).  m_netnames may be stale, so ask the model.
+        if( nets.count( refName ) )
+            continue;
+
+        wxString expr;
+
+        if( isGround( netB ) )
+            expr = wxString::Format( wxS( "V(%s)" ), netA );
+        else if( isGround( netA ) )
+            expr = wxString::Format( wxS( "-V(%s)" ), netB );
+        else
+            expr = wxString::Format( wxS( "V(%s) - V(%s)" ), netA, netB );
+
+        // Keep a device's id across netlist changes so existing traces stay valid.
+        auto [reg, isNew] = m_deviceVoltageIdRegistry.try_emplace( name, m_nextDeviceVoltageId );
+
+        if( isNew )
+            m_nextDeviceVoltageId++;
+
+        int id = reg->second;
+
+        m_deviceVoltageIds[name] = id;
+        m_deviceVoltageExprs[id] = expr;
+        m_deviceVoltageVectors[vectorNameFromSignalId( id )] = id;
+    }
+}
+
+
 void SIMULATOR_FRAME_UI::rebuildSignalsList()
 {
     m_signals.clear();
+
+    m_netnames.clear();
+
+    m_deviceVoltageIds.clear();
+    m_deviceVoltageExprs.clear();
+    m_deviceVoltageVectors.clear();
+
+    m_appliedDeviceVoltages.clear();
 
     int      options = m_simulatorFrame->GetCurrentOptions();
     SIM_TYPE simType = m_simulatorFrame->GetCurrentSimType();
@@ -1193,31 +1628,39 @@ void SIMULATOR_FRAME_UI::rebuildSignalsList()
     SIM_PLOT_TAB* curPlotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
     bool          smithMode = curPlotTab && curPlotTab->GetSimType() == ST_SP && curPlotTab->IsSmithMode();
 
-    auto addSignal =
-            [&]( const wxString& aSignalName )
+    auto addSignal = [&]( const wxString& aSignalName )
+    {
+        if( simType == ST_AC )
+        {
+            m_signals.push_back( aSignalName + _( " (gain)" ) );
+            m_signals.push_back( aSignalName + _( " (phase)" ) );
+        }
+        else if( simType == ST_SP )
+        {
+            if( smithMode )
             {
-                if( simType == ST_AC )
-                {
-                    m_signals.push_back( aSignalName + _( " (gain)" ) );
-                    m_signals.push_back( aSignalName + _( " (phase)" ) );
-                }
-                else if( simType == ST_SP )
-                {
-                    if( smithMode )
-                    {
-                        m_signals.push_back( aSignalName );
-                    }
-                    else
-                    {
-                        m_signals.push_back( aSignalName + _( " (amplitude)" ) );
-                        m_signals.push_back( aSignalName + _( " (phase)" ) );
-                    }
-                }
-                else
-                {
-                    m_signals.push_back( aSignalName );
-                }
-            };
+                m_signals.push_back( aSignalName );
+            }
+            else
+            {
+                m_signals.push_back( aSignalName + _( " (amplitude)" ) );
+                m_signals.push_back( aSignalName + _( " (phase)" ) );
+            }
+        }
+        else
+        {
+            m_signals.push_back( aSignalName );
+        }
+    };
+
+    // Quoting needs every net, whatever the analysis or saved signals.
+    for( const wxString& netname : circuitModel()->GetNets() )
+    {
+        if( netname.IsSameAs( wxS( "GND" ), false ) || netname == "0" || netname.StartsWith( unconnected ) )
+            continue;
+
+        m_netnames.emplace_back( netname );
+    }
 
     if( ( options & NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_VOLTAGES )
         && ( simType == ST_TRAN || simType == ST_DC || simType == ST_AC || simType == ST_FFT ) )
@@ -1227,8 +1670,19 @@ void SIMULATOR_FRAME_UI::rebuildSignalsList()
             if( netname.IsSameAs( wxS( "GND" ), false ) || netname == "0" || netname.StartsWith( unconnected ) )
                 continue;
 
-            m_netnames.emplace_back( netname );
             addSignal( wxString::Format( wxS( "V(%s)" ), netname ) );
+        }
+    }
+
+    if( simType == ST_TRAN || simType == ST_DC || simType == ST_AC || simType == ST_FFT )
+    {
+        // Always resolved, so workbook V(R1) traces survive; listed only when all voltages are saved.
+        rebuildDeviceVoltages();
+
+        if( options & NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_VOLTAGES )
+        {
+            for( const auto& [name, id] : m_deviceVoltageIds )
+                addSignal( name );
         }
     }
 
@@ -1347,7 +1801,7 @@ SIM_TAB* SIMULATOR_FRAME_UI::NewSimTab( const wxString& aSimCommand )
 
 void SIMULATOR_FRAME_UI::OnFilterText( wxCommandEvent& aEvent )
 {
-    rebuildSignalsGrid( m_filter->GetValue() );
+    rebuildSignalsTree( m_filter->GetValue() );
 }
 
 
@@ -1371,6 +1825,22 @@ void SIMULATOR_FRAME_UI::OnFilterMouseMoved( wxMouseEvent& aEvent )
 wxString vectorNameFromSignalId( int aUserDefinedSignalId )
 {
     return wxString::Format( wxS( "user%d" ), aUserDefinedSignalId );
+}
+
+
+/// True for the "user<N>" vectors backing user-defined signals and component voltages.
+static bool isUserSignalVector( const wxString& aVectorName )
+{
+    if( !aVectorName.StartsWith( wxS( "user" ) ) || aVectorName.Length() == 4 )
+        return false;
+
+    for( size_t ii = 4; ii < aVectorName.Length(); ++ii )
+    {
+        if( aVectorName[ii] < '0' || aVectorName[ii] > '9' )
+            return false;
+    }
+
+    return true;
 }
 
 
@@ -1449,7 +1919,15 @@ wxString SIMULATOR_FRAME_UI::vectorNameFromSignalName( SIM_PLOT_TAB* aPlotTab, c
         *aTraceType |= SPT_SP_SMITH;
     }
 
-    for( const auto& [ id, signal ] : m_userDefinedSignals )
+    if( auto it = m_deviceVoltageIds.find( name ); it != m_deviceVoltageIds.end() )
+    {
+        if( aTraceType )
+            *aTraceType = ( *aTraceType & ( SPT_SP_MASK | SPT_AC_GAIN | SPT_AC_PHASE ) ) | SPT_VOLTAGE;
+
+        return vectorNameFromSignalId( it->second );
+    }
+
+    for( const auto& [id, signal] : m_userDefinedSignals )
     {
         if( name == signal )
         {
@@ -1467,126 +1945,343 @@ wxString SIMULATOR_FRAME_UI::vectorNameFromSignalName( SIM_PLOT_TAB* aPlotTab, c
 };
 
 
-void SIMULATOR_FRAME_UI::onSignalsGridCellChanged( wxGridEvent& aEvent )
+wxString SIMULATOR_FRAME_UI::signalNameFromVectorName( const wxString& aVectorName ) const
 {
-    if( m_SuppressGridEvents > 0 )
+    wxString suffix;
+
+    if( aVectorName.EndsWith( _( " (phase)" ) ) )
+        suffix = _( " (phase)" );
+    else if( aVectorName.EndsWith( _( " (gain)" ) ) )
+        suffix = _( " (gain)" );
+    else if( aVectorName.EndsWith( _( " (amplitude)" ) ) )
+        suffix = _( " (amplitude)" );
+
+    wxString vectorName = aVectorName.Left( aVectorName.Length() - suffix.Length() );
+
+    for( const auto& [id, signal] : m_userDefinedSignals )
+    {
+        if( vectorName == vectorNameFromSignalId( id ) )
+            return signal + suffix;
+    }
+
+    // The name is the stable identity; ids are assigned per session.
+    for( const auto& [name, id] : m_deviceVoltageIds )
+    {
+        if( vectorName == vectorNameFromSignalId( id ) )
+            return name + suffix;
+    }
+
+    return aVectorName;
+}
+
+
+void SIMULATOR_FRAME_UI::onSignalsTreeActivated( wxDataViewEvent& aEvent )
+{
+    SIM_PLOT_TAB*         plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+    SIM_TREE_MODEL::NODE* node = SIM_TREE_MODEL::ToNode( aEvent.GetItem() );
+
+    if( !plotTab || !node )
         return;
 
+    if( node->IsGroup() )
+    {
+        wxDataViewItem item = aEvent.GetItem();
+
+        if( m_signalsTree->IsExpanded( item ) )
+            m_signalsTree->Collapse( item );
+        else
+            m_signalsTree->Expand( item );
+
+        return;
+    }
+
+    if( node->plotted )
+    {
+        setSignalView( node->name, nullptr );
+    }
+    else if( SIM_VIEW* view = lastSignalView( plotTab, node->name ) )
+    {
+        setSignalView( node->name, view );
+    }
+    else
+    {
+        return;
+    }
+
+    for( SIM_VIEW* view : plotTab->GetViews() )
+        view->UpdateAll();
+
+    updateSignalsTree();
+    updatePlotCursors();
+    OnModify();
+}
+
+
+static const std::vector<wxString>& measurementFunctions();
+
+
+void SIMULATOR_FRAME_UI::onSignalsTreeContextMenu( wxDataViewEvent& aEvent )
+{
     SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
 
     if( !plotTab )
         return;
 
-    int      row = aEvent.GetRow();
-    int      col = aEvent.GetCol();
-    wxString text = m_signalsGrid->GetCellValue( row, col );
-    wxString signalName = m_signalsGrid->GetCellValue( row, COL_SIGNAL_NAME );
-    int      traceType = SPT_UNKNOWN;
-    wxString vectorName = vectorNameFromSignalName( plotTab, signalName, &traceType );
+    m_signalsMenuSignals = getSelectedSignals( aEvent.GetItem() );
 
-    if( col == COL_SIGNAL_SHOW )
+    wxMenu menu;
+
+    if( !m_signalsMenuSignals.empty() )
     {
-        wxArrayString choices = getViewChoices( plotTab );
-        int           choiceIndex = choices.Index( text );
+        const wxString& first = m_signalsMenuSignals.front();
+        int             traceType = SPT_UNKNOWN;
+        wxString        vectorName = vectorNameFromSignalName( plotTab, first, &traceType );
+        TRACE*          trace = plotTab->GetTrace( vectorName, traceType );
+        bool            single = m_signalsMenuSignals.size() == 1;
 
-        if( choiceIndex <= 0 )
+        wxMenu*       viewMenu = new wxMenu;
+        wxArrayString viewChoices = getViewChoices( plotTab );
+
+        for( size_t ii = 0; ii < viewChoices.GetCount(); ++ii )
         {
-            plotTab->DeleteTrace( vectorName, traceType );
+            wxMenuItem* item = viewMenu->AppendCheckItem( MYID_TREE_VIEW_BASE + (int) ii, viewChoices[ii] );
+
+            if( single )
+            {
+                SIM_VIEW* view = trace ? trace->GetView() : nullptr;
+                item->Check( getViewLabel( plotTab, view ) == viewChoices[ii] );
+            }
         }
-        else if( SIM_VIEW* targetView = plotTab->GetView( choiceIndex - 1 ) )
+
+        menu.AppendSubMenu( viewMenu, _( "Plot On" ) );
+
+        if( single && trace && trace->GetView() )
         {
-            TRACE* existing = plotTab->GetTrace( vectorName, traceType );
+            wxMenu*       scaleMenu = new wxMenu;
+            wxArrayString scaleChoices = getYScaleChoices( plotTab, trace->GetView() );
 
-            if( existing && existing->GetView() != targetView )
-                plotTab->DeleteTrace( existing );
+            for( size_t ii = 0; ii < scaleChoices.GetCount(); ++ii )
+            {
+                wxMenuItem* item = scaleMenu->AppendCheckItem( MYID_TREE_YSCALE_BASE + (int) ii, scaleChoices[ii] );
+                item->Check( getYScaleLabel( plotTab, trace ) == scaleChoices[ii] );
+            }
 
-            updateTrace( vectorName, traceType, plotTab, nullptr, false, targetView );
+            menu.AppendSubMenu( scaleMenu, _( "Y Scale" ) );
+            menu.Append( MYID_TREE_COLOR, _( "Color..." ) );
+
+            menu.AppendSeparator();
+
+            for( int id = 1; id < m_customCursorsCnt; ++id )
+            {
+                wxMenuItem* item =
+                        menu.AppendCheckItem( MYID_TREE_CURSOR_BASE + id, wxString::Format( _( "Cursor %d" ), id ) );
+                item->Check( trace->HasCursor( id ) );
+            }
         }
+
+        menu.AppendSeparator();
+
+        SIM_TYPE simType = plotTab->GetSimType();
+
+        if( simType == ST_TRAN || simType == ST_AC || simType == ST_DC || simType == ST_SP )
+        {
+            wxMenuItem* measureItem = menu.Append( MYID_MEASURE_ALL, _( "Add Measurements" ) );
+            wxString    measured;
+
+            // Phase traces have no MEAS equivalent.
+            measureItem->Enable( std::any_of( m_signalsMenuSignals.begin(), m_signalsMenuSignals.end(),
+                                              [&]( const wxString& aSignal )
+                                              {
+                                                  return measurementSignal( aSignal, measured );
+                                              } ) );
+
+            if( simType == ST_TRAN )
+            {
+                menu.AppendSeparator();
+                menu.Append( MYID_FOURIER, _( "Perform Fourier Analysis..." ) );
+            }
+
+            menu.AppendSeparator();
+        }
+
+        menu.Append( MYID_TREE_COPY, _( "Copy Signal Name" ) + wxS( "\tCtrl+C" ) );
+        menu.AppendSeparator();
+    }
+
+    menu.Append( MYID_TREE_NEW_CURSOR, _( "Create new cursor..." ) );
+
+    if( m_customCursorsCnt > (int) std::size( m_cursorFormats ) )
+    {
+        menu.Append( MYID_TREE_DELETE_CURSOR, wxString::Format( _( "Delete Cursor %d..." ), m_customCursorsCnt - 1 ) );
+    }
+
+    menu.Bind( wxEVT_COMMAND_MENU_SELECTED, &SIMULATOR_FRAME_UI::onSignalsTreeMenuSelection, this );
+
+    m_signalsTree->PopupMenu( &menu );
+}
+
+
+void SIMULATOR_FRAME_UI::onSignalsTreeMenuSelection( wxCommandEvent& aEvent )
+{
+    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+
+    if( !plotTab )
+        return;
+
+    const std::vector<wxString>& signals = m_signalsMenuSignals;
+    int                          id = aEvent.GetId();
+
+    if( id >= MYID_TREE_VIEW_BASE && id < MYID_TREE_VIEW_BASE + 100 )
+    {
+        int       choiceIndex = id - MYID_TREE_VIEW_BASE;
+        SIM_VIEW* targetView = choiceIndex <= 0 ? nullptr : plotTab->GetView( choiceIndex - 1 );
+
+        if( choiceIndex > 0 && !targetView )
+            return;
+
+        for( const wxString& signal : signals )
+            setSignalView( signal, targetView );
 
         for( SIM_VIEW* view : plotTab->GetViews() )
             view->UpdateAll();
 
-        // Update enabled/visible states of other controls
-        updateSignalsGrid();
+        updateSignalsTree();
         updatePlotCursors();
         OnModify();
     }
-    else if( col == COL_Y_SCALE )
+    else if( id >= MYID_TREE_YSCALE_BASE && id < MYID_TREE_YSCALE_BASE + 100 )
     {
-        TRACE* trace = plotTab->GetTrace( vectorName, traceType );
+        if( signals.empty() )
+            return;
 
-        if( trace )
-        {
-            std::vector<SIM_VIEW*> targetViews = getYScaleTargetViews( plotTab, trace->GetView() );
-            wxArrayString          choices = getYScaleChoices( plotTab, trace->GetView() );
-            int                    choiceIndex = choices.Index( text );
+        int      traceType = SPT_UNKNOWN;
+        wxString vectorName = vectorNameFromSignalName( plotTab, signals.front(), &traceType );
+        TRACE*   trace = plotTab->GetTrace( vectorName, traceType );
 
-            if( choiceIndex == 0 )
-            {
-                trace->SetYScaleView( trace->GetView() );
-            }
-            else if( choiceIndex > 0 && choiceIndex - 1 < (int) targetViews.size() )
-            {
-                trace->SetYScaleView( targetViews[choiceIndex - 1] );
-            }
+        if( !trace )
+            return;
 
-            plotTab->ResetScales( false );
+        std::vector<SIM_VIEW*> targetViews = getYScaleTargetViews( plotTab, trace->GetView() );
+        int                    choiceIndex = id - MYID_TREE_YSCALE_BASE;
 
-            for( SIM_VIEW* view : plotTab->GetViews() )
-                view->UpdateAll();
+        if( choiceIndex == 0 )
+            trace->SetYScaleView( trace->GetView() );
+        else if( choiceIndex - 1 < (int) targetViews.size() )
+            trace->SetYScaleView( targetViews[choiceIndex - 1] );
+        else
+            return;
 
-            OnModify();
-        }
+        plotTab->ResetScales( false );
+
+        for( SIM_VIEW* view : plotTab->GetViews() )
+            view->UpdateAll();
+
+        OnModify();
     }
-    else if( col == COL_SIGNAL_COLOR )
+    else if( id >= MYID_TREE_CURSOR_BASE && id < MYID_TREE_CURSOR_BASE + 100 )
     {
-        KIGFX::COLOR4D color( m_signalsGrid->GetCellValue( row, COL_SIGNAL_COLOR ) );
-        TRACE*         trace = plotTab->GetTrace( vectorName, traceType );
+        if( signals.empty() )
+            return;
 
-        if( trace )
+        int      cursorId = id - MYID_TREE_CURSOR_BASE;
+        int      traceType = SPT_UNKNOWN;
+        wxString vectorName = vectorNameFromSignalName( plotTab, signals.front(), &traceType );
+        TRACE*   activeTrace = plotTab->GetTrace( vectorName, traceType );
+
+        // Cursors act as radio buttons: enabling one takes it off every other signal.
+        bool enable = !( activeTrace && activeTrace->HasCursor( cursorId ) );
+
+        if( enable && activeTrace )
         {
-            trace->SetTraceColour( color.ToColour() );
-            plotTab->UpdateTraceStyle( trace );
-            plotTab->UpdatePlotColors();
+            plotTab->EnableCursor( activeTrace, cursorId, signals.front() );
             OnModify();
         }
-    }
-    else if( col == COL_CURSOR_1 || col == COL_CURSOR_2
-             || ( std::size( m_cursorFormatsDyn ) > std::size( m_cursorFormats ) && col > COL_CURSOR_2 ) )
-    {
-        int id = col == COL_CURSOR_1 ? 1 : 2;
-
-        if( col > COL_CURSOR_2 ) // TODO: clean up logic
+        else
         {
-            id = col - 3; // enum SIGNALS_GRID_COLUMNS offset for Cursor n (COL_CURSOR_1 - 1)
+            activeTrace = nullptr;
         }
 
-        TRACE* activeTrace = nullptr;
-
-        if( text == wxS( "1" ) )
-        {
-            signalName = m_signalsGrid->GetCellValue( row, COL_SIGNAL_NAME );
-            vectorName = vectorNameFromSignalName( plotTab, signalName, &traceType );
-            activeTrace = plotTab->GetTrace( vectorName, traceType );
-
-            if( activeTrace )
-                plotTab->EnableCursor( activeTrace, id, signalName );
-
-            OnModify();
-        }
-
-        // Turn off cursor on other signals.
         for( const auto& [name, trace] : plotTab->GetTraces() )
         {
-            if( trace != activeTrace && trace->HasCursor( id ) )
+            if( trace != activeTrace && trace->HasCursor( cursorId ) )
             {
-                plotTab->DisableCursor( trace, id );
+                plotTab->DisableCursor( trace, cursorId );
                 OnModify();
             }
         }
 
-        // Update cursor checkboxes (which are really radio buttons)
-        updateSignalsGrid();
+        updateSignalsTree();
+        updatePlotCursors();
+    }
+    else if( id == MYID_TREE_COLOR )
+    {
+        if( signals.empty() )
+            return;
+
+        int      traceType = SPT_UNKNOWN;
+        wxString vectorName = vectorNameFromSignalName( plotTab, signals.front(), &traceType );
+        TRACE*   trace = plotTab->GetTrace( vectorName, traceType );
+
+        if( !trace )
+            return;
+
+        wxColourData data;
+        data.SetColour( trace->GetPen().GetColour() );
+
+        wxColourDialog dlg( this, &data );
+
+        if( dlg.ShowModal() != wxID_OK )
+            return;
+
+        trace->SetTraceColour( dlg.GetColourData().GetColour() );
+        plotTab->UpdateTraceStyle( trace );
+        plotTab->UpdatePlotColors();
+        updateSignalsTree();
+        OnModify();
+    }
+    else if( id == MYID_TREE_COPY )
+    {
+        copySignalNames( signals );
+    }
+    else if( id == MYID_TREE_NEW_CURSOR )
+    {
+        CreateNewCursor();
+    }
+    else if( id == MYID_TREE_DELETE_CURSOR )
+    {
+        DeleteCursor();
+    }
+    else if( id == MYID_MEASURE_ALL )
+    {
+        for( const wxString& signal : signals )
+            AddMeasurements( signal, measurementFunctions() );
+    }
+    else if( id == MYID_FOURIER )
+    {
+        wxString title;
+        wxString fundamental = wxT( "1K" );
+
+        if( signals.size() == 1 )
+            title.Printf( _( "Fourier Analysis of %s" ), signals[0] );
+        else
+            title = _( "Fourier Analyses of Multiple Signals" );
+
+        WX_TEXT_ENTRY_DIALOG dlg( this, _( "Fundamental frequency:" ), title, fundamental );
+
+        if( dlg.ShowModal() != wxID_OK )
+            return;
+
+        if( !dlg.GetValue().IsEmpty() )
+            fundamental = dlg.GetValue();
+
+        for( const wxString& signal : signals )
+            DoFourier( signal, fundamental );
+
+        // The results are only printed to the console.
+        if( !IsSimConsoleShown() )
+            ToggleSimConsole();
+
+        FlushSimConsole();
     }
 }
 
@@ -1662,69 +2357,469 @@ void SIMULATOR_FRAME_UI::onCursorsGridCellChanged( wxGridEvent& aEvent )
 }
 
 
+static const std::vector<wxString>& measurementFunctions()
+{
+    static const std::vector<wxString> funcs = { wxS( "MIN" ), wxS( "MAX" ),    wxS( "AVG" ),    wxS( "RMS" ),
+                                                 wxS( "PP" ),  wxS( "MIN_AT" ), wxS( "MAX_AT" ), wxS( "INTEG" ) };
+    return funcs;
+}
+
+
+/// Split "MIN V(OUT)" into its function ("MIN") and its signal ("V(OUT)").
+static void splitMeasurement( const wxString& aCmd, wxString& aFunc, wxString& aSignal )
+{
+    wxString cmd = aCmd;
+    cmd.Trim( false );
+
+    int space = cmd.Find( ' ' );
+
+    if( space == wxNOT_FOUND )
+    {
+        aFunc = cmd;
+        aSignal = wxEmptyString;
+    }
+    else
+    {
+        aFunc = cmd.Left( space );
+        aSignal = cmd.Mid( space + 1 );
+        aSignal.Trim( false );
+        aSignal.Trim( true );
+    }
+}
+
+
+static wxString measurementFunctionLabel( const wxString& aFunc, SIM_TYPE aSimType )
+{
+    bool     freqDomain = aSimType == ST_AC || aSimType == ST_SP;
+    wxString func = aFunc.Upper();
+
+    if( func == wxS( "MIN" ) )
+        return _( "Min" );
+    else if( func == wxS( "MAX" ) )
+        return _( "Max" );
+    else if( func == wxS( "AVG" ) )
+        return _( "Average" );
+    else if( func == wxS( "RMS" ) )
+        return _( "RMS" );
+    else if( func == wxS( "PP" ) )
+        return _( "Peak-to-peak" );
+    else if( func == wxS( "MIN_AT" ) )
+        return freqDomain ? _( "Frequency of Min" ) : _( "Time of Min" );
+    else if( func == wxS( "MAX_AT" ) )
+        return freqDomain ? _( "Frequency of Max" ) : _( "Time of Max" );
+    else if( func == wxS( "INTEG" ) )
+        return _( "Integral" );
+
+    return aFunc;
+}
+
+
+/// True for a single V(...) reference, not a compound expression.
+static bool isSingleVoltageRef( const wxString& aExpression )
+{
+    if( aExpression.Length() < 4 || !aExpression.Upper().StartsWith( wxS( "V(" ) ) )
+        return false;
+
+    int depth = 0;
+
+    for( size_t ii = 1; ii < aExpression.Length(); ++ii )
+    {
+        if( aExpression[ii] == '(' )
+        {
+            depth++;
+        }
+        else if( aExpression[ii] == ')' && --depth == 0 )
+        {
+            return ii == aExpression.Length() - 1;
+        }
+    }
+
+    return false;
+}
+
+
+/// True if MEAS takes \a aSignal as it is: a vector name, or a V(), VDB(), ..., I() reference.
+static bool isMeasVector( const wxString& aSignal )
+{
+    static const std::set<wxString> refs = { wxS( "V" ),  wxS( "VDB" ), wxS( "VM" ), wxS( "VP" ),
+                                             wxS( "VR" ), wxS( "VI" ),  wxS( "I" ) };
+
+    int open = aSignal.Find( '(' );
+
+    if( open == wxNOT_FOUND )
+        return !aSignal.IsEmpty() && aSignal.find_first_of( wxS( " +-*/^," ) ) == wxString::npos;
+
+    if( !refs.count( aSignal.Left( open ).Upper() ) )
+        return false;
+
+    int  depth = 0;
+    bool quoted = false;
+
+    for( size_t ii = open; ii < aSignal.Length(); ++ii )
+    {
+        if( aSignal[ii] == '"' )
+            quoted = !quoted;
+        else if( quoted )
+            continue;
+        else if( aSignal[ii] == '(' )
+            depth++;
+        else if( aSignal[ii] == ')' && --depth == 0 )
+            return ii == aSignal.Length() - 1;
+    }
+
+    return false;
+}
+
+
+bool SIMULATOR_FRAME_UI::measurementSignal( const wxString& aSignal, wxString& aResult ) const
+{
+    // Suffixes are translated, so their length varies.
+    if( aSignal.EndsWith( _( " (phase)" ) ) )
+        return false;
+
+    wxString suffix;
+
+    if( aSignal.EndsWith( _( " (gain)" ) ) )
+        suffix = _( " (gain)" );
+    else if( aSignal.EndsWith( _( " (amplitude)" ) ) )
+        suffix = _( " (amplitude)" );
+
+    aResult = aSignal.Left( aSignal.Length() - suffix.Length() );
+
+    // Gain and amplitude are plotted in dB.
+    if( !suffix.IsEmpty() && isSingleVoltageRef( aResult ) )
+        aResult = wxS( "vdb" ) + aResult.Mid( 1 );
+    else if( suffix == _( " (gain)" ) )
+        aResult = wxS( "db(" ) + aResult + wxS( ")" );
+
+    return true;
+}
+
+
 SPICE_VALUE_FORMAT SIMULATOR_FRAME_UI::GetMeasureFormat( int aRow ) const
 {
     SPICE_VALUE_FORMAT result;
-    result.FromString( m_measurementsGrid->GetCellValue( aRow, COL_MEASUREMENT_FORMAT ) );
+
+    if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
+    {
+        const std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+        if( aRow >= 0 && aRow < (int) measurements.size() )
+            result.FromString( measurements[aRow].second );
+    }
+
     return result;
 }
 
 
 void SIMULATOR_FRAME_UI::SetMeasureFormat( int aRow, const SPICE_VALUE_FORMAT& aFormat )
 {
-    m_measurementsGrid->SetCellValue( aRow, COL_MEASUREMENT_FORMAT, aFormat.ToString() );
+    if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
+    {
+        std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+        if( aRow >= 0 && aRow < (int) measurements.size() )
+            measurements[aRow].second = aFormat.ToString();
+    }
 }
 
 
-void SIMULATOR_FRAME_UI::DeleteMeasurement( int aRow )
+void SIMULATOR_FRAME_UI::DeleteMeasurement( int aIndex )
 {
-    if( aRow < ( m_measurementsGrid->GetNumberRows() - 1 ) )
-        m_measurementsGrid->DeleteRows( aRow, 1 );
+    if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
+    {
+        std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+        if( aIndex >= 0 && aIndex < (int) measurements.size() )
+            measurements.erase( measurements.begin() + aIndex );
+    }
 }
 
 
-void SIMULATOR_FRAME_UI::onMeasurementsGridCellChanged( wxGridEvent& aEvent )
+std::map<wxString, wxString> SIMULATOR_FRAME_UI::shownMeasurementValues() const
+{
+    std::map<wxString, wxString> values;
+    SIM_PLOT_TAB*                plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+
+    if( !plotTab || !m_measurementsModel )
+        return values;
+
+    const std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+    for( SIM_TREE_MODEL::NODE* leaf : m_measurementsModel->Leaves() )
+    {
+        if( leaf->index >= 0 && leaf->index < (int) measurements.size() )
+            values[measurements[leaf->index].first] = leaf->value;
+    }
+
+    return values;
+}
+
+
+void SIMULATOR_FRAME_UI::rebuildMeasurementsTree( const std::map<wxString, wxString>* aKeepValues )
+{
+    if( !m_measurementsModel )
+        return;
+
+    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+
+    if( !plotTab )
+    {
+        m_measurementsModel->SetContents( {} );
+        return;
+    }
+
+    SIM_TYPE simType = plotTab->GetSimType();
+
+    std::vector<wxString>                                  order;
+    std::map<wxString, std::vector<SIM_TREE_MODEL::ENTRY>> bySignal;
+
+    const std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+    for( int ii = 0; ii < (int) measurements.size(); ++ii )
+    {
+        wxString func, signal;
+        splitMeasurement( measurements[ii].first, func, signal );
+
+        if( signal.IsEmpty() ) // a measurement we can't parse; file it under its own text
+            signal = measurements[ii].first;
+
+        // ngspice ignores case, so "MAX v(d1)" joins the V(D1) group under its first spelling.
+        wxString key = signal.Lower();
+
+        if( bySignal.find( key ) == bySignal.end() )
+            order.push_back( signal );
+
+        bySignal[key].push_back( { measurementFunctionLabel( func, simType ), ii } );
+    }
+
+    std::vector<SIM_TREE_MODEL::GROUP> groups;
+
+    for( const wxString& signal : order )
+    {
+        SIM_TREE_MODEL::GROUP group;
+        group.name = signal;
+        group.entries = bySignal[signal.Lower()];
+        groups.push_back( group );
+    }
+
+    m_measurementsModel->SetContents( groups );
+
+    // Each MEAS is an ngspice round trip and a console echo; evaluate only new ones.
+    std::vector<int> toEvaluate;
+
+    for( SIM_TREE_MODEL::NODE* leaf : m_measurementsModel->Leaves() )
+    {
+        if( aKeepValues )
+        {
+            if( auto kept = aKeepValues->find( measurements[leaf->index].first ); kept != aKeepValues->end() )
+            {
+                leaf->value = kept->second;
+                continue;
+            }
+        }
+
+        toEvaluate.push_back( leaf->index );
+    }
+
+    // Seed the group dots before expanding; notifying container rows inflates them in wxGTK.
+    refreshMeasurementGroupIcons();
+
+    for( SIM_TREE_MODEL::NODE* group : m_measurementsModel->Groups() )
+        m_measurementsTree->Expand( SIM_TREE_MODEL::ToItem( group ) );
+
+    applyTreeRowHeight();
+
+    for( int index : toEvaluate )
+        UpdateMeasurement( index );
+}
+
+
+bool SIMULATOR_FRAME_UI::refreshMeasurementGroupIcons()
+{
+    if( !m_measurementsModel )
+        return false;
+
+    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+    SIM_TYPE      simType = plotTab ? plotTab->GetSimType() : ST_UNKNOWN;
+    bool          magnitude = simType == ST_AC || ( simType == ST_SP && !plotTab->IsSmithMode() );
+    bool          changed = false;
+
+    // No notification: see rebuildMeasurementsTree().
+    for( SIM_TREE_MODEL::NODE* group : m_measurementsModel->Groups() )
+    {
+        wxString signal = group->name;
+
+        // Groups are named by the MEAS signal; undo measurementSignal() to find the plotted trace.
+        if( magnitude )
+        {
+            if( signal.Upper().StartsWith( wxS( "VDB(" ) ) )
+                signal = wxS( "V" ) + signal.Mid( 3 );
+            else if( simType == ST_AC && signal.StartsWith( wxS( "db(" ) ) && signal.EndsWith( wxS( ")" ) ) )
+                signal = signal.Mid( 3, signal.Length() - 4 );
+
+            signal += simType == ST_AC ? _( " (gain)" ) : _( " (amplitude)" );
+        }
+
+        int      traceType = SPT_UNKNOWN;
+        wxString vectorName = vectorNameFromSignalName( plotTab, signal, &traceType );
+        TRACE*   trace = plotTab ? plotTab->GetTrace( vectorName, traceType ) : nullptr;
+
+        // A typed measurement may differ in case from the plotted signal.
+        if( !trace && plotTab )
+        {
+            for( const auto& [id, candidate] : plotTab->GetTraces() )
+            {
+                if( candidate->GetDisplayName().IsSameAs( signal, false ) )
+                {
+                    trace = candidate;
+                    break;
+                }
+            }
+        }
+
+        bool     plotted = trace && trace->GetView();
+        wxColour color = plotted ? trace->GetPen().GetColour() : wxColour();
+
+        if( group->plotted != plotted || group->color != color || !group->icon.IsOk() )
+        {
+            group->icon = signalDot( color, plotted );
+            group->plotted = plotted;
+            group->color = color;
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
+
+void SIMULATOR_FRAME_UI::updateMeasurementValues()
+{
+    if( !m_measurementsModel )
+        return;
+
+    for( SIM_TREE_MODEL::NODE* leaf : m_measurementsModel->Leaves() )
+        UpdateMeasurement( leaf->index );
+}
+
+
+void SIMULATOR_FRAME_UI::updateMeasurements()
+{
+    if( !m_measurementsModel )
+        return;
+
+    // Reload instead of notifying container rows, which inflates them.
+    if( refreshMeasurementGroupIcons() )
+        rebuildMeasurementsTree();
+    else
+        updateMeasurementValues();
+}
+
+
+std::vector<int> SIMULATOR_FRAME_UI::getSelectedMeasurements( const wxDataViewItem& aClickedItem ) const
+{
+    std::vector<int>    rows;
+    wxDataViewItemArray selection;
+
+    m_measurementsTree->GetSelections( selection );
+
+    for( const wxDataViewItem& item : selection )
+    {
+        SIM_TREE_MODEL::NODE* node = SIM_TREE_MODEL::ToNode( item );
+
+        if( node && !node->IsGroup() )
+            rows.push_back( node->index );
+    }
+
+    // Right-clicking a group acts on all its measurements.
+    SIM_TREE_MODEL::NODE* clicked = SIM_TREE_MODEL::ToNode( aClickedItem );
+
+    if( clicked && clicked->IsGroup() )
+    {
+        rows.clear();
+
+        for( const std::unique_ptr<SIM_TREE_MODEL::NODE>& child : clicked->children )
+            rows.push_back( child->index );
+    }
+    else if( clicked && std::find( rows.begin(), rows.end(), clicked->index ) == rows.end() )
+    {
+        rows.clear();
+        rows.push_back( clicked->index );
+    }
+
+    return rows;
+}
+
+
+void SIMULATOR_FRAME_UI::onMeasurementsTreeContextMenu( wxDataViewEvent& aEvent )
 {
     SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
 
     if( !plotTab )
         return;
 
-    int row = aEvent.GetRow();
-    int col = aEvent.GetCol();
+    m_measurementsMenuRows = getSelectedMeasurements( aEvent.GetItem() );
 
-    if( col == COL_MEASUREMENT )
+    wxMenu menu;
+
+    if( m_measurementsMenuRows.size() == 1 )
+        menu.Append( MYID_FORMAT_VALUE, _( "Format Value..." ) );
+
+    if( !m_measurementsMenuRows.empty() )
     {
-        UpdateMeasurement( row );
-        updateMeasurementsFromGrid();
+        menu.Append( MYID_DELETE_MEASUREMENT,
+                     wxPLURAL( "Delete Measurement", "Delete Measurements", m_measurementsMenuRows.size() ) );
+        menu.AppendSeparator();
+    }
+
+    menu.Append( MYID_MEASUREMENT_ADD, _( "Add Measurement..." ) );
+
+    menu.Bind( wxEVT_COMMAND_MENU_SELECTED, &SIMULATOR_FRAME_UI::onMeasurementsTreeMenuSelection, this );
+
+    m_measurementsTree->PopupMenu( &menu );
+}
+
+
+void SIMULATOR_FRAME_UI::onMeasurementsTreeMenuSelection( wxCommandEvent& aEvent )
+{
+    if( aEvent.GetId() == MYID_FORMAT_VALUE )
+    {
+        if( m_measurementsMenuRows.size() != 1 )
+            return;
+
+        int                     row = m_measurementsMenuRows.front();
+        SPICE_VALUE_FORMAT      format = GetMeasureFormat( row );
+        DIALOG_SIM_FORMAT_VALUE formatDialog( this, &format );
+
+        if( formatDialog.ShowModal() == wxID_OK )
+        {
+            SetMeasureFormat( row, format );
+            UpdateMeasurement( row );
+            OnModify();
+        }
+    }
+    else if( aEvent.GetId() == MYID_DELETE_MEASUREMENT )
+    {
+        std::vector<int>             rows = m_measurementsMenuRows;
+        std::map<wxString, wxString> values = shownMeasurementValues();
+
+        std::sort( rows.begin(), rows.end(), std::greater<>() );
+
+        for( int row : rows )
+            DeleteMeasurement( row );
+
+        rebuildMeasurementsTree( &values );
         OnModify();
     }
-    else
+    else if( aEvent.GetId() == MYID_MEASUREMENT_ADD )
     {
-        wxFAIL_MSG( wxT( "All other columns are supposed to be read-only!" ) );
-    }
+        WX_TEXT_ENTRY_DIALOG dlg( this, _( "Measurement:" ), _( "Add Measurement" ), wxEmptyString );
 
-    // Always leave a single empty row for type-in
+        if( dlg.ShowModal() != wxID_OK || dlg.GetValue().IsEmpty() )
+            return;
 
-    int rowCount = static_cast<int>( m_measurementsGrid->GetNumberRows() );
-    int emptyRows = 0;
-
-    for( row = rowCount - 1; row >= 0; row-- )
-    {
-        if( m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT ).IsEmpty() )
-            emptyRows++;
-        else
-            break;
-    }
-
-    if( emptyRows > 1 )
-    {
-        int killRows = emptyRows - 1;
-        m_measurementsGrid->DeleteRows( rowCount - killRows, killRows );
-    }
-    else if( emptyRows == 0 )
-    {
-        m_measurementsGrid->AppendRows( 1 );
+        AddMeasurement( dlg.GetValue() );
     }
 }
 
@@ -1733,9 +2828,18 @@ void SIMULATOR_FRAME_UI::OnUpdateUI( wxUpdateUIEvent& event )
 {
     if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
     {
-        if( plotTab->GetLegendPosition() != plotTab->m_LastLegendPosition )
+        mpWindow* plotWin = plotTab->GetPlotWin();
+        wxSize    plotWinSize = plotWin ? plotWin->GetSize() : wxSize();
+
+        if( plotWinSize != plotTab->m_LastPlotWinSize )
         {
+            // A resize moves the legend too; don't report that as a drag.
+            plotTab->m_LastPlotWinSize = plotWinSize;
             plotTab->m_LastLegendPosition = plotTab->GetLegendPosition();
+        }
+        else if( wxPoint legendPos = plotTab->GetLegendPosition(); legendPos != plotTab->m_LastLegendPosition )
+        {
+            plotTab->m_LastLegendPosition = legendPos;
             OnModify();
         }
     }
@@ -1769,11 +2873,16 @@ void SIMULATOR_FRAME_UI::UpdateMeasurement( int aRow )
     if( !plotTab )
         return;
 
-    wxString text = m_measurementsGrid->GetCellValue( aRow, COL_MEASUREMENT );
+    const std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+    if( aRow < 0 || aRow >= (int) measurements.size() )
+        return;
+
+    wxString text = measurements[aRow].first;
 
     if( text.IsEmpty() )
     {
-        m_measurementsGrid->SetCellValue( aRow, COL_MEASUREMENT_VALUE, wxEmptyString );
+        setMeasurementValue( aRow, wxEmptyString );
         return;
     }
 
@@ -1848,13 +2957,58 @@ void SIMULATOR_FRAME_UI::UpdateMeasurement( int aRow )
 
         fmt.UpdateUnits( units );
         SetMeasureFormat( aRow, fmt );
-
-        updateMeasurementsFromGrid();
     }
 
     if( m_simulatorFrame->SimFinished() )
     {
-        wxString cmd = wxString::Format( wxS( "meas %s %s %s" ), simType, resultName, text );
+        wxString measExpr = text;
+        wxString measFunc, measSignal, measParams;
+
+        splitMeasurement( text, measFunc, measSignal );
+
+        // "MAX V(out) from=1m to=2m": the parameters are not part of the signal.
+        if( int eq = measSignal.Find( '=' ); eq != wxNOT_FOUND )
+        {
+            int start = eq;
+
+            while( start > 0 && measSignal[start - 1] == ' ' )
+                start--;
+
+            while( start > 0 && ( wxIsalpha( measSignal[start - 1] ) || measSignal[start - 1] == '_' ) )
+                start--;
+
+            measParams = wxS( " " ) + measSignal.Mid( start );
+            measSignal = measSignal.Left( start ).Trim();
+        }
+
+        // WHEN, FIND, TRIG etc. have their own syntax.
+        bool simpleFunc = std::any_of( measurementFunctions().begin(), measurementFunctions().end(),
+                                       [&]( const wxString& aFunc )
+                                       {
+                                           return measFunc.IsSameAs( aFunc, false );
+                                       } );
+
+        if( simpleFunc && !measSignal.IsEmpty() )
+        {
+            wxString spiceSig = spiceSignal( measSignal );
+
+            // MEAS takes a single vector, not an expression.
+            if( spiceSig != measSignal || !isMeasVector( measSignal ) )
+            {
+                if( !isUserSignalVector( spiceSig ) )
+                {
+                    wxString vector = wxString::Format( wxS( "meas_signal_%u" ), aRow );
+
+                    simulator()->Command(
+                            ( wxS( "let " ) + vector + wxS( " = " ) + quoteNetNames( spiceSig ) ).ToStdString() );
+                    spiceSig = vector;
+                }
+
+                measExpr = measFunc + wxS( " " ) + spiceSig + measParams;
+            }
+        }
+
+        wxString cmd = wxString::Format( wxS( "meas %s %s %s" ), simType, resultName, measExpr );
         simulator()->Command( "echo " + cmd.ToStdString() );
         simulator()->Command( cmd.ToStdString() );
 
@@ -1864,7 +3018,24 @@ void SIMULATOR_FRAME_UI::UpdateMeasurement( int aRow )
             result = SPICE_VALUE( resultVec[0] ).ToString( GetMeasureFormat( aRow ) );
     }
 
-    m_measurementsGrid->SetCellValue( aRow, COL_MEASUREMENT_VALUE, result );
+    setMeasurementValue( aRow, result );
+}
+
+
+void SIMULATOR_FRAME_UI::setMeasurementValue( int aIndex, const wxString& aValue )
+{
+    if( !m_measurementsModel )
+        return;
+
+    for( SIM_TREE_MODEL::NODE* leaf : m_measurementsModel->Leaves() )
+    {
+        if( leaf->index == aIndex )
+        {
+            leaf->value = aValue;
+            m_measurementsModel->ValueChanged( SIM_TREE_MODEL::ToItem( leaf ), SIM_TREE_MODEL::COL_VALUE );
+            return;
+        }
+    }
 }
 
 
@@ -1889,20 +3060,103 @@ void SIMULATOR_FRAME_UI::AddTuner( const SCH_SHEET_PATH& aSheetPath, SCH_SYMBOL*
             return;
     }
 
-    if( [[maybe_unused]] const SPICE_ITEM* item = GetExporter()->FindItem( ref ) )
+    if( const SPICE_ITEM* item = GetExporter()->FindItem( ref ) )
     {
         try
         {
-            TUNER_SLIDER* tuner = new TUNER_SLIDER( this, m_panelTuners, aSheetPath, aSymbol );
-            m_sizerTuners->Add( tuner );
+            wxScrolledWindow* page = getOrCreateTunerPage( tunerGroup( *item->model ) );
+            TUNER_SLIDER*     tuner = new TUNER_SLIDER( this, page, aSheetPath, aSymbol );
+
+            page->GetSizer()->Add( tuner, 0, wxEXPAND | wxBOTTOM, 2 );
             m_tuners.push_back( tuner );
+
+            page->FitInside();
+            page->Layout();
+            m_tunerNotebook->SetSelection( m_tunerNotebook->FindPage( page ) );
             m_panelTuners->Layout();
             OnModify();
         }
         catch( const KI_PARAM_ERROR& e )
         {
             DisplayErrorMessage( nullptr, e.What() );
+
+            // Don't leave an empty tab behind when the slider ctor throws.
+            pruneEmptyTunerPages();
         }
+    }
+}
+
+
+SIMULATOR_FRAME_UI::TUNER_GROUP SIMULATOR_FRAME_UI::tunerGroup( const SIM_MODEL& aModel )
+{
+    switch( aModel.GetDeviceType() )
+    {
+    case SIM_MODEL::DEVICE_T::R: return TUNERGRP_RESISTORS;
+    case SIM_MODEL::DEVICE_T::C: return TUNERGRP_CAPACITORS;
+    case SIM_MODEL::DEVICE_T::L: return TUNERGRP_INDUCTORS;
+
+    case SIM_MODEL::DEVICE_T::V:
+    case SIM_MODEL::DEVICE_T::I: return TUNERGRP_SOURCES;
+
+    default: return TUNERGRP_OTHER;
+    }
+}
+
+
+wxString SIMULATOR_FRAME_UI::tunerGroupLabel( TUNER_GROUP aGroup )
+{
+    switch( aGroup )
+    {
+    case TUNERGRP_RESISTORS: return _( "Resistors" );
+    case TUNERGRP_CAPACITORS: return _( "Capacitors" );
+    case TUNERGRP_INDUCTORS: return _( "Inductors" );
+    case TUNERGRP_SOURCES: return _( "Sources" );
+    default: return _( "Other" );
+    }
+}
+
+
+wxScrolledWindow* SIMULATOR_FRAME_UI::getOrCreateTunerPage( TUNER_GROUP aGroup )
+{
+    if( m_tunerPages[aGroup] )
+        return m_tunerPages[aGroup];
+
+    wxScrolledWindow* page = new wxScrolledWindow( m_tunerNotebook, wxID_ANY );
+
+    // Scroll rather than clip when a tab fills up.
+    page->SetScrollRate( 0, 5 );
+    page->SetSizer( new wxBoxSizer( wxVERTICAL ) );
+
+    size_t pos = 0;
+
+    for( int ii = 0; ii < aGroup; ++ii )
+    {
+        if( m_tunerPages[ii] )
+            pos++;
+    }
+
+    m_tunerNotebook->InsertPage( pos, page, tunerGroupLabel( aGroup ) );
+    m_tunerPages[aGroup] = page;
+
+    return page;
+}
+
+
+void SIMULATOR_FRAME_UI::pruneEmptyTunerPages()
+{
+    for( int ii = 0; ii < TUNERGRP_COUNT; ++ii )
+    {
+        wxScrolledWindow* page = m_tunerPages[ii];
+
+        if( !page || page->GetSizer()->GetItemCount() > 0 )
+            continue;
+
+        int pos = m_tunerNotebook->FindPage( page );
+
+        if( pos != wxNOT_FOUND )
+            m_tunerNotebook->DeletePage( pos ); // destroys the page
+
+        m_tunerPages[ii] = nullptr;
     }
 }
 
@@ -1967,7 +3221,17 @@ void SIMULATOR_FRAME_UI::RemoveTuner( TUNER_SLIDER* aTuner )
 
     m_tunerOverrides.erase( aTuner );
 
+    wxWindow* page = aTuner->GetParent();
+
     aTuner->Destroy();
+
+    if( page )
+    {
+        page->Layout();
+        static_cast<wxScrolledWindow*>( page )->FitInside();
+    }
+
+    pruneEmptyTunerPages();
     m_panelTuners->Layout();
     OnModify();
 }
@@ -1975,51 +3239,77 @@ void SIMULATOR_FRAME_UI::RemoveTuner( TUNER_SLIDER* aTuner )
 
 void SIMULATOR_FRAME_UI::AddMeasurement( const wxString& aCmd )
 {
-    // -1 because the last one is for user input
-    for( int i = 0; i < m_measurementsGrid->GetNumberRows(); i++ )
+    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
+
+    if( !plotTab || aCmd.IsEmpty() )
+        return;
+
+    std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+
+    for( const auto& [cmd, format] : measurements )
     {
-        if( m_measurementsGrid->GetCellValue( i, COL_MEASUREMENT ) == aCmd )
+        if( cmd == aCmd )
             return; // Don't create duplicates
     }
 
+    std::map<wxString, wxString> values = shownMeasurementValues();
+
+    measurements.emplace_back( aCmd, wxString() );
+
+    rebuildMeasurementsTree( &values );
+    OnModify();
+}
+
+
+void SIMULATOR_FRAME_UI::AddMeasurements( const wxString& aSignal, const std::vector<wxString>& aFunctions )
+{
     SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
 
     if( !plotTab )
         return;
 
-    int row;
+    wxString signal;
 
-    for( row = 0; row < m_measurementsGrid->GetNumberRows(); ++row )
+    if( !measurementSignal( aSignal, signal ) )
+        return;
+
+    std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
+    std::map<wxString, wxString>                values = shownMeasurementValues();
+    bool                                        added = false;
+
+    for( const wxString& func : aFunctions )
     {
-        if( m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT ).IsEmpty() )
-            break;
+        wxString cmd = func + wxS( " " ) + signal;
+        bool     duplicate = false;
+
+        for( const auto& [existing, format] : measurements )
+        {
+            if( existing == cmd )
+            {
+                duplicate = true;
+                break;
+            }
+        }
+
+        if( !duplicate )
+        {
+            measurements.emplace_back( cmd, wxString() );
+            added = true;
+        }
     }
 
-    if( !m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT ).IsEmpty() )
-    {
-        m_measurementsGrid->AppendRows( 1 );
-        row = m_measurementsGrid->GetNumberRows() - 1;
-    }
+    if( !added )
+        return;
 
-    m_measurementsGrid->SetCellValue( row, COL_MEASUREMENT, aCmd );
-
-    UpdateMeasurement( row );
-    updateMeasurementsFromGrid();
+    rebuildMeasurementsTree( &values );
     OnModify();
-
-    // Always leave at least one empty row for type-in:
-    row = m_measurementsGrid->GetNumberRows() - 1;
-
-    if( !m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT ).IsEmpty() )
-        m_measurementsGrid->AppendRows( 1 );
 }
 
 
 void SIMULATOR_FRAME_UI::DoFourier( const wxString& aSignal, const wxString& aFundamental )
 {
-    wxString cmd = wxString::Format( wxS( "fourier %s %s" ),
-                                     SPICE_VALUE( aFundamental ).ToSpiceString(),
-                                     aSignal );
+    wxString signal = spiceSignal( SimSignalBaseName( aSignal ) );
+    wxString cmd = wxString::Format( wxS( "fourier %s %s" ), SPICE_VALUE( aFundamental ).ToSpiceString(), signal );
 
     simulator()->Command( cmd.ToStdString() );
 }
@@ -2035,8 +3325,7 @@ void SIMULATOR_FRAME_UI::AddTrace( const wxString& aName, SIM_TRACE_TYPE aType )
 {
     if( !GetCurrentSimTab() )
     {
-        m_simConsole->AppendText( _( "Error: no current simulation.\n" ) );
-        m_simConsole->SetInsertionPointEnd();
+        appendConsoleText( _( "Error: no current simulation.\n" ), RPT_SEVERITY_ERROR );
         return;
     }
 
@@ -2044,14 +3333,12 @@ void SIMULATOR_FRAME_UI::AddTrace( const wxString& aName, SIM_TRACE_TYPE aType )
 
     if( simType == ST_UNKNOWN )
     {
-        m_simConsole->AppendText( _( "Error: simulation type not defined.\n" ) );
-        m_simConsole->SetInsertionPointEnd();
+        appendConsoleText( _( "Error: simulation type not defined.\n" ), RPT_SEVERITY_ERROR );
         return;
     }
     else if( !SIM_TAB::IsPlottable( simType ) )
     {
-        m_simConsole->AppendText( _( "Error: simulation type doesn't support plotting.\n" ) );
-        m_simConsole->SetInsertionPointEnd();
+        appendConsoleText( _( "Error: simulation type doesn't support plotting.\n" ), RPT_SEVERITY_ERROR );
         return;
     }
 
@@ -2083,7 +3370,7 @@ void SIMULATOR_FRAME_UI::AddTrace( const wxString& aName, SIM_TRACE_TYPE aType )
             view->UpdateAll();
     }
 
-    updateSignalsGrid();
+    updateSignalsTree();
     OnModify();
 }
 
@@ -2152,8 +3439,8 @@ void SIMULATOR_FRAME_UI::SetUserDefinedSignals( const std::map<int, wxString>& a
         applyUserDefinedSignals();
 
     rebuildSignalsList();
-    rebuildSignalsGrid( m_filter->GetValue() );
-    updateSignalsGrid();
+    rebuildSignalsTree( m_filter->GetValue() );
+    updateSignalsTree();
     updatePlotCursors();
     OnModify();
 }
@@ -2206,9 +3493,21 @@ void SIMULATOR_FRAME_UI::updateTrace( const wxString& aVectorName, int aTraceTyp
         aView = existing && existing->GetView() ? existing->GetView() : aPlotTab->GetDefaultView();
     }
 
+    // Only user vectors have a display name; skip the lookup for the rest.
+    auto nameTrace = [this]( TRACE* aTrace, const wxString& aName )
+    {
+        if( !aTrace || !isUserSignalVector( aName ) )
+            return;
+
+        wxString displayName = signalNameFromVectorName( aName );
+
+        if( displayName != aTrace->GetName() )
+            aTrace->SetName( displayName );
+    };
+
     if( !m_simulatorFrame->SimFinished() && !simulator()->IsRunning() )
     {
-        aPlotTab->GetOrAddTrace( aVectorName, aTraceType, aView );
+        nameTrace( aPlotTab->GetOrAddTrace( aVectorName, aTraceType, aView ), aVectorName );
         return;
     }
 
@@ -2250,52 +3549,54 @@ void SIMULATOR_FRAME_UI::updateTrace( const wxString& aVectorName, int aTraceTyp
 
     unsigned int size = aDataX->size();
 
-    switch( simType )
+    // Don't fetch when only clearing: the "userN" vectors don't exist mid-run.
+    if( !aClearData )
     {
-    case ST_AC:
-        if( aTraceType & SPT_AC_GAIN )
-            data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), size );
-        else if( aTraceType & SPT_AC_PHASE )
-            data_y = simulator()->GetPhaseVector( (const char*) simVectorName.c_str(), size );
-        else
-            wxFAIL_MSG( wxT( "Plot type missing AC_PHASE or AC_MAG bit" ) );
+        // Evaluated on demand, so this may be the first request for this plot.
+        ensureDeviceVoltage( simVectorName );
 
-        break;
-    case ST_SP:
-        if( aTraceType & SPT_SP_SMITH )
+        switch( simType )
         {
-            // reflection coefficient locus, Re on X and Im on Y, frequency kept aside
-            frequencies = *aDataX;
-            data_y = simulator()->GetImaginaryVector( (const char*) simVectorName.c_str(), size );
-            *aDataX = simulator()->GetRealVector( (const char*) simVectorName.c_str(), size );
-        }
-        else if( aTraceType & SPT_SP_AMP )
-        {
-            data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), size );
-        }
-        else if( aTraceType & SPT_AC_PHASE )
-        {
-            data_y = simulator()->GetPhaseVector( (const char*) simVectorName.c_str(), size );
-        }
-        else
-        {
-            wxFAIL_MSG( wxT( "Plot type missing AC_PHASE, SPT_SP_AMP or SPT_SP_SMITH bit" ) );
-        }
+        case ST_AC:
+            if( aTraceType & SPT_AC_GAIN )
+                data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), size );
+            else if( aTraceType & SPT_AC_PHASE )
+                data_y = simulator()->GetPhaseVector( (const char*) simVectorName.c_str(), size );
+            else
+                wxFAIL_MSG( wxT( "Plot type missing AC_PHASE or AC_MAG bit" ) );
 
-        break;
+            break;
+        case ST_SP:
+            if( aTraceType & SPT_SP_SMITH )
+            {
+                // reflection coefficient locus, Re on X and Im on Y, frequency kept aside
+                frequencies = *aDataX;
+                data_y = simulator()->GetImaginaryVector( (const char*) simVectorName.c_str(), size );
+                *aDataX = simulator()->GetRealVector( (const char*) simVectorName.c_str(), size );
+            }
+            else if( aTraceType & SPT_SP_AMP )
+            {
+                data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), size );
+            }
+            else if( aTraceType & SPT_AC_PHASE )
+            {
+                data_y = simulator()->GetPhaseVector( (const char*) simVectorName.c_str(), size );
+            }
+            else
+            {
+                wxFAIL_MSG( wxT( "Plot type missing AC_PHASE, SPT_SP_AMP or SPT_SP_SMITH bit" ) );
+            }
 
-    case ST_DC:
-        data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), -1 );
-        break;
+            break;
 
-    case ST_NOISE:
-    case ST_TRAN:
-    case ST_FFT:
-        data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), size );
-        break;
+        case ST_DC: data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), -1 ); break;
 
-    default:
-        wxFAIL_MSG( wxT( "Unhandled plot type" ) );
+        case ST_NOISE:
+        case ST_TRAN:
+        case ST_FFT: data_y = simulator()->GetGainVector( (const char*) simVectorName.c_str(), size ); break;
+
+        default: wxFAIL_MSG( wxT( "Unhandled plot type" ) );
+        }
     }
 
     SPICE_DC_PARAMS source1, source2;
@@ -2370,6 +3671,8 @@ void SIMULATOR_FRAME_UI::updateTrace( const wxString& aVectorName, int aTraceTyp
 
                     if( TRACE* trace = aPlotTab->GetOrAddTrace( aVectorName, aTraceType, aView ) )
                     {
+                        nameTrace( trace, aVectorName );
+
                         if( SMITH_TRACE* smith = dynamic_cast<SMITH_TRACE*>( trace ) )
                         {
                             smith->SetReferenceImpedance( getSmithPortImpedance( aVectorName ) );
@@ -2424,6 +3727,8 @@ void SIMULATOR_FRAME_UI::updateTrace( const wxString& aVectorName, int aTraceTyp
 
     if( TRACE* trace = aPlotTab->GetOrAddTrace( aVectorName, aTraceType, aView ) )
     {
+        nameTrace( trace, aVectorName );
+
         if( data_y.size() >= size )
         {
             if( SMITH_TRACE* smith = dynamic_cast<SMITH_TRACE*>( trace ) )
@@ -2439,253 +3744,207 @@ void SIMULATOR_FRAME_UI::updateTrace( const wxString& aVectorName, int aTraceTyp
 }
 
 
-// TODO make sure where to instantiate and how to style correct
-// Better ask someone..
-template
-void SIMULATOR_FRAME_UI::signalsGridCursorUpdate<SIGNALS_GRID_COLUMNS, int, int>( SIGNALS_GRID_COLUMNS, int, int );
-
-template <typename T, typename U, typename R>
-void SIMULATOR_FRAME_UI::signalsGridCursorUpdate(
-        T t, U u, R r ) // t=cursor type/signals' grid col, u=cursor number/cursor "id", r=table's row
+wxString SIMULATOR_FRAME_UI::quoteNetNames( const wxString& aExpression ) const
 {
-    SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() );
-    wxString      signalName = m_signalsGrid->GetCellValue( r, COL_SIGNAL_NAME );
-    int           traceType = SPT_UNKNOWN;
-    wxString      vectorName = vectorNameFromSignalName( plotTab, signalName, &traceType );
+    std::vector<bool> mask( aExpression.length(), false );
+    std::vector<bool> userQuoted( aExpression.length(), false );
 
-    wxGridCellAttrPtr attr = m_signalsGrid->GetOrCreateCellAttrPtr( r, static_cast<int>( t ) );
-
-    TRACE* trace = plotTab ? plotTab->GetTrace( vectorName, traceType ) : nullptr;
-
-    // A trace with no view is an orphan (its view was removed); treat it as not plotted so it
-    // shows the same disabled styling as a never-plotted signal.
-    bool plotted = trace && trace->GetView();
-
-    if( plotted )
+    auto isNetnameChar = []( wxUniChar aChar ) -> bool
     {
-        attr->SetReadOnly(); // not really; we delegate interactivity to GRID_TRICKS
+        wxUint32 value = aChar.GetValue();
 
-        if( t >= SIGNALS_GRID_COLUMNS::COL_SIGNAL_SHOW )
+        if( ( value >= '0' && value <= '9' ) || ( value >= 'A' && value <= 'Z' ) || ( value >= 'a' && value <= 'z' ) )
         {
-            attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
+            return true;
         }
 
-        if constexpr( std::is_enum<T>::value )
+        switch( value )
         {
-            if( t == SIGNALS_GRID_COLUMNS::COL_SIGNAL_SHOW )
+        case '_':
+        case '/':
+        case '+':
+        case '-':
+        case '~':
+        case '.': return true;
+        default: break;
+        }
+
+        return false;
+    };
+
+    // Leave names the user already quoted alone.
+    bool inQuote = false;
+
+    for( size_t i = 0; i < aExpression.length(); ++i )
+    {
+        if( aExpression[i] == '"' )
+            inQuote = !inQuote;
+
+        userQuoted[i] = inQuote || aExpression[i] == '"';
+    }
+
+    for( const wxString& netname : m_netnames )
+    {
+        size_t pos = aExpression.find( netname );
+
+        while( pos != wxString::npos )
+        {
+            size_t end = pos + netname.length();
+
+            // Whole names only: not "IN" in "SIN(", nor "A" in net "A-B".
+            bool whole = ( pos == 0 || !isNetnameChar( aExpression[pos - 1] ) )
+                         && ( end == aExpression.length() || !isNetnameChar( aExpression[end] ) );
+
+            if( whole && !userQuoted[pos] )
             {
-                if( !attr->HasEditor() )
-                    attr->SetEditor( new GRID_CELL_COMBOBOX( getViewChoices( plotTab ) ) );
-
-                if( !attr->HasRenderer() )
-                    attr->SetRenderer( new GRID_CELL_COMBOBOX_RENDERER() );
-
-                attr->SetReadOnly( false );
-                attr->SetTextColour( wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOWTEXT ) );
-                m_signalsGrid->SetCellValue( r, static_cast<int>( t ), getViewLabel( plotTab, trace->GetView() ) );
+                for( size_t i = pos; i < end; ++i )
+                    mask[i] = true; // Mark the positions of the netname
             }
-            else if( t == SIGNALS_GRID_COLUMNS::COL_Y_SCALE )
-            {
-                if( !attr->HasEditor() )
-                    attr->SetEditor( new GRID_CELL_COMBOBOX( getYScaleChoices( plotTab, trace->GetView() ) ) );
 
-                if( !attr->HasRenderer() )
-                    attr->SetRenderer( new GRID_CELL_COMBOBOX_RENDERER() );
-
-                attr->SetReadOnly( false );
-                m_signalsGrid->SetCellValue( r, static_cast<int>( t ), getYScaleLabel( plotTab, trace ) );
-            }
-            else if( t == SIGNALS_GRID_COLUMNS::COL_SIGNAL_COLOR )
-            {
-                if( !attr->HasRenderer() )
-                    attr->SetRenderer( new GRID_CELL_COLOR_RENDERER( this ) );
-
-                if( !attr->HasEditor() )
-                    attr->SetEditor( new GRID_CELL_COLOR_SELECTOR( this, m_signalsGrid ) );
-
-                attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-                attr->SetReadOnly( false );
-
-                KIGFX::COLOR4D color( trace->GetPen().GetColour() );
-                m_signalsGrid->SetCellValue( r, COL_SIGNAL_COLOR, color.ToCSSString() );
-            }
-            else if( t == SIGNALS_GRID_COLUMNS::COL_CURSOR_1
-                     || t == SIGNALS_GRID_COLUMNS::COL_CURSOR_2
-                     || t > SIGNALS_GRID_COLUMNS::COL_CURSOR_2 )
-            {
-                if( !attr->HasRenderer() )
-                    attr->SetRenderer( new wxGridCellBoolRenderer() );
-
-                if( u > 0 && trace->HasCursor( u ) )
-                    m_signalsGrid->SetCellValue( r, static_cast<int>( t ), wxS( "1" ) );
-                else
-                    m_signalsGrid->SetCellValue( r, static_cast<int>( t ), wxEmptyString );
-            }
+            pos = aExpression.find( netname, pos + 1 ); // Find the next occurrence
         }
     }
-    else
+
+    wxString quotedNetnames = "";
+    bool     startQuote = true;
+
+    // put quotes around all the positions that were found above
+    for( size_t i = 0; i < aExpression.length(); i++ )
     {
-        if constexpr( std::is_enum<T>::value )
+        if( mask[i] && startQuote )
         {
-            if( t == SIGNALS_GRID_COLUMNS::COL_SIGNAL_SHOW )
-            {
-                if( !attr->HasEditor() )
-                    attr->SetEditor( new GRID_CELL_COMBOBOX( getViewChoices( plotTab ) ) );
-
-                if( !attr->HasRenderer() )
-                    attr->SetRenderer( new GRID_CELL_COMBOBOX_RENDERER() );
-
-                attr->SetReadOnly( false );
-                attr->SetTextColour( *wxLIGHT_GREY );
-                m_signalsGrid->SetCellValue( r, static_cast<int>( t ), getViewLabel( plotTab, nullptr ) );
-            }
-            else if( t == SIGNALS_GRID_COLUMNS::COL_Y_SCALE
-                     || t == SIGNALS_GRID_COLUMNS::COL_SIGNAL_COLOR
-                     || t == SIGNALS_GRID_COLUMNS::COL_CURSOR_1
-                     || t == SIGNALS_GRID_COLUMNS::COL_CURSOR_2
-                     || t > SIGNALS_GRID_COLUMNS::COL_CURSOR_2 )
-            {
-                attr->SetEditor( nullptr );
-                attr->SetRenderer( nullptr );
-                attr->SetReadOnly();
-                m_signalsGrid->SetCellValue( r, static_cast<int>( t ), wxEmptyString );
-            }
+            quotedNetnames = quotedNetnames + "\"";
+            startQuote = false;
         }
+        else if( !mask[i] && !startQuote )
+        {
+            quotedNetnames = quotedNetnames + "\"";
+            startQuote = true;
+        }
+
+        wxString ch = aExpression[i];
+        quotedNetnames = quotedNetnames + ch;
     }
+
+    if( !startQuote )
+        quotedNetnames = quotedNetnames + "\"";
+
+    return quotedNetnames;
 }
 
 
-void SIMULATOR_FRAME_UI::updateSignalsGrid()
+void SIMULATOR_FRAME_UI::ensureDeviceVoltage( int aId )
 {
-    for( int row = 0; row < m_signalsGrid->GetNumberRows(); ++row )
-    {
-        signalsGridCursorUpdate( COL_SIGNAL_SHOW, 0, row );
-        signalsGridCursorUpdate( COL_Y_SCALE, 0, row );
-        signalsGridCursorUpdate( COL_SIGNAL_COLOR, 0, row );
-        signalsGridCursorUpdate( COL_CURSOR_1, 1, row );
-        signalsGridCursorUpdate( COL_CURSOR_2, 2, row );
+    auto expr = m_deviceVoltageExprs.find( aId );
 
-        if( ( m_signalsGrid->GetNumberCols() - 1 ) > COL_CURSOR_2 )
+    if( expr == m_deviceVoltageExprs.end() || !simulator() )
+        return;
+
+    if( !m_appliedDeviceVoltages[simulator()->CurrentPlotName()].insert( aId ).second )
+        return;
+
+    simulator()->Command( fmt::format( "let user{} = {}", aId, quoteNetNames( expr->second ).ToStdString() ) );
+}
+
+
+void SIMULATOR_FRAME_UI::ensureDeviceVoltage( const wxString& aVectorName )
+{
+    auto it = m_deviceVoltageVectors.find( aVectorName );
+
+    if( it != m_deviceVoltageVectors.end() )
+        ensureDeviceVoltage( it->second );
+}
+
+
+wxString SIMULATOR_FRAME_UI::expandDeviceVoltages( const wxString& aExpression ) const
+{
+    // VDB(R1), VM(R1), ... wrap the difference in the ngspice function they stand for.
+    static const std::pair<wxString, wxString> forms[] = {
+        { wxS( "V" ), wxS( "" ) },    { wxS( "VDB" ), wxS( "db" ) },  { wxS( "VM" ), wxS( "mag" ) },
+        { wxS( "VP" ), wxS( "ph" ) }, { wxS( "VR" ), wxS( "real" ) }, { wxS( "VI" ), wxS( "imag" ) }
+    };
+
+    wxString result = aExpression;
+
+    for( const auto& [name, id] : m_deviceVoltageIds )
+    {
+        auto expr = m_deviceVoltageExprs.find( id );
+
+        if( expr == m_deviceVoltageExprs.end() )
+            continue;
+
+        for( const auto& [prefix, function] : forms )
         {
-            for( int i = 3; i < m_customCursorsCnt; i++ )
+            wxString pattern = prefix + name.Mid( 1 ); // name is "V(R1)"
+            wxString replacement = function + wxS( "(" ) + expr->second + wxS( ")" );
+            size_t   pos = 0;
+
+            while( ( pos = result.Upper().find( pattern.Upper(), pos ) ) != wxString::npos )
             {
-                int tm = i + 3;
-                signalsGridCursorUpdate( static_cast<SIGNALS_GRID_COLUMNS>( tm ), i, row );
+                // "IV(R1)" is a different function.
+                if( pos > 0 && ( wxIsalnum( result[pos - 1] ) || result[pos - 1] == '_' ) )
+                {
+                    pos += pattern.length();
+                    continue;
+                }
+
+                result.replace( pos, pattern.length(), replacement );
+                pos += replacement.length();
             }
         }
     }
-    m_signalsGrid->Refresh();
+
+    return result;
+}
+
+
+wxString SIMULATOR_FRAME_UI::spiceSignal( const wxString& aSignal )
+{
+    for( const auto& [id, signal] : m_userDefinedSignals )
+    {
+        if( aSignal == signal )
+            return vectorNameFromSignalId( id );
+    }
+
+    for( const auto& [name, id] : m_deviceVoltageIds )
+    {
+        if( aSignal.IsSameAs( name, false ) )
+        {
+            ensureDeviceVoltage( id );
+            return vectorNameFromSignalId( id );
+        }
+    }
+
+    // A parenthesised user-defined signal, as in "db(V(a)-V(b))", is its vector.
+    wxString expanded = aSignal;
+
+    for( const auto& [id, signal] : m_userDefinedSignals )
+        expanded.Replace( wxS( "(" ) + signal + wxS( ")" ), wxS( "(" ) + vectorNameFromSignalId( id ) + wxS( ")" ) );
+
+    expanded = expandDeviceVoltages( expanded );
+
+    if( expanded == aSignal )
+        return aSignal;
+
+    return quoteNetNames( expanded );
 }
 
 
 void SIMULATOR_FRAME_UI::applyUserDefinedSignals()
 {
-    auto quoteNetNames =
-            [&]( wxString aExpression ) -> wxString
-            {
-                std::vector<bool> mask( aExpression.length(), false );
-
-                auto isNetnameChar =
-                        []( wxUniChar aChar ) -> bool
-                        {
-                            wxUint32 value = aChar.GetValue();
-
-                            if( ( value >= '0' && value <= '9' ) || ( value >= 'A' && value <= 'Z' )
-                                || ( value >= 'a' && value <= 'z' ) )
-                            {
-                                return true;
-                            }
-
-                            switch( value )
-                            {
-                            case '_':
-                            case '/':
-                            case '+':
-                            case '-':
-                            case '~':
-                            case '.':
-                                return true;
-                            default:
-                                break;
-                            }
-
-                            return false;
-                        };
-
-                for( const wxString& netname : m_netnames )
-                {
-                    size_t pos = aExpression.find( netname );
-
-                    while( pos != wxString::npos )
-                    {
-                        for( size_t i = 0; i < netname.length(); ++i )
-                            mask[pos + i] = true; // Mark the positions of the netname
-
-                        pos = aExpression.find( netname, pos + 1 ); // Find the next occurrence
-                    }
-                }
-
-                for( size_t i = 0; i < aExpression.length(); ++i )
-                {
-                    if( !mask[i] || ( i > 0 && mask[i - 1] ) )
-                        continue;
-
-                    size_t j = i + 1;
-
-                    while( j < aExpression.length() )
-                    {
-                        if( mask[j] )
-                        {
-                            ++j;
-                            continue;
-                        }
-
-                        if( isNetnameChar( aExpression[j] ) )
-                        {
-                            mask[j] = true;
-                            ++j;
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-                }
-
-                wxString quotedNetnames = "";
-                bool     startQuote = true;
-
-                // put quotes around all the positions that were found above
-                for( size_t i = 0; i < aExpression.length(); i++ )
-                {
-                    if( mask[i] && startQuote )
-                    {
-                        quotedNetnames = quotedNetnames + "\"";
-                        startQuote = false;
-                    }
-                    else if( !mask[i] && !startQuote )
-                    {
-                        quotedNetnames = quotedNetnames + "\"";
-                        startQuote = true;
-                    }
-
-                    wxString ch = aExpression[i];
-                    quotedNetnames = quotedNetnames + ch;
-                }
-
-                if( !startQuote )
-                    quotedNetnames = quotedNetnames + "\"";
-
-                return quotedNetnames;
-            };
+    constexpr const char* cmd = "let user{} = {}";
 
     for( const auto& [id, signal] : m_userDefinedSignals )
     {
-        constexpr const char* cmd = "let user{} = {}";
+        wxString expanded = expandDeviceVoltages( signal );
 
-        simulator()->Command( "echo " + fmt::format( cmd, id, signal.ToStdString() ) );
-        simulator()->Command( fmt::format( cmd, id, quoteNetNames( signal ).ToStdString() ) );
+        simulator()->Command( "echo " + fmt::format( cmd, id, expanded.ToStdString() ) );
+        simulator()->Command( fmt::format( cmd, id, quoteNetNames( expanded ).ToStdString() ) );
     }
+
+    // Component voltages are re-evaluated on demand for this plot.
+    if( simulator() )
+        m_appliedDeviceVoltages.erase( simulator()->CurrentPlotName() );
 }
 
 
@@ -2760,10 +4019,10 @@ bool SIMULATOR_FRAME_UI::LoadWorkbook( const wxString& aPath )
 
     rebuildSignalsList();
 
-    rebuildSignalsGrid( m_filter->GetValue() );
-    updateSignalsGrid();
+    rebuildSignalsTree( m_filter->GetValue() );
+    updateSignalsTree();
     updatePlotCursors();
-    rebuildMeasurementsGrid();
+    rebuildMeasurementsTree();
 
     wxFileName filename( aPath );
     filename.MakeRelativeTo( m_schematicFrame->Prj().GetProjectPath() );
@@ -2773,6 +4032,10 @@ bool SIMULATOR_FRAME_UI::LoadWorkbook( const wxString& aPath )
 
     return true;
 }
+
+
+/// Workbook keys for the plot margins, in SIM_VIEW::GetUserMargin() order.
+static const char* const MARGIN_KEYS[4] = { "top", "right", "bottom", "left" };
 
 
 bool SIMULATOR_FRAME_UI::loadJsonWorkbook( const wxString& aPath )
@@ -2839,6 +4102,7 @@ bool SIMULATOR_FRAME_UI::loadJsonWorkbook( const wxString& aPath )
                 }
 
                 plotTab->SetDottedSecondary( tab_js.value( "dottedSecondary", false ) );
+                plotTab->SetTraceWidth( tab_js.value( "traceWidth", 2 ) );
                 plotTab->ShowGrid( tab_js.value( "showGrid", true ) );
 
                 if( tab_js.value( "smithMode", false ) )
@@ -2933,13 +4197,34 @@ bool SIMULATOR_FRAME_UI::loadJsonWorkbook( const wxString& aPath )
                     plotTab->ShowLegend( true );
                 }
 
-                if( tab_js.contains( "margins" ) )
+                // Only user-entered margins are pinned; the others follow the plot.
                 {
-                    const nlohmann::json& margins_js = tab_js[ "margins" ];
-                    plotTab->GetPlotWin()->SetMargins( margins_js.value( "top",    30 ),
-                                                       margins_js.value( "right",  70 ),
-                                                       margins_js.value( "bottom", 45 ),
-                                                       margins_js.value( "left",   70 ) );
+                    int userMargins[4] = { -1, -1, -1, -1 };
+
+                    if( tab_js.contains( "userMargins" ) && tab_js["userMargins"].is_object() )
+                    {
+                        const nlohmann::json& user_js = tab_js["userMargins"];
+
+                        for( int idx = 0; idx < 4; ++idx )
+                            userMargins[idx] = user_js.value( MARGIN_KEYS[idx], -1 );
+                    }
+                    else if( tab_js.contains( "margins" ) && tab_js["margins"].is_object() )
+                    {
+                        // Older workbooks saved every margin.  Values other than the old fixed defaults
+                        // (30, 70 or 160, 45, 70) were entered by the user.
+                        const nlohmann::json& margins_js = tab_js["margins"];
+                        const int             defaults[4] = { 30, 70, 45, 70 };
+
+                        for( int idx = 0; idx < 4; ++idx )
+                        {
+                            int value = margins_js.value( MARGIN_KEYS[idx], defaults[idx] );
+
+                            if( value != defaults[idx] && !( idx == 1 && value == 160 ) )
+                                userMargins[idx] = value;
+                        }
+                    }
+
+                    plotTab->SetUserMargins( userMargins[0], userMargins[1], userMargins[2], userMargins[3] );
                 }
             }
         }
@@ -2969,42 +4254,44 @@ bool SIMULATOR_FRAME_UI::loadJsonWorkbook( const wxString& aPath )
         for( int yy = 0; yy <= ( tempCustomCursorsCnt - m_customCursorsCnt ); yy++ )
             CreateNewCursor();
 
-        auto addCursor =
-                [=, this]( SIM_PLOT_TAB* aPlotTab, TRACE* aTrace, const wxString& aSignalName,
-                           int aCursorId, const nlohmann::json& aCursor_js )
+        auto addCursor = [=, this]( SIM_PLOT_TAB* aPlotTab, TRACE* aTrace, const wxString& aSignalName, int aCursorId,
+                                    const nlohmann::json& aCursor_js )
+        {
+            if( aCursorId >= 1 )
+            {
+                aPlotTab->EnableCursor( aTrace, aCursorId, aSignalName );
+
+                // tolerate a missing or null position from an older workbook saved
+                // with a non-finite cursor coordinate
+                nlohmann::json position = aCursor_js.value( "position", nlohmann::json() );
+
+                if( position.is_number() )
                 {
-                    if( aCursorId >= 1 )
-                    {
-                        aPlotTab->EnableCursor( aTrace, aCursorId, aSignalName );
+                    if( CURSOR* cursor = aTrace->GetCursor( aCursorId ) )
+                        cursor->SetCoordX( position.get<double>() );
+                }
+            }
 
-                        // tolerate a missing or null position from an older workbook saved
-                        // with a non-finite cursor coordinate
-                        nlohmann::json position = aCursor_js.value( "position", nlohmann::json() );
+            wxString xFormat( aCursor_js.value( "x_format", "" ) );
+            wxString yFormat( aCursor_js.value( "y_format", "" ) );
+            int      formatSlot;
 
-                        if( position.is_number() )
-                        {
-                            if( CURSOR* cursor = aTrace->GetCursor( aCursorId ) )
-                                cursor->SetCoordX( position.get<double>() );
-                        }
-                    }
+            if( aCursorId == -1 )
+                formatSlot = 2; // we are a "cursorD"
+            else if( aCursorId < 3 )
+                formatSlot = aCursorId - 1;
+            else
+                formatSlot = aCursorId;
 
-                    wxString xFormat( aCursor_js.value( "x_format", "" ) );
-                    wxString yFormat( aCursor_js.value( "y_format", "" ) );
-                    int      formatSlot;
+            if( !xFormat.IsEmpty() )
+                m_cursorFormatsDyn[formatSlot][0].FromString( xFormat );
 
-                    if( aCursorId == -1 )
-                        formatSlot = 2; // we are a "cursorD"
-                    else if( aCursorId < 3 )
-                        formatSlot = aCursorId - 1;
-                    else
-                        formatSlot = aCursorId;
+            if( !yFormat.IsEmpty() )
+                m_cursorFormatsDyn[formatSlot][1].FromString( yFormat );
+        };
 
-                    if( !xFormat.IsEmpty() )
-                        m_cursorFormatsDyn[formatSlot][0].FromString( xFormat );
-
-                    if( !yFormat.IsEmpty() )
-                        m_cursorFormatsDyn[formatSlot][1].FromString( yFormat );
-                };
+        // Component voltages resolve only after the netlist has been walked.
+        rebuildDeviceVoltages();
 
         for( const auto& [plotTab, traces_js] : traceInfo )
         {
@@ -3028,6 +4315,14 @@ bool SIMULATOR_FRAME_UI::loadJsonWorkbook( const wxString& aPath )
 
                 if( trace )
                 {
+                    // The trace adds the " (gain)" / " (phase)" suffix itself.
+                    wxString traceName = signalName;
+
+                    if( traceType & ( SPT_AC_GAIN | SPT_AC_PHASE ) )
+                        traceName = SimSignalBaseName( signalName );
+
+                    trace->SetName( traceName );
+
                     int yScaleIndex = trace_js.contains( "yScaleView" ) ? (int) trace_js["yScaleView"]
                                                                         : viewIndex;
 
@@ -3129,8 +4424,6 @@ void SIMULATOR_FRAME_UI::SaveCursorToWorkbook( nlohmann::json& aTraceJs, TRACE* 
 
 bool SIMULATOR_FRAME_UI::SaveWorkbook( const wxString& aPath )
 {
-    updateMeasurementsFromGrid();
-
     wxFileName filename = aPath;
     filename.SetExt( FILEEXT::WorkbookFileExtension );
 
@@ -3180,35 +4473,13 @@ bool SIMULATOR_FRAME_UI::SaveWorkbook( const wxString& aPath )
         {
             nlohmann::json traces_js = nlohmann::json::array();
 
-            auto findSignalName =
-                    [&]( const wxString& aVectorName ) -> wxString
-                    {
-                        wxString vectorName;
-                        wxString suffix;
-
-                        if( aVectorName.EndsWith( _( " (phase)" ) ) )
-                            suffix = _( " (phase)" );
-                        else if( aVectorName.EndsWith( _( " (gain)" ) ) )
-                            suffix = _( " (gain)" );
-
-                        vectorName = aVectorName.Left( aVectorName.Length() - suffix.Length() );
-
-                        for( const auto& [id, signal] : m_userDefinedSignals )
-                        {
-                            if( vectorName == vectorNameFromSignalId( id ) )
-                                return signal + suffix;
-                        }
-
-                        return aVectorName;
-                    };
-
             for( const auto& [name, trace] : plotTab->GetTraces() )
             {
                 nlohmann::json trace_js =
                         nlohmann::json( { { "trace_type", (int) trace->GetType() },
-                                          { "signal",     findSignalName( trace->GetDisplayName() ) },
-                                          { "color",      COLOR4D( trace->GetTraceColour() ).ToCSSString() },
-                                          { "view",       plotTab->GetViewIndex( trace->GetView() ) },
+                                          { "signal", signalNameFromVectorName( trace->GetDisplayName() ) },
+                                          { "color", COLOR4D( trace->GetTraceColour() ).ToCSSString() },
+                                          { "view", plotTab->GetViewIndex( trace->GetView() ) },
                                           { "yScaleView", plotTab->GetViewIndex( trace->GetYScaleView() ) } } );
 
                 for( int ii = 1; ii <= m_customCursorsCnt; ii++ )
@@ -3231,11 +4502,12 @@ bool SIMULATOR_FRAME_UI::SaveWorkbook( const wxString& aPath )
                                                              { "format", format } } ) );
             }
 
-            tab_js[ "traces" ]          = traces_js;
-            tab_js[ "measurements" ]    = measurements_js;
-            tab_js[ "dottedSecondary" ] = plotTab->GetDottedSecondary();
-            tab_js[ "showGrid" ]        = plotTab->IsGridShown();
-            tab_js[ "smithMode" ]       = plotTab->IsSmithMode();
+            tab_js["traces"] = traces_js;
+            tab_js["measurements"] = measurements_js;
+            tab_js["dottedSecondary"] = plotTab->GetDottedSecondary();
+            tab_js["traceWidth"] = plotTab->GetTraceWidth();
+            tab_js["showGrid"] = plotTab->IsGridShown();
+            tab_js["smithMode"] = plotTab->IsSmithMode();
 
             if( plotTab->IsSmithMode() )
             {
@@ -3309,6 +4581,17 @@ bool SIMULATOR_FRAME_UI::SaveWorkbook( const wxString& aPath )
                                                   { "right",  plotWin->GetMarginRight() },
                                                   { "top",    plotWin->GetMarginTop() },
                                                   { "bottom", plotWin->GetMarginBottom() } } );
+
+            // "margins" is what older versions read; "userMargins" holds only what the user entered.
+            nlohmann::json userMargins_js = nlohmann::json::object();
+
+            for( int idx = 0; idx < 4; ++idx )
+            {
+                if( plotTab->GetUserMargin( idx ) >= 0 )
+                    userMargins_js[MARGIN_KEYS[idx]] = plotTab->GetUserMargin( idx );
+            }
+
+            tab_js["userMargins"] = userMargins_js;
         }
 
         tabs_js.push_back( tab_js );
@@ -3394,17 +4677,27 @@ wxString SIMULATOR_FRAME_UI::getNoiseSource() const
 
 void SIMULATOR_FRAME_UI::TogglePanel( wxPanel* aPanel, wxSplitterWindow* aSplitterWindow, int& aSashPosition )
 {
-    bool isShown = aPanel->IsShown();
-
-    if( isShown )
+    // Unsplit: a sash parked at an edge still leaves the minimum pane size blank.
+    if( aSplitterWindow->IsSplit() )
+    {
         aSashPosition = aSplitterWindow->GetSashPosition();
+        m_hiddenPanelFirst[aSplitterWindow] = aSplitterWindow->GetWindow1() == aPanel;
+        aSplitterWindow->Unsplit( aPanel );
+    }
+    else
+    {
+        // Once unsplit, the remaining pane is window 1.
+        wxWindow* other = aSplitterWindow->GetWindow1();
+        bool      first = m_hiddenPanelFirst[aSplitterWindow];
+        wxWindow* window1 = first ? static_cast<wxWindow*>( aPanel ) : other;
+        wxWindow* window2 = first ? other : static_cast<wxWindow*>( aPanel );
 
-    aPanel->Show( !isShown );
+        if( aSplitterWindow->GetSplitMode() == wxSPLIT_VERTICAL )
+            aSplitterWindow->SplitVertically( window1, window2, aSashPosition );
+        else
+            aSplitterWindow->SplitHorizontally( window1, window2, aSashPosition );
+    }
 
-    aSplitterWindow->SetSashInvisible( isShown );
-    aSplitterWindow->SetSashPosition( isShown ? -1 : aSashPosition, true );
-
-    aSplitterWindow->UpdateSize();
     m_parent->Refresh();
     m_parent->Layout();
 }
@@ -3684,8 +4977,8 @@ void SIMULATOR_FRAME_UI::ToggleSmithChart()
         view->UpdateAll();
 
     rebuildSignalsList();
-    rebuildSignalsGrid( m_filter->GetValue() );
-    updateSignalsGrid();
+    rebuildSignalsTree( m_filter->GetValue() );
+    updateSignalsTree();
     updatePlotCursors();
     OnModify();
 }
@@ -3699,51 +4992,33 @@ void SIMULATOR_FRAME_UI::onPlotClose( wxAuiNotebookEvent& event )
 
 void SIMULATOR_FRAME_UI::onPlotClosed( wxAuiNotebookEvent& event )
 {
-    CallAfter( [this]()
-               {
-                   rebuildSignalsList();
-                   rebuildSignalsGrid( m_filter->GetValue() );
-                   updatePlotCursors();
-
-                   //To avoid a current side effect in dynamic cursors while closing one out of many sim tabs
-                   updateSignalsGrid();
-
-                   SIM_TAB* panel = GetCurrentSimTab();
-
-                   if( !panel || panel->GetSimType() != ST_OP )
-                   {
-                       SCHEMATIC& schematic = m_schematicFrame->Schematic();
-                       schematic.ClearOperatingPoints();
-                       m_schematicFrame->RefreshOperatingPointDisplay();
-                       m_schematicFrame->GetCanvas()->Refresh();
-                   }
-               } );
-}
-
-
-void SIMULATOR_FRAME_UI::updateMeasurementsFromGrid()
-{
-    if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
-    {
-        std::vector<std::pair<wxString, wxString>>& measurements = plotTab->Measurements();
-
-        measurements.clear();
-
-        for( int row = 0; row < m_measurementsGrid->GetNumberRows(); ++row )
-        {
-            if( !m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT ).IsEmpty() )
+    CallAfter(
+            [this]()
             {
-                measurements.emplace_back( m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT ),
-                                           m_measurementsGrid->GetCellValue( row, COL_MEASUREMENT_FORMAT ) );
-            }
-        }
-    }
+                rebuildSignalsList();
+                rebuildSignalsTree( m_filter->GetValue() );
+                updatePlotCursors();
+
+                //To avoid a current side effect in dynamic cursors while closing one out of many sim tabs
+                updateSignalsTree();
+
+                SIM_TAB* panel = GetCurrentSimTab();
+
+                if( !panel || panel->GetSimType() != ST_OP )
+                {
+                    SCHEMATIC& schematic = m_schematicFrame->Schematic();
+                    schematic.ClearOperatingPoints();
+                    m_schematicFrame->RefreshOperatingPointDisplay();
+                    m_schematicFrame->GetCanvas()->Refresh();
+                }
+            } );
 }
 
 
 void SIMULATOR_FRAME_UI::onPlotChanging( wxAuiNotebookEvent& event )
 {
-    m_measurementsGrid->ClearRows();
+    if( m_measurementsModel )
+        m_measurementsModel->SetContents( {} );
 
     event.Skip();
 }
@@ -3752,13 +5027,10 @@ void SIMULATOR_FRAME_UI::onPlotChanging( wxAuiNotebookEvent& event )
 void SIMULATOR_FRAME_UI::OnPlotSettingsChanged()
 {
     rebuildSignalsList();
-    rebuildSignalsGrid( m_filter->GetValue() );
+    rebuildSignalsTree( m_filter->GetValue() );
     updatePlotCursors();
 
-    rebuildMeasurementsGrid();
-
-    for( int row = 0; row < m_measurementsGrid->GetNumberRows(); ++row )
-        UpdateMeasurement( row );
+    rebuildMeasurementsTree();
 }
 
 
@@ -3770,35 +5042,9 @@ void SIMULATOR_FRAME_UI::onPlotChanged( wxAuiNotebookEvent& event )
     OnPlotSettingsChanged();
 
     //To avoid a current side effect in dynamic cursors while switching sim tabs
-    updateSignalsGrid();
+    updateSignalsTree();
 
     event.Skip();
-}
-
-
-void SIMULATOR_FRAME_UI::rebuildMeasurementsGrid()
-{
-    m_measurementsGrid->ClearRows();
-
-    if( SIM_PLOT_TAB* plotTab = dynamic_cast<SIM_PLOT_TAB*>( GetCurrentSimTab() ) )
-    {
-        for( const auto& [measurement, format] : plotTab->Measurements() )
-        {
-            int row = m_measurementsGrid->GetNumberRows();
-            m_measurementsGrid->AppendRows();
-            m_measurementsGrid->SetCellValue( row, COL_MEASUREMENT, measurement );
-            m_measurementsGrid->SetCellValue( row, COL_MEASUREMENT_FORMAT, format );
-        }
-
-        if( plotTab->GetSimType() == ST_TRAN || plotTab->GetSimType() == ST_AC || plotTab->GetSimType() == ST_DC
-            || plotTab->GetSimType() == ST_SP )
-        {
-            m_measurementsGrid->AppendRows(); // Empty row at end
-        }
-    }
-
-    autoSizeGridColumn( m_measurementsGrid, COL_MEASUREMENT, 297 );
-    autoSizeGridColumn( m_measurementsGrid, COL_MEASUREMENT_VALUE, 90 );
 }
 
 
@@ -4175,7 +5421,8 @@ void SIMULATOR_FRAME_UI::OnSimUpdate()
         plotTab->ResetScales( true );
 
     // Drop any buffered output from the previous run and clear the console widget.
-    m_simulatorFrame->TakeSimReportMessages();
+    m_simulatorFrame->TakeSimReportEntries();
+    m_consoleEntries.clear();
     m_simConsole->Clear();
 
     prepareMultiRunState();
@@ -4187,15 +5434,74 @@ void SIMULATOR_FRAME_UI::OnSimUpdate()
 }
 
 
+bool SIMULATOR_FRAME_UI::consoleEntryMatchesFilter( SEVERITY aSeverity ) const
+{
+    switch( m_consoleFilter )
+    {
+    case SIM_CONSOLE_FILTER::WARNINGS: return aSeverity == RPT_SEVERITY_WARNING;
+    case SIM_CONSOLE_FILTER::ERRORS: return aSeverity == RPT_SEVERITY_ERROR;
+    default: return true;
+    }
+}
+
+
+void SIMULATOR_FRAME_UI::appendConsoleText( const wxString& aText, SEVERITY aSeverity )
+{
+    m_consoleEntries.push_back( { aSeverity, aText } );
+
+    if( consoleEntryMatchesFilter( aSeverity ) )
+    {
+        m_simConsole->AppendText( aText );
+        m_simConsole->SetInsertionPointEnd();
+    }
+}
+
+
+void SIMULATOR_FRAME_UI::OnConsoleFilterChanged( wxCommandEvent& aEvent )
+{
+    if( aEvent.GetEventObject() == m_consoleFilterWarnings && m_consoleFilterWarnings->GetValue() )
+        m_consoleFilter = SIM_CONSOLE_FILTER::WARNINGS;
+    else if( aEvent.GetEventObject() == m_consoleFilterErrors && m_consoleFilterErrors->GetValue() )
+        m_consoleFilter = SIM_CONSOLE_FILTER::ERRORS;
+    else
+        m_consoleFilter = SIM_CONSOLE_FILTER::ALL;
+
+    m_consoleFilterAll->SetValue( m_consoleFilter == SIM_CONSOLE_FILTER::ALL );
+    m_consoleFilterWarnings->SetValue( m_consoleFilter == SIM_CONSOLE_FILTER::WARNINGS );
+    m_consoleFilterErrors->SetValue( m_consoleFilter == SIM_CONSOLE_FILTER::ERRORS );
+
+    wxString shown;
+
+    for( const SIM_CONSOLE_ENTRY& entry : m_consoleEntries )
+    {
+        if( consoleEntryMatchesFilter( entry.severity ) )
+            shown += entry.text;
+    }
+
+    // ChangeValue() avoids a repaint with an empty widget.
+    m_simConsole->ChangeValue( shown );
+    m_simConsole->SetInsertionPointEnd();
+}
+
+
 void SIMULATOR_FRAME_UI::FlushSimConsole()
 {
-    // AppendText is slow on MSW, so we use the buffered report lines
-    wxString messages = m_simulatorFrame->TakeSimReportMessages();
+    // AppendText is slow on MSW; write the buffered lines at once.
+    std::vector<SIM_CONSOLE_ENTRY> entries = m_simulatorFrame->TakeSimReportEntries();
+    wxString                       shown;
 
-    if( messages.IsEmpty() )
+    for( const SIM_CONSOLE_ENTRY& entry : entries )
+    {
+        if( consoleEntryMatchesFilter( entry.severity ) )
+            shown += entry.text;
+
+        m_consoleEntries.push_back( entry );
+    }
+
+    if( shown.IsEmpty() )
         return;
 
-    m_simConsole->AppendText( messages );
+    m_simConsole->AppendText( shown );
     m_simConsole->SetInsertionPointEnd();
 }
 
@@ -4208,6 +5514,17 @@ std::vector<wxString> SIMULATOR_FRAME_UI::SimPlotVectors() const
         signals.emplace_back( vec );
 
     return signals;
+}
+
+
+std::vector<wxString> SIMULATOR_FRAME_UI::DeviceVoltages() const
+{
+    std::vector<wxString> names;
+
+    for( const auto& [name, id] : m_deviceVoltageIds )
+        names.push_back( name );
+
+    return names;
 }
 
 
@@ -4271,7 +5588,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
     if( aFinal )
     {
         applyUserDefinedSignals();
-        updateSignalsGrid();
+        updateSignalsTree();
     }
 
     // If there are any signals plotted, update them
@@ -4281,8 +5598,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
 
         if( simType == ST_NOISE && aFinal )
         {
-            m_simConsole->AppendText( _( "\n\nSimulation results:\n\n" ) );
-            m_simConsole->SetInsertionPointEnd();
+            appendConsoleText( _( "\n\nSimulation results:\n\n" ) );
 
             // The simulator will create noise1 & noise2 on the first run, noise3 and noise4
             // on the second, etc.  The first plot for each run contains the spectral density
@@ -4297,8 +5613,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
 
                 msg.Printf( wxS( "%s: %sV\n" ), vec, value );
 
-                m_simConsole->AppendText( msg );
-                m_simConsole->SetInsertionPointEnd();
+                appendConsoleText( msg );
             }
 
             simulator()->Command( fmt::format( "setplot noise{}", number - 1 ) );
@@ -4328,8 +5643,11 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
             int      traceType = SPT_UNKNOWN;
             wxString vectorName = vectorNameFromSignalName( plotTab, signal, &traceType );
 
+            // Not defined until the final refresh; clear the trace mid-run.
+            bool synthesised = m_deviceVoltageIds.count( SimSignalBaseName( signal ) ) > 0;
+
             if( TRACE* trace = plotTab->GetTrace( vectorName, traceType ) )
-                traceMap[trace] = { vectorName, traceType, false };
+                traceMap[trace] = { vectorName, traceType, synthesised && !aFinal };
         }
 
         for( const auto& [id, signal] : m_userDefinedSignals )
@@ -4385,8 +5703,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
 
         if( aFinal )
         {
-            for( int row = 0; row < m_measurementsGrid->GetNumberRows(); ++row )
-                UpdateMeasurement( row );
+            updateMeasurements();
 
             plotTab->ResetScales( true );
         }
@@ -4398,8 +5715,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
     }
     else if( simType == ST_OP && aFinal )
     {
-        m_simConsole->AppendText( _( "\n\nSimulation results:\n\n" ) );
-        m_simConsole->SetInsertionPointEnd();
+        appendConsoleText( _( "\n\nSimulation results:\n\n" ) );
 
         for( const std::string& vec : simulator()->AllVectors() )
         {
@@ -4427,8 +5743,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
                         ( signal + wxT( ":" ) ).Pad( padding, wxUniChar( ' ' ) ),
                         value );
 
-            m_simConsole->AppendText( msg );
-            m_simConsole->SetInsertionPointEnd();
+            appendConsoleText( msg );
 
             if( type == SPT_VOLTAGE || type == SPT_CURRENT || type == SPT_POWER )
                 signal = signal.SubString( 2, signal.Length() - 2 );
@@ -4441,8 +5756,7 @@ void SIMULATOR_FRAME_UI::OnSimRefresh( bool aFinal )
     }
     else if( simType == ST_PZ && aFinal )
     {
-        m_simConsole->AppendText( _( "\n\nSimulation results:\n\n" ) );
-        m_simConsole->SetInsertionPointEnd();
+        appendConsoleText( _( "\n\nSimulation results:\n\n" ) );
         simulator()->Command( "print all" );
     }
 

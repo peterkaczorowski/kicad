@@ -64,6 +64,33 @@
 static WX_STRING_REPORTER s_reporter;
 
 
+/// A #REPORTER that keeps each line's severity so the console can be filtered.
+class SIM_SEVERITY_STRING_REPORTER : public REPORTER
+{
+public:
+    REPORTER& Report( const wxString& aText, SEVERITY aSeverity = RPT_SEVERITY_UNDEFINED ) override
+    {
+        REPORTER::Report( aText, aSeverity );
+
+        // Each reported message is its own line.
+        m_entries.push_back( { aSeverity, aText + wxS( "\n" ) } );
+        return *this;
+    }
+
+    void Clear() override { m_entries.clear(); }
+
+    std::vector<SIM_CONSOLE_ENTRY> TakePendingEntries()
+    {
+        std::vector<SIM_CONSOLE_ENTRY> entries = std::move( m_entries );
+        m_entries.clear();
+        return entries;
+    }
+
+private:
+    std::vector<SIM_CONSOLE_ENTRY> m_entries;
+};
+
+
 class SIM_CONSOLE_REPORTER : public SYNC_REPORTER
 {
 public:
@@ -72,18 +99,15 @@ public:
     {
     }
 
-    wxString TakePendingMessages()
+    std::vector<SIM_CONSOLE_ENTRY> TakePendingEntries()
     {
         std::lock_guard lock( m_mutex );
 
-        wxString messages = m_strRep.GetMessages();
-        m_strRep.Clear();
-
-        return messages;
+        return m_strRep.TakePendingEntries();
     }
 
 private:
-    WX_STRING_REPORTER m_strRep;
+    SIM_SEVERITY_STRING_REPORTER m_strRep;
 };
 
 
@@ -209,6 +233,15 @@ SIMULATOR_FRAME::SIMULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     m_ui->InitWorkbook();
     m_ui->FlushSimConsole();
+
+    // InitWorkbook() bypasses SIMULATOR_FRAME::LoadWorkbook()'s modified-flag reset.
+    CallAfter(
+            [this]()
+            {
+                m_workbookModified = false;
+                UpdateTitle();
+            } );
+
     UpdateTitle();
 }
 
@@ -562,6 +595,18 @@ const std::vector<wxString> SIMULATOR_FRAME::Signals()
 }
 
 
+const std::vector<wxString>& SIMULATOR_FRAME::Netnames()
+{
+    return m_ui->Netnames();
+}
+
+
+std::vector<wxString> SIMULATOR_FRAME::DeviceVoltages()
+{
+    return m_ui->DeviceVoltages();
+}
+
+
 const std::map<int, wxString>& SIMULATOR_FRAME::UserDefinedSignals()
 {
     return m_ui->UserDefinedSignals();
@@ -886,9 +931,9 @@ void SIMULATOR_FRAME::onSimStarted( wxCommandEvent& aEvent )
 }
 
 
-wxString SIMULATOR_FRAME::TakeSimReportMessages()
+std::vector<SIM_CONSOLE_ENTRY> SIMULATOR_FRAME::TakeSimReportEntries()
 {
-    return m_consoleReporter->TakePendingMessages();
+    return m_consoleReporter->TakePendingEntries();
 }
 
 
