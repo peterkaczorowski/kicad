@@ -110,8 +110,9 @@ HANDLER_RESULT<NetClassesResponse> API_HANDLER_COMMON::handleGetNetClasses(
     netSettings->GetDefaultNetclass()->Serialize( any );
     any.UnpackTo( reply.add_net_classes() );
 
-    for( const auto& netClass : netSettings->GetNetclasses() | std::views::values )
+    for( const auto& netClassEntry : netSettings->GetNetclasses() )
     {
+        const auto& netClass = netClassEntry.second;
         netClass->Serialize( any );
         any.UnpackTo( reply.add_net_classes() );
     }

@@ -305,7 +305,7 @@ void LIB_TABLE_GRID_TRICKS::paste_text( const wxString& cb_text )
 
         if( LIBRARY_TABLE tempTable( true, cb_text, model->Table().Scope() ); tempTable.IsOk() )
         {
-            std::ranges::copy( tempTable.Rows(),
+            std::copy( tempTable.Rows().begin(), tempTable.Rows().end(),
                                std::inserter( model->Table().Rows(), model->Table().Rows().begin() ) );
 
             if( model->GetView() )

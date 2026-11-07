@@ -19,7 +19,7 @@
 
 #include "http_lib_fake_server.h"
 
-#include <ranges>
+#include <algorithm>
 
 
 void HTTP_LIB_FAKE_SERVER::SetResponse( const std::string& aUrl, RESPONSE aResponse )
@@ -32,7 +32,7 @@ void HTTP_LIB_FAKE_SERVER::SetResponse( const std::string& aUrl, RESPONSE aRespo
 int HTTP_LIB_FAKE_SERVER::RequestCount( const std::string& aUrl ) const
 {
     std::lock_guard lock( m_mutex );
-    return static_cast<int>( std::ranges::count( m_requests, aUrl ) );
+    return static_cast<int>( std::count( m_requests.begin(), m_requests.end(), aUrl ) );
 }
 
 

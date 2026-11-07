@@ -1125,8 +1125,9 @@ HANDLER_RESULT<Empty> API_HANDLER_PCB::handleAddEmbeddedFiles( const HANDLER_CON
 
     EMBEDDED_FILES* boardFiles = frame()->GetBoard()->GetEmbeddedFiles();
 
-    for( const std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE>& file : files.EmbeddedFileMap() | std::views::values )
+    for( const auto& fileEntry : files.EmbeddedFileMap() )
     {
+        const std::shared_ptr<EMBEDDED_FILES::EMBEDDED_FILE>& file = fileEntry.second;
         auto copy = std::make_shared<EMBEDDED_FILES::EMBEDDED_FILE>( *file );
         boardFiles->AddFile( copy );
     }

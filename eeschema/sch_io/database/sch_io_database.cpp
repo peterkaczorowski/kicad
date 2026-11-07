@@ -434,7 +434,7 @@ void SCH_IO_DATABASE::resolvePendingSources()
         pending = m_pendingSourceLibs;
     }
 
-    if( std::ranges::all_of( pending,
+    if( std::all_of( pending.begin(), pending.end(),
                              [this]( const wxString& aLib )
                              {
                                  return m_adapter->IsLibraryLoadPending( aLib );

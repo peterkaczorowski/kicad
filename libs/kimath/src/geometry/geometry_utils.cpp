@@ -272,8 +272,9 @@ bool KIGEOM::ShapeHitTest( const SHAPE_LINE_CHAIN& aHitter, const SHAPE& aHittee
                 if( const auto compoundHittee = dynamic_cast<const SHAPE_COMPOUND*>( &aHittee ) )
                 {
                     // If the hittee is a compound shape, all subshapes must collide.
-                    return std::ranges::all_of(
-                                compoundHittee->Shapes(),
+                    const auto& subshapes = compoundHittee->Shapes();
+                    return std::all_of(
+                                subshapes.begin(), subshapes.end(),
                                 [&]( const SHAPE* subshape )
                                 {
                                     return subshape && subshape->Collide( &aHitter );

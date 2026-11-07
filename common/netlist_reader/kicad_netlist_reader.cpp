@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <algorithm>
 #include <netlist_lexer.h>  // netlist_lexer is common to Eeschema and Pcbnew
 #include <string_utils.h>
 #include <json_common.h>
@@ -665,7 +666,7 @@ void KICAD_NETLIST_PARSER::parseComponent()
     component->SetHumanReadablePath( humanSheetPath );
     component->SetComponentClassNames( componentClasses );
     component->SetDuplicatePadNumbersAreJumpers( duplicatePinsAreJumpers );
-    std::ranges::copy( jumperPinGroups, std::inserter( component->JumperPadGroups(),
+    std::copy( jumperPinGroups.begin(), jumperPinGroups.end(), std::inserter( component->JumperPadGroups(),
                                                        component->JumperPadGroups().end() ) );
     component->SetUnitInfo( parsedUnits );
     m_netlist->AddComponent( component );

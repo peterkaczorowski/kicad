@@ -218,18 +218,20 @@ bool PANEL_EMBEDDED_FILES::TransferDataFromWindow()
 
     for( const auto& [name, file] : m_files->EmbeddedFileMap() )
     {
-        if( !m_localFiles->HasFile( name ) )
+        const wxString& fileName = name;
+
+        if( !m_localFiles->HasFile( fileName ) )
         {
             m_files->RunOnNestedEmbeddedFiles(
                     [&]( EMBEDDED_FILES* nested_files )
                     {
-                        if( nested_files->HasFile( name ) )
+                        if( nested_files->HasFile( fileName ) )
                         {
                             if( !deleteReferences.has_value() )
                                 deleteReferences = confirmDelete();
 
                             if( deleteReferences.value() )
-                                nested_files->RemoveFile( name, true );
+                                nested_files->RemoveFile( fileName, true );
                         }
                     } );
         }

@@ -24,6 +24,7 @@
 
 #include <dialogs/panel_assign_component_classes.h>
 
+#include <algorithm>
 #include <bitmaps.h>
 #include <board.h>
 #include <component_classes/component_class_assignment_rule.h>
@@ -79,7 +80,7 @@ PANEL_ASSIGN_COMPONENT_CLASSES::PANEL_ASSIGN_COMPONENT_CLASSES(
 
     // Sort field names
     std::vector<wxString> fieldNames( fieldsSet.begin(), fieldsSet.end() );
-    std::ranges::sort( fieldNames,
+    std::sort( fieldNames.begin(), fieldNames.end(),
                        []( const wxString& a, const wxString& b )
                        {
                            return a.Cmp( b ) < 0;
@@ -89,7 +90,7 @@ PANEL_ASSIGN_COMPONENT_CLASSES::PANEL_ASSIGN_COMPONENT_CLASSES(
 
     // Sort sheet names
     std::vector<wxString> sheetNames( sheetsSet.begin(), sheetsSet.end() );
-    std::ranges::sort( sheetNames,
+    std::sort( sheetNames.begin(), sheetNames.end(),
                        []( const wxString& a, const wxString& b )
                        {
                            return a.Cmp( b ) < 0;
@@ -111,7 +112,7 @@ PANEL_ASSIGN_COMPONENT_CLASSES::PANEL_ASSIGN_COMPONENT_CLASSES(
     }
 
     std::vector<wxString> refs( refsSet.begin(), refsSet.end() );
-    std::ranges::sort( refs,
+    std::sort( refs.begin(), refs.end(),
                        []( const wxString& a, const wxString& b )
                        {
                            return a.Cmp( b ) < 0;
@@ -242,7 +243,7 @@ void PANEL_ASSIGN_COMPONENT_CLASSES::scrollToAssignment(
 
 void PANEL_ASSIGN_COMPONENT_CLASSES::RemoveAssignment( PANEL_COMPONENT_CLASS_ASSIGNMENT* aPanel )
 {
-    m_assignments.erase( std::ranges::find( m_assignments, aPanel ) );
+    m_assignments.erase( std::find( m_assignments.begin(), m_assignments.end(), aPanel ) );
     m_assignmentsList->Detach( aPanel );
     aPanel->Destroy();
     Layout();
@@ -490,7 +491,7 @@ CONDITION_DATA* PANEL_COMPONENT_CLASS_ASSIGNMENT::AddCondition(
 void PANEL_COMPONENT_CLASS_ASSIGNMENT::RemoveCondition( wxPanel* aMatch )
 {
     if( CONDITION_DATA* matchData = dynamic_cast<CONDITION_DATA*>( aMatch ) )
-        m_matches.erase( std::ranges::find( m_matches, matchData ) );
+        m_matches.erase( std::find( m_matches.begin(), m_matches.end(), matchData ) );
 
     m_matchesList->Detach( aMatch );
     aMatch->Destroy();

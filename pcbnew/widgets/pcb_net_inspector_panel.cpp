@@ -519,7 +519,7 @@ void PCB_NET_INSPECTOR_PANEL::buildNetsList( const bool rebuildColumns )
             netCodes.emplace_back( ni );
     }
 
-    std::ranges::sort( netCodes,
+    std::sort( netCodes.begin(), netCodes.end(),
                        []( const NETINFO_ITEM* a, const NETINFO_ITEM* b )
                        {
                            return a->GetNetCode() < b->GetNetCode();
@@ -551,7 +551,7 @@ void PCB_NET_INSPECTOR_PANEL::buildNetsList( const bool rebuildColumns )
                         return groupName == item.first;
                     };
 
-            auto tableItem = std::ranges::find_if( groupItems, pred );
+            auto tableItem = std::find_if( groupItems.begin(), groupItems.end(), pred );
 
             if( tableItem != groupItems.end() )
                 m_netsList->Expand( tableItem->second );
@@ -659,7 +659,7 @@ std::vector<CN_ITEM*> PCB_NET_INSPECTOR_PANEL::relevantConnectivityItems() const
             cn_items.push_back( cn_item );
     }
 
-    std::ranges::sort( cn_items, NETCODE_CMP_LESS() );
+    std::sort( cn_items.begin(), cn_items.end(), NETCODE_CMP_LESS() );
 
     return cn_items;
 }
@@ -898,7 +898,7 @@ void PCB_NET_INSPECTOR_PANEL::updateBoardItems( const std::vector<BOARD_ITEM*>& 
             }
         }
 
-        std::ranges::sort( changedNets,
+        std::sort( changedNets.begin(), changedNets.end(),
                            []( const NETINFO_ITEM* a, const NETINFO_ITEM* b )
                            {
                                return a->GetNetCode() < b->GetNetCode();
@@ -1179,7 +1179,7 @@ void PCB_NET_INSPECTOR_PANEL::onAddGroup()
     if( newGroupName == "" )
         return;
 
-    if( std::ranges::find_if( m_custom_group_rules,
+    if( std::find_if( m_custom_group_rules.begin(), m_custom_group_rules.end(),
                               [&]( std::unique_ptr<EDA_COMBINED_MATCHER>& rule )
                               {
                                   return rule->GetPattern() == newGroupName;
@@ -1467,7 +1467,7 @@ void PCB_NET_INSPECTOR_PANEL::onRemoveSelectedGroup()
         if( selItem->GetIsGroup() )
         {
             const wxString groupName = selItem->GetGroupName();
-            const auto     groupIter = std::ranges::find_if( m_custom_group_rules,
+            const auto     groupIter = std::find_if( m_custom_group_rules.begin(), m_custom_group_rules.end(),
                                                              [&]( std::unique_ptr<EDA_COMBINED_MATCHER>& rule )
                                                              {
                                                                  return rule->GetPattern() == groupName;

@@ -30,6 +30,7 @@
 #include <magic_enum.hpp>
 #include <startwizard/startwizard_provider_settings.h>
 #include <trace_helpers.h>
+#include <algorithm>
 #include <regex>
 #include <set>
 #include <wx/log.h>
@@ -292,13 +293,14 @@ bool STARTWIZARD_PROVIDER_LIBRARIES::MigrateBuiltInLibraries( LIBRARY_TABLE& aTa
         }
     }
 
-    auto toErase = std::ranges::remove_if( aTable.Rows(),
+    auto& tableRows = aTable.Rows();
+    auto  toErase = std::remove_if( tableRows.begin(), tableRows.end(),
             [&]( const LIBRARY_TABLE_ROW& aRow )
             {
                 return toRemove.contains( aRow.URI() );
             } );
 
-    aTable.Rows().erase( toErase.begin(), toErase.end() );
+    tableRows.erase( toErase, tableRows.end() );
 
     // An existing chained reference was already migrated in place, so don't add a second one.
     if( haveChained )

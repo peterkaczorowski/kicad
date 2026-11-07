@@ -47,7 +47,8 @@ API_HANDLER_EDITOR::API_HANDLER_EDITOR( EDA_BASE_FRAME* aFrame ) :
 static std::optional<ApiResponseStatus> rejectIfMultipleEditors( const std::string& aFuncName )
 {
     // Handle legacy clients that don't know about the document field, when it's safe to do so
-    if( std::ranges::count_if( Pgm().GetApiServer().Handlers(),
+    const auto& handlers = Pgm().GetApiServer().Handlers();
+    if( std::count_if( handlers.begin(), handlers.end(),
                                []( const API_HANDLER* aHandler )
                                {
                                    return dynamic_cast<const API_HANDLER_EDITOR*>( aHandler );

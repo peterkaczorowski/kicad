@@ -1975,7 +1975,7 @@ bool LOCAL_HISTORY::EnforceSizeLimit( const wxString& aProjectPath, size_t aMaxB
 
             parent = nullptr;
             git_commit_lookup( &parent, repo, &newCommitOid );
-            commitMap.emplace_back( co, newCommitOid );
+            commitMap.push_back( MAP_ENTRY{ co, newCommitOid } );
         }
 
         git_signature_free( sigAuthor );

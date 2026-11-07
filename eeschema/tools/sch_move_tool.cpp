@@ -1765,8 +1765,11 @@ void SCH_MOVE_TOOL::spreadMovingSheetPinGroups( const SCH_SELECTION& aSelection 
         }
     }
 
-    for( auto& [sheet, pins] : groups )
+    for( auto& group : groups )
     {
+        SCH_SHEET*                 sheet = group.first;
+        std::vector<SCH_SHEET_PIN*>& pins = group.second;
+
         if( pins.size() < 2 )
             continue;
 

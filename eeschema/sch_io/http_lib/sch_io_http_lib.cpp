@@ -251,8 +251,9 @@ bool SCH_IO_HTTP_LIB::materializeCache( const wxString& aLibraryPath,
     std::set<wxString>                                      newCustomFields;
     std::set<wxString>                                      newPendingSourceLibs;
 
-    for( const HTTP_LIB_CATEGORY& category : aCategoryData | std::views::values )
+    for( const auto& categoryEntry : aCategoryData )
     {
+        const HTTP_LIB_CATEGORY& category = categoryEntry.second;
         for( const HTTP_LIB_PART& part : category.cachedParts )
         {
             wxString symbolName( part.name );
@@ -307,7 +308,7 @@ void SCH_IO_HTTP_LIB::resolvePendingSources()
         modifyHash = m_modifyHash;
     }
 
-    if( std::ranges::all_of( pending,
+        if( std::all_of( pending.begin(), pending.end(),
                              [this]( const wxString& aLib )
                              {
                                  return m_adapter->IsLibraryLoadPending( aLib );
@@ -435,8 +436,9 @@ void SCH_IO_HTTP_LIB::EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList,
 
     std::shared_lock lock( m_cacheMutex );
 
-    for( const std::unique_ptr<LIB_SYMBOL>& symbol : m_symbolCache | std::views::values )
+    for( const auto& symbolEntry : m_symbolCache )
     {
+        const std::unique_ptr<LIB_SYMBOL>& symbol = symbolEntry.second;
         if( !powerSymbolsOnly || symbol->IsPower() )
             aSymbolList.emplace_back( symbol->Duplicate() );
     }
