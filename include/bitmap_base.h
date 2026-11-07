@@ -70,8 +70,18 @@ public:
 
     const wxImage* GetOriginalImageData() const { return m_originalImage; }
 
-    double GetScale() const { return m_scale; }
-    void SetScale( double aScale ) { m_scale = aScale; }
+    /// Uniform scale convenience: returns the X scale (X == Y for uniform images).
+    double GetScale() const { return m_scaleX; }
+    /// Uniform scale convenience: sets both axes to the same value.
+    void SetScale( double aScale ) { m_scaleX = aScale; m_scaleY = aScale; }
+
+    double GetScaleX() const { return m_scaleX; }
+    double GetScaleY() const { return m_scaleY; }
+    VECTOR2D GetScaleXY() const { return VECTOR2D( m_scaleX, m_scaleY ); }
+
+    void SetScaleX( double aScale ) { m_scaleX = aScale; }
+    void SetScaleY( double aScale ) { m_scaleY = aScale; }
+    void SetScaleXY( double aScale ) { m_scaleX = aScale; m_scaleY = aScale; }
 
     KIID GetImageID() const { return m_imageId; }
 
@@ -91,9 +101,14 @@ public:
      *
      * @return The scaling factor from pixel size to actual draw size.
      */
-    double GetScalingFactor() const
+    double GetScalingFactorX() const
     {
-        return m_pixelSizeIu * m_scale;
+        return m_pixelSizeIu * m_scaleX;
+    }
+
+    double GetScalingFactorY() const
+    {
+        return m_pixelSizeIu * m_scaleY;
     }
 
     /**
@@ -268,7 +283,9 @@ private:
      */
     static void mirrorImageInPlace( wxImage& aImage, FLIP_DIRECTION aFlipDirection );
 
-    double    m_scale;              ///< The scaling factor of the bitmap
+    double    m_scaleX;             ///< The X scaling factor of the bitmap
+                                    ///< with #m_pixelSizeIu, controls the actual draw size.
+    double    m_scaleY;             ///< The Y scaling factor of the bitmap
                                     ///< with #m_pixelSizeIu, controls the actual draw size.
     mutable wxMemoryBuffer m_imageData; ///< Cached encoded image data (PNG/JPEG).
     wxBitmapType   m_imageType;     ///< The image type (png, jpeg, etc.).

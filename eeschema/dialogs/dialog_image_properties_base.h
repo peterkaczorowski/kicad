@@ -18,7 +18,10 @@
 #include <wx/colour.h>
 #include <wx/settings.h>
 #include <wx/textctrl.h>
+#include <wx/gbsizer.h>
 #include <wx/sizer.h>
+#include <wx/panel.h>
+#include <wx/notebook.h>
 #include <wx/button.h>
 #include <wx/dialog.h>
 
@@ -32,12 +35,22 @@ class DIALOG_IMAGE_PROPERTIES_BASE : public DIALOG_SHIM
 	private:
 
 	protected:
+		wxNotebook* m_Notebook;
+		wxPanel* m_PanelGeneral;
+		wxPanel* m_PanelImage;
+		wxBoxSizer* m_generalSizer;
 		wxStaticText* m_XPosLabel;
 		wxTextCtrl* m_ModPositionX;
 		wxStaticText* m_XPosUnit;
 		wxStaticText* m_YPosLabel;
 		wxTextCtrl* m_ModPositionY;
 		wxStaticText* m_YPosUnit;
+		wxStaticText* m_WidthLabel;
+		wxTextCtrl* m_ModWidth;
+		wxStaticText* m_WidthUnit;
+		wxStaticText* m_HeightLabel;
+		wxTextCtrl* m_ModHeight;
+		wxStaticText* m_HeightUnit;
 		wxBoxSizer* m_imageSizer;
 		wxStdDialogButtonSizer* m_sdbSizerStdButtons;
 		wxButton* m_sdbSizerStdButtonsOK;
@@ -50,4 +63,3 @@ class DIALOG_IMAGE_PROPERTIES_BASE : public DIALOG_SHIM
 		~DIALOG_IMAGE_PROPERTIES_BASE();
 
 };
-

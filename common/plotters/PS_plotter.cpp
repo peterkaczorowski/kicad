@@ -584,13 +584,14 @@ void PS_PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aCornerList, FILL_T aFill, in
 }
 
 
-void PS_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor )
+void PS_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactorX,
+                            double aScaleFactorY )
 {
     VECTOR2I pix_size; // size of the bitmap in pixels
     pix_size.x = aImage.GetWidth();
     pix_size.y = aImage.GetHeight();
-    VECTOR2D drawsize( aScaleFactor * pix_size.x,
-                       aScaleFactor * pix_size.y ); // requested size of image
+    VECTOR2D drawsize( aScaleFactorX * pix_size.x,
+                       aScaleFactorY * pix_size.y ); // requested size of image
 
     // calculate the bottom left corner position of bitmap
     VECTOR2I start = aPos;

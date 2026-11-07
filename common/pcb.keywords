@@ -60,12 +60,15 @@ board_only
 bold
 border
 bottom
+bottom_center
 bottom_left
 bottom_right
 buried
 castellated_pads
 cells
 center
+center_left
+center_right
 chamfer
 chamfer_ratio
 circle
@@ -315,6 +318,8 @@ roundrect_rratio
 rows
 row_heights
 scale
+scale_x
+scale_y
 segment
 segment_width
 separators
@@ -369,6 +374,7 @@ thickness
 through_hole
 through_hole_min
 top
+top_center
 top_left
 top_right
 trace_width

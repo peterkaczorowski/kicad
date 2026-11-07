@@ -257,9 +257,10 @@ void PLOTTER::BezierCurve( const VECTOR2I& aStart, const VECTOR2I& aControl1,
 }
 
 
-void PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor )
+void PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactorX,
+                         double aScaleFactorY )
 {
-    VECTOR2I size( aImage.GetWidth() * aScaleFactor, aImage.GetHeight() * aScaleFactor );
+    VECTOR2I size( aImage.GetWidth() * aScaleFactorX, aImage.GetHeight() * aScaleFactorY );
 
     VECTOR2I start = aPos;
     start.x -= size.x / 2;

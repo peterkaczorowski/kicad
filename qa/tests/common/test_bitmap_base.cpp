@@ -168,6 +168,41 @@ BOOST_AUTO_TEST_CASE( BasicProps )
 
 
 /**
+ * Check independent per-axis (X/Y) scaling.
+ */
+BOOST_AUTO_TEST_CASE( PerAxisScale )
+{
+    // The fixture left a uniform scale of 5.0 and a pixel size of 2.0.
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleX(), 5.0 );
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleY(), 5.0 );
+
+    // Stretch only the Y axis.
+    m_4tile.SetScaleY( 10.0 );
+
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleX(), 5.0 );
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleY(), 10.0 );
+
+    // The uniform GetScale() convenience reports the X axis.
+    BOOST_CHECK_EQUAL( m_4tile.GetScale(), 5.0 );
+
+    BOOST_CHECK( m_4tile.GetScaleXY() == VECTOR2D( 5.0, 10.0 ) );
+
+    // Size = pixels (8) * pixelSizeIu (2.0) * scale, independently per axis.
+    BOOST_CHECK( m_4tile.GetSize() == VECTOR2I( 80, 160 ) );
+
+    // SetScaleXY( single ) resets both axes to a uniform value.
+    m_4tile.SetScaleXY( 3.0 );
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleX(), 3.0 );
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleY(), 3.0 );
+
+    // The uniform SetScale() also sets both axes.
+    m_4tile.SetScale( 7.0 );
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleX(), 7.0 );
+    BOOST_CHECK_EQUAL( m_4tile.GetScaleY(), 7.0 );
+}
+
+
+/**
  * Check the image is right
  */
 BOOST_AUTO_TEST_CASE( BasicImage )

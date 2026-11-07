@@ -329,10 +329,10 @@ void KIGFX::DS_PAINTER::draw( const DS_DRAW_ITEM_BITMAP* aItem, int aLayer ) con
 
     // When the image scale factor is not 1.0, we need to modify the actual scale
     // as the image scale factor is similar to a local zoom
-    double img_scale = bitmap->m_ImageBitmap->GetScale();
+    VECTOR2D img_scale = bitmap->m_ImageBitmap->GetScaleXY();
 
-    if( img_scale != 1.0 )
-        m_gal->Scale( VECTOR2D( img_scale, img_scale ) );
+    if( img_scale != VECTOR2D( 1.0, 1.0 ) )
+        m_gal->Scale( img_scale );
 
     m_gal->DrawBitmap( *bitmap->m_ImageBitmap );
 
@@ -343,7 +343,7 @@ void KIGFX::DS_PAINTER::draw( const DS_DRAW_ITEM_BITMAP* aItem, int aLayer ) con
     m_canvas->SetFillColor( COLOR4D( 1, 1, 1, 0.4 ) );
     m_canvas->SetStrokeColor( COLOR4D( 0, 0, 0, 1 ) );
 
-    if( img_scale != 1.0 )
+    if( img_scale != VECTOR2D( 1.0, 1.0 ) )
         m_canvas->Scale( VECTOR2D( 1.0, 1.0 ) );
 
     m_canvas->DrawRectangle( VECTOR2D( bbox.GetOrigin() ) - position,

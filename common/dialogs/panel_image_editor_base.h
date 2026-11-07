@@ -37,6 +37,7 @@ class PANEL_IMAGE_EDITOR_BASE : public wxPanel
 
 	protected:
 		wxPanel* m_panelDraw;
+		wxBoxSizer* m_sideSizer;
 		wxStaticText* m_staticTextScale;
 		wxTextCtrl* m_textCtrlScale;
 		wxStaticText* m_staticTextPPI;

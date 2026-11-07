@@ -50,8 +50,31 @@ public:
     // Apply a scale to the working image without rewriting the scale text field.
     void UpdateImageScale( double aScale );
 
+    ///< Per-axis scale accessors (independent X/Y scaling).
+    double GetScaleX() const;
+    double GetScaleY() const;
+    void   SetScaleX( double aScale );
+    void   SetScaleY( double aScale );
+
     VECTOR2I GetImageSize() const;
     wxTextCtrl* GetScaleCtrl() const { return m_textCtrlScale; }
+
+    ///< Right-hand control column.  An owning dialog can Insert(0, ...) extra controls
+    ///< (e.g. an "Image Size" group) above the editor's own Scale/PPI/Greyscale grid.
+    wxBoxSizer* GetSideSizer() const { return m_sideSizer; }
+
+    ///< Adjust the proportions of the image-preview column vs. the right-hand control
+    ///< column (both live in the same horizontal sizer).  E.g. (1, 2) makes the image
+    ///< take 1/3 of the width.  Owning dialogs use this to override the default split.
+    void SetImageColumnProportion( int aImageProp, int aSideProp );
+
+    ///< Shrink the "Convert to Greyscale" button to a fraction (aNum/aDen) of its column
+    ///< width by wrapping it in a proportional sizer with a stretch spacer.
+    void SetGreyscaleButtonWidthFraction( int aNum, int aDen );
+
+    ///< Hide the uniform "Scale" field+label (e.g. when the owning dialog drives scaling
+    ///< through Width/Height with a percent unit instead).
+    void HideScaleControl();
 
     /**
      * Copy edited image to \a aItem.
