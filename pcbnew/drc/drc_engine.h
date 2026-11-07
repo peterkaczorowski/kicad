@@ -274,6 +274,12 @@ public:
 
     bool HasRulesForConstraintType( DRC_CONSTRAINT_T constraintID );
 
+    /**
+     * Return the union of the layer conditions of every rule, implicit ones included, that could
+     * produce a constraint of the given type.
+     */
+    LSET GetLayersForConstraintType( DRC_CONSTRAINT_T aConstraintId ) const;
+
     bool HasGeometryDependentRules() const { return m_hasGeometryDependentRules; }
 
     bool GetReportAllTrackErrors() const { return m_reportAllTrackErrors; }

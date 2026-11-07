@@ -2465,6 +2465,21 @@ bool DRC_ENGINE::HasRulesForConstraintType( DRC_CONSTRAINT_T constraintID )
 }
 
 
+LSET DRC_ENGINE::GetLayersForConstraintType( DRC_CONSTRAINT_T aConstraintId ) const
+{
+    LSET layers;
+    auto it = m_constraintMap.find( aConstraintId );
+
+    if( it != m_constraintMap.end() )
+    {
+        for( const DRC_ENGINE_CONSTRAINT* c : *it->second )
+            layers |= c->layerTest;
+    }
+
+    return layers;
+}
+
+
 bool DRC_ENGINE::QueryWorstConstraint( DRC_CONSTRAINT_T aConstraintId, DRC_CONSTRAINT& aConstraint,
                                        bool aUnconditionalOnly )
 {
