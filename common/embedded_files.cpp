@@ -414,7 +414,7 @@ EMBEDDED_FILES::RETURN_CODE EMBEDDED_FILES::ComputeFileHash( const wxFileName& a
     wxFileOffset length = file.GetLength();
     std::vector<char> data( length );
 
-    if( !data.data() )
+    if( length > 0 && !data.data() )
         return RETURN_CODE::OUT_OF_MEMORY;
 
     char* dataPtr = data.data();
@@ -424,6 +424,11 @@ EMBEDDED_FILES::RETURN_CODE EMBEDDED_FILES::ComputeFileHash( const wxFileName& a
     {
         file.Read( dataPtr, length - totalRead );
         size_t bytesRead = file.LastRead();
+
+        // A zero length read before the end cannot make progress.
+        if( bytesRead == 0 )
+            return RETURN_CODE::PERMISSIONS_ERROR;
+
         dataPtr += bytesRead;
         totalRead += bytesRead;
     }

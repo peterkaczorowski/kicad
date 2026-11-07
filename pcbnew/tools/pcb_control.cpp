@@ -22,6 +22,7 @@
 #include "pcb_control.h"
 
 #include <wx/hyperlink.h>
+#include <widgets/wx_progress_reporters.h>
 #include <wx/filename.h>
 
 #include "convert_basic_shapes_to_polygon.h"
@@ -77,9 +78,13 @@
 #include <filename_resolver.h>
 #include <3d_cache/3d_cache.h>
 #include <embedded_files.h>
+#include <paths.h>
+#include <wx/wfstream.h>
 #include <zone.h>
 #include <confirm.h>
 #include <kidialog.h>
+#include <wx/dirdlg.h>
+#include <wx/hyperlink.h>
 #include <connectivity/connectivity_data.h>
 #include <core/kicad_algo.h>
 #include <dialogs/hotkey_cycle_popup.h>
@@ -3323,6 +3328,390 @@ int PCB_CONTROL::CollectAndEmbed3DModels( const TOOL_EVENT& aEvent )
 }
 
 
+/**
+ * A footprint's own embedded models shadow the board's.
+ */
+static EMBEDDED_FILES* findEmbeddedStore( const wxString& aName, FOOTPRINT* aFootprint, BOARD* aBoard )
+{
+    // Probe with the accessor the caller fetches with.  The two key themselves differently.
+    if( aFootprint->GetEmbeddedFiles()->GetEmbeddedFile( aName ) )
+        return aFootprint->GetEmbeddedFiles();
+
+    if( aBoard->GetEmbeddedFiles()->GetEmbeddedFile( aName ) )
+        return aBoard->GetEmbeddedFiles();
+
+    return nullptr;
+}
+
+
+int PCB_CONTROL::ExtractEmbedded3DModels( const TOOL_EVENT& aEvent )
+{
+    // ${KIPRJMOD} means nothing in the footprint editor.
+    if( !m_frame->IsType( FRAME_PCB_EDITOR ) )
+        return 0;
+
+    BOARD* brd = board();
+
+    if( !brd )
+        return 0;
+
+    const wxString prefix = FILEEXT::KiCadUriPrefix + "://";
+
+    std::set<wxString> pending;
+    long long          pendingBytes = 0;
+
+    for( FOOTPRINT* fp : brd->Footprints() )
+    {
+        for( const FP_3DMODEL& model : fp->Models() )
+        {
+            if( !model.m_Filename.StartsWith( prefix ) )
+                continue;
+
+            wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
+
+            if( name.IsEmpty() || !pending.insert( name ).second )
+                continue;
+
+            if( EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd ) )
+            {
+                if( EMBEDDED_FILES::EMBEDDED_FILE* file = store->GetEmbeddedFile( name ) )
+                    pendingBytes += file->decompressedData.size();
+            }
+        }
+    }
+
+    if( pending.empty() )
+    {
+        m_frame->GetInfoBar()->ShowMessageFor( _( "The board has no embedded 3D models." ), 5000 );
+        return 0;
+    }
+
+    const wxString projectPath = m_frame->Prj().GetProjectPath();
+
+    wxFileName modelDir( projectPath, wxEmptyString );
+    modelDir.AppendDir( wxT( "3dmodels" ) );
+
+    wxString ask = wxString::Format(
+            wxPLURAL( "Write %d 3D model (%s) here.", "Write %d 3D models (%s) here.", (int) pending.size() ),
+            (int) pending.size(), wxFileName::GetHumanReadableSize( wxULongLong( pendingBytes ) ) );
+
+    ask << wxS( " " ) << _( "The copies in the board are removed, which cannot be undone." );
+
+    // The chooser falls back to the parent when the folder is missing.
+    PATHS::EnsurePathExists( modelDir.GetPath() );
+
+    wxDirDialog dirDlg( m_frame, ask, modelDir.GetPath(), wxDD_DEFAULT_STYLE );
+
+    if( dirDlg.ShowModal() != wxID_OK )
+        return 0;
+
+    modelDir = wxFileName( dirDlg.GetPath(), wxEmptyString );
+
+    // ${KIPRJMOD} only reaches inside the project.
+    wxFileName relative( modelDir );
+    relative.MakeRelativeTo( projectPath );
+
+    wxString relativeDir = relative.GetPath( wxPATH_NO_SEPARATOR, wxPATH_UNIX );
+    wxString linkPrefix;
+
+    if( relativeDir.StartsWith( wxT( ".." ) ) || wxFileName( relativeDir ).IsAbsolute() )
+    {
+        linkPrefix = modelDir.GetPathWithSep( wxPATH_UNIX );
+    }
+    else
+    {
+        linkPrefix = wxT( "${KIPRJMOD}/" );
+
+        if( !relativeDir.IsEmpty() )
+            linkPrefix += relativeDir + wxT( "/" );
+    }
+
+    if( wxFileName::FileExists( modelDir.GetPath() ) )
+    {
+        DisplayErrorMessage( m_frame, _( "Cannot extract the 3D models." ),
+                             wxString::Format( _( "'%s' is a file, so the models have nowhere "
+                                                  "to go." ),
+                                               modelDir.GetPath() ) );
+        return 0;
+    }
+
+    if( !PATHS::EnsurePathExists( modelDir.GetPath() )
+        || !wxFileName( modelDir.GetPath(), wxEmptyString ).IsDirWritable() )
+    {
+        DisplayErrorMessage( m_frame, _( "Cannot extract the 3D models." ),
+                             wxString::Format( _( "'%s' cannot be written to." ), modelDir.GetPath() ) );
+        return 0;
+    }
+
+    BOARD_COMMIT commit( m_frame );
+
+    // A footprint can hold its own file under a name the board also uses.
+    using STORED_FILE = std::pair<EMBEDDED_FILES*, wxString>;
+
+    std::map<STORED_FILE, wxString>               written; // stored file -> the path footprints now use
+    std::set<STORED_FILE>                         failed;
+    std::set<wxString>                            failedNames;
+    std::set<wxString>                            extracted; // every name written out, companions included
+    std::map<EMBEDDED_FILES*, std::set<wxString>> owners;    // which store each one came from
+
+    // Destination name -> the content hash holding it.
+    std::map<wxString, std::string> claimed;
+
+    auto distinctName = []( const wxFileName& aSource, const std::string& aHash )
+    {
+        wxString unique = aSource.GetName() + wxT( "_" ) + wxString( aHash.substr( 0, 8 ) );
+
+        return aSource.GetExt().IsEmpty() ? unique : unique + wxT( "." ) + aSource.GetExt();
+    };
+
+    // Returns the name the file went under, empty on failure.
+    auto placeFile = [&]( EMBEDDED_FILES::EMBEDDED_FILE* aFile ) -> wxString
+    {
+        if( !aFile || !aFile->Validate() || aFile->data_hash.empty() )
+            return wxEmptyString;
+
+        const wxFileName source( aFile->name );
+        wxString         candidate = source.GetFullName();
+        auto             claim = claimed.find( candidate );
+
+        if( claim != claimed.end() && claim->second != aFile->data_hash )
+            candidate = distinctName( source, aFile->data_hash );
+
+        for( int attempt = 0; attempt < 2; ++attempt )
+        {
+            wxFileName target( modelDir.GetPath(), candidate );
+
+            // A link would put the write outside the project.
+            if( target.Exists( wxFILE_EXISTS_SYMLINK ) )
+            {
+                if( attempt == 0 )
+                {
+                    candidate = distinctName( source, aFile->data_hash );
+                    continue;
+                }
+
+                return wxEmptyString;
+            }
+
+            if( target.FileExists() )
+            {
+                std::string onDisk;
+
+                if( EMBEDDED_FILES::ComputeFileHash( target, onDisk ) == EMBEDDED_FILES::RETURN_CODE::OK
+                    && onDisk == aFile->data_hash )
+                {
+                    claimed[candidate] = aFile->data_hash;
+                    return candidate;
+                }
+
+                // One retry, under a name of our own.
+                if( attempt == 0 )
+                {
+                    candidate = distinctName( source, aFile->data_hash );
+                    continue;
+                }
+
+                return wxEmptyString;
+            }
+
+            wxFFileOutputStream out( target.GetFullPath() );
+
+            if( !out.IsOk() )
+                return wxEmptyString;
+
+            const size_t size = aFile->decompressedData.size();
+
+            out.Write( aFile->decompressedData.data(), size );
+
+            // Close() is where a full disk reports itself.
+            bool ok = out.IsOk() && out.LastWrite() == size;
+            ok &= out.Close();
+
+            if( !ok )
+            {
+                wxRemoveFile( target.GetFullPath() );
+                return wxEmptyString;
+            }
+
+            claimed[candidate] = aFile->data_hash;
+            return candidate;
+        }
+
+        return wxEmptyString;
+    };
+
+    // Nothing touches the board until every file is out.
+    std::unique_ptr<WX_PROGRESS_REPORTER> progress;
+
+    if( pending.size() > 4 && Pgm().IsGUI() )
+    {
+        progress = std::make_unique<WX_PROGRESS_REPORTER>( m_frame, _( "Extract 3D Models" ), (int) pending.size(),
+                                                           PR_CAN_ABORT );
+    }
+
+    for( FOOTPRINT* fp : brd->Footprints() )
+    {
+        for( const FP_3DMODEL& model : fp->Models() )
+        {
+            if( !model.m_Filename.StartsWith( prefix ) )
+                continue;
+
+            // The store is keyed by the bare name.
+            wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
+
+            if( name.IsEmpty() )
+                continue;
+
+            EMBEDDED_FILES* store = findEmbeddedStore( name, fp, brd );
+            STORED_FILE     key( store, name );
+
+            if( written.count( key ) || failed.count( key ) )
+                continue;
+
+            if( progress )
+            {
+                if( !progress->KeepRefreshing() )
+                    return 0;
+
+                progress->Report( name );
+                progress->AdvanceProgress();
+            }
+
+            wxString placed = store ? placeFile( store->GetEmbeddedFile( name ) ) : wxString();
+
+            if( placed.IsEmpty() )
+            {
+                failed.insert( key );
+                failedNames.insert( name );
+                continue;
+            }
+
+            written[key] = linkPrefix + placed;
+            extracted.insert( name );
+            owners[store].insert( name );
+
+            // Embedding also takes a VRML model's STEP companion, which no footprint names.
+            const wxString base = name.BeforeLast( '.' );
+
+            if( base.IsEmpty() )
+                continue;
+
+            for( const auto& [companion, entry] : store->EmbeddedFileMap() )
+            {
+                if( companion == name || extracted.count( companion ) )
+                    continue;
+
+                if( entry->type != EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL )
+                    continue;
+
+                if( companion.BeforeLast( '.' ) != base )
+                    continue;
+
+                if( !placeFile( entry.get() ).IsEmpty() )
+                {
+                    extracted.insert( companion );
+                    owners[store].insert( companion );
+                }
+            }
+        }
+    }
+
+    if( progress )
+        progress.reset();
+
+    for( FOOTPRINT* fp : brd->Footprints() )
+    {
+        bool fpModified = false;
+
+        for( FP_3DMODEL& model : fp->Models() )
+        {
+            if( !model.m_Filename.StartsWith( prefix ) )
+                continue;
+
+            wxString name = wxFileName( model.m_Filename.Mid( prefix.length() ) ).GetFullName();
+
+            if( name.IsEmpty() )
+                continue;
+
+            auto it = written.find( STORED_FILE( findEmbeddedStore( name, fp, brd ), name ) );
+
+            if( it == written.end() )
+                continue;
+
+            if( !fpModified )
+                commit.Modify( fp );
+
+            model.m_Filename = it->second;
+            fpModified = true;
+        }
+    }
+
+
+    if( !extracted.empty() )
+    {
+        // Another footprint can hold a different file under the same name.
+        for( const auto& [store, names] : owners )
+        {
+            // The store also holds fonts and documents.
+            for( const wxString& name : names )
+            {
+                EMBEDDED_FILES::EMBEDDED_FILE* file = store->GetEmbeddedFile( name );
+
+                if( file && file->type == EMBEDDED_FILES::EMBEDDED_FILE::FILE_TYPE::MODEL )
+                    store->RemoveFile( name, true );
+            }
+        }
+
+        // Embedded files are not staged in any commit, so undo cannot restore them.
+        commit.Push( _( "Extract 3D Models" ), SKIP_UNDO );
+        m_frame->ClearUndoRedoList();
+    }
+
+    wxString msg;
+
+    const int extractedCount = (int) extracted.size();
+
+    if( extractedCount > 0 )
+    {
+        msg = wxString::Format( wxPLURAL( "Extracted %d 3D model.", "Extracted %d 3D models.", extractedCount ),
+                                extractedCount );
+        msg << wxS( " " ) << wxString::Format( _( "They are in '%s'." ), modelDir.GetPath() );
+    }
+    else
+        msg = _( "No 3D models could be extracted." );
+
+    if( !failedNames.empty() )
+    {
+        wxString names;
+
+        for( const wxString& name : failedNames )
+            names += ( names.IsEmpty() ? wxString() : wxT( ", " ) ) + name;
+
+        DisplayErrorMessage( m_frame, msg, wxString::Format( _( "These models could not be extracted: %s" ), names ) );
+    }
+
+    WX_INFOBAR* infobar = m_frame->GetInfoBar();
+
+    infobar->RemoveAllButtons();
+
+    if( extractedCount > 0 )
+    {
+        wxString folder = modelDir.GetPath();
+
+        infobar->AddLink( _( "Show folder" ),
+                          [folder]( wxHyperlinkEvent& aEvent )
+                          {
+                              wxLaunchDefaultApplication( folder );
+                          } );
+    }
+
+    infobar->AddCloseButton();
+    infobar->ShowMessageFor( msg, 8000 );
+
+    return 0;
+}
+
+
 // clang-format off
 void PCB_CONTROL::setTransitions()
 {
@@ -3412,6 +3801,7 @@ void PCB_CONTROL::setTransitions()
     // Miscellaneous
     Go( &PCB_CONTROL::InteractiveDelete,       ACTIONS::deleteTool.MakeEvent() );
     Go( &PCB_CONTROL::CollectAndEmbed3DModels, PCB_ACTIONS::collect3DModels.MakeEvent() );
+    Go( &PCB_CONTROL::ExtractEmbedded3DModels, PCB_ACTIONS::extract3DModels.MakeEvent() );
 
     // Append control
     Go( &PCB_CONTROL::AppendDesignBlock,    PCB_ACTIONS::placeDesignBlock.MakeEvent() );

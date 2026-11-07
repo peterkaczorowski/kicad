@@ -1829,6 +1829,13 @@ TOOL_ACTION PCB_ACTIONS::collect3DModels( TOOL_ACTION_ARGS()
         .Tooltip( _( "Collect footprint 3D models and embed them into the board" ) )
         .Icon( BITMAPS::import3d ) );
 
+TOOL_ACTION PCB_ACTIONS::extract3DModels( TOOL_ACTION_ARGS()
+        .Name( "pcbnew.EditorControl.extract3DModels" )
+        .Scope( AS_GLOBAL )
+        .FriendlyName( _( "Extract Embedded 3D Models" ) )
+        .Tooltip( _( "Write embedded 3D models to the project folder and link to them there" ) )
+        .Icon( BITMAPS::export3d ) );
+
 
 // Track & via size control
 TOOL_ACTION PCB_ACTIONS::trackWidthInc( TOOL_ACTION_ARGS()
