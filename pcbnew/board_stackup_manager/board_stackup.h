@@ -26,6 +26,7 @@
 #define BOARD_STACKUP_H
 
 
+#include <optional>
 #include <vector>
 #include <wx/string.h>
 #include <layer_ids.h>
@@ -246,6 +247,29 @@ public:
     bool operator==( const BOARD_STACKUP& aOther ) const;
     bool operator!=( const BOARD_STACKUP& aOther ) const { return !operator==( aOther ); }
 
+    struct VALIDATION_ERROR
+    {
+        int      m_StackupItemIndex = -1; ///< Zero-based stackup item index, or -1 for a global error.
+        int      m_SublayerIndex = -1;    ///< Zero-based sublayer index, or -1 when not applicable.
+        wxString m_FieldName;             ///< Stable, untranslated identifier of the invalid field.
+        wxString m_ErrorMessage;          ///< Human-readable, translatable error message.
+    };
+
+    /**
+     * Validate the stackup configuration.
+     *
+     * Disabled items are ignored. This operation does not modify the stackup.
+     *
+     * @param aEnabledLayers Proposed enabled board layers against which to validate the stackup
+     *
+     * @return An empty vector if valid, otherwise a vector of validation errors.
+     */
+    [[nodiscard]]
+    std::vector<VALIDATION_ERROR> Validate( const LSET& aEnabledLayers ) const;
+
+    /// Exchange ownership of all stackup items and metadata without allocating.
+    void Swap( BOARD_STACKUP& aOther ) noexcept;
+
     ~BOARD_STACKUP() { RemoveAll(); }
 
     void Serialize( google::protobuf::Any &aContainer ) const override;
@@ -253,12 +277,23 @@ public:
     bool Deserialize( const google::protobuf::Any &aContainer ) override;
 
     void Serialize( kiapi::board::BoardStackup& aOutput ) const;
-    bool Deserialize( const kiapi::board::BoardStackup& aInput );
+
+    /**
+     * Replace the stackup with the contents of a new input stackup.
+     *
+     * The stackup is only modified after the whole message was decoded successfully.
+     * Item and sublayer indices of the returned error refer to the layers of the input
+     * stackup.
+     *
+     * @return The first decoding error that occured, or std::nullopt on success.
+     */
+    std::optional<VALIDATION_ERROR> Deserialize( const kiapi::board::BoardStackup& aInput );
 
     const std::vector<BOARD_STACKUP_ITEM*>& GetList() const { return m_list; }
 
     /// @return a reference to the layer aIndex, or nullptr if not exists
     BOARD_STACKUP_ITEM* GetStackupLayer( int aIndex );
+    const BOARD_STACKUP_ITEM* GetStackupLayer( int aIndex ) const;
 
     /**
      * @return the board layers full mask allowed in the stackup list
@@ -273,6 +308,9 @@ public:
 
     /// Delete all items in list and clear the list
     void RemoveAll();
+
+    /// Delete disabled items before applying a validated stackup to a board.
+    void RemoveDisabledLayers();
 
     /// @return the number of layers in the stackup
     int GetCount() const { return (int) m_list.size(); }

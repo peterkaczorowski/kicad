@@ -21,6 +21,11 @@
 
 #include "board_stackup.h"
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <utility>
 #include <base_units.h>
 #include <string_utils.h>
 #include <layer_ids.h>
@@ -123,6 +128,10 @@ bool BOARD_STACKUP_ITEM::operator==( const BOARD_STACKUP_ITEM& aOther ) const
     if( m_LayerId           != aOther.m_LayerId ) return false;
     if( m_DielectricLayerId != aOther.m_DielectricLayerId ) return false;
     if( m_enabled           != aOther.m_enabled ) return false;
+
+    // Check size first, to avoid reading past the end of or ignoring extra items in the right-hand list.
+    if( m_DielectricPrmsList.size() != aOther.m_DielectricPrmsList.size() )
+        return false;
 
     if( !std::equal( std::begin( m_DielectricPrmsList ), std::end( m_DielectricPrmsList ),
                      std::begin( aOther.m_DielectricPrmsList ),
@@ -468,6 +477,225 @@ bool BOARD_STACKUP::operator==( const BOARD_STACKUP& aOther ) const
 }
 
 
+void BOARD_STACKUP::Swap( BOARD_STACKUP& aOther ) noexcept
+{
+    m_list.swap( aOther.m_list );
+    m_FinishType.swap( aOther.m_FinishType );
+    std::swap( m_HasDielectricConstrains, aOther.m_HasDielectricConstrains );
+    std::swap( m_HasThicknessConstrains, aOther.m_HasThicknessConstrains );
+    std::swap( m_EdgeConnectorConstraints, aOther.m_EdgeConnectorConstraints );
+    std::swap( m_EdgePlating, aOther.m_EdgePlating );
+}
+
+
+std::vector<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Validate( const LSET& aEnabledLayers ) const
+{
+    std::vector<VALIDATION_ERROR> errors;
+
+    // Use the proposed layers because pending UI/API changes may not yet be applied to the board.
+    // Exclude layers such as Edge.Cuts that have no corresponding physical stackup item
+    const LSET enabledLayers = aEnabledLayers & StackupAllowedBrdLayers();
+    const LSET copperLayers = aEnabledLayers & LSET::AllCuMask();
+    const int  copperLayerCount = static_cast<int>( copperLayers.count() );
+
+    // Copper layer counts supported by the existing UI/API.
+    // The stackup UI's default-thickness calculation also assumes an even count
+    if( copperLayerCount < 2 || copperLayerCount > MAX_CU_LAYERS || copperLayerCount % 2 != 0 )
+    {
+        errors.push_back( { -1, -1, wxS( "copper_layers" ),
+                            wxString::Format( _( "Copper layer count must be an even number between 2 and %d." ),
+                                              MAX_CU_LAYERS ) } );
+    }
+    else if( copperLayers != LSET::AllCuMask( copperLayerCount ) )
+    {
+        errors.push_back( { -1, -1, wxS( "copper_layers" ),
+                            _( "Copper layers must include F.Cu and B.Cu, with any inner layers "
+                               "numbered consecutively from In1.Cu." ) } );
+    }
+
+    struct EXPECTED_ITEM
+    {
+        BOARD_STACKUP_ITEM_TYPE m_Type;
+        PCB_LAYER_ID            m_Layer;
+    };
+
+    std::vector<EXPECTED_ITEM> expectedItems;
+
+    // clang-format off: preserve KiCad's lambda alignment.
+    auto addExpectedLayer =
+            [&]( BOARD_STACKUP_ITEM_TYPE aType, PCB_LAYER_ID aLayer )
+            {
+                if( enabledLayers[aLayer] )
+                    expectedItems.push_back( { aType, aLayer } );
+            };
+    // clang-format on
+
+    addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, F_SilkS );
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERPASTE, F_Paste );
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERMASK, F_Mask );
+
+    for( PCB_LAYER_ID layer : copperLayers.CuStack() )
+    {
+        expectedItems.push_back( { BS_ITEM_TYPE_COPPER, layer } );
+
+        if( layer != B_Cu )
+            expectedItems.push_back( { BS_ITEM_TYPE_DIELECTRIC, UNDEFINED_LAYER } );
+    }
+
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERMASK, B_Mask );
+    addExpectedLayer( BS_ITEM_TYPE_SOLDERPASTE, B_Paste );
+    addExpectedLayer( BS_ITEM_TYPE_SILKSCREEN, B_SilkS );
+
+    const int maxThickness = std::numeric_limits<int>::max();
+    int       totalThickness = 0;
+    bool      thicknessOverflow = false;
+
+    size_t activeItemIndex = 0;
+    int    expectedDielectricLayerId = 1;
+
+    for( int itemIndex = 0; itemIndex < GetCount(); ++itemIndex )
+    {
+        const BOARD_STACKUP_ITEM* item = GetStackupLayer( itemIndex );
+
+        if( !item )
+        {
+            errors.push_back( { itemIndex, -1, wxS( "item" ), _( "Stackup item is missing." ) } );
+
+            continue;
+        }
+
+        if( !item->IsEnabled() )
+            continue;
+
+        if( activeItemIndex >= expectedItems.size() || item->GetType() != expectedItems[activeItemIndex].m_Type
+            || item->GetBrdLayerId() != expectedItems[activeItemIndex].m_Layer )
+        {
+            errors.push_back( { itemIndex, -1, wxS( "layers" ),
+                                _( "Stackup item does not match the expected layer sequence." ) } );
+        }
+
+        ++activeItemIndex;
+
+        if( item->GetType() == BS_ITEM_TYPE_DIELECTRIC )
+        {
+            if( item->GetDielectricLayerId() != expectedDielectricLayerId )
+            {
+                errors.push_back( { itemIndex, -1, wxS( "dielectric_layer_id" ),
+                                    _( "Dielectric layers must be consecutively numbered from 1." ) } );
+            }
+
+            ++expectedDielectricLayerId;
+        }
+
+        // The BrdLayerId of dielectric items is UNDEFINED_LAYER, so only copper, mask,
+        // paste and silkscreen items must satisfy the layer name rules. An empty item name is
+        // allowed because BuildDefaultStackupList() leaves it empty, and BOARD::SetLayerName()
+        // restores the default name of the board layer when given an empty name.
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && !item->GetLayerName().IsEmpty() )
+        {
+            if( std::optional<wxString> nameError = BOARD::ValidateLayerName( item->GetLayerName() ) )
+            {
+                errors.push_back( { itemIndex, -1, wxS( "layer_name" ), *nameError } );
+            }
+        }
+
+        const int subLayersCount = item->GetSublayersCount();
+
+        if( subLayersCount < 1 )
+        {
+            errors.push_back(
+                    { itemIndex, -1, wxS( "sublayer_count" ), _( "Stackup item must have at least one sublayer." ) } );
+        }
+        else if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC && subLayersCount != 1 )
+        {
+            errors.push_back( { itemIndex, -1, wxS( "non_dielectric_sublayer_count" ),
+                                _( "Only dielectric layers may have multiple sublayers." ) } );
+        }
+
+        for( int subLayerIndex = 0; subLayerIndex < item->GetSublayersCount(); ++subLayerIndex )
+        {
+            if( item->IsThicknessEditable() )
+            {
+                const int thickness = item->GetThickness( subLayerIndex );
+
+                if( thickness < 0 )
+                {
+                    errors.push_back( { itemIndex, subLayerIndex, wxS( "thickness" ),
+                                        _( "Layer thickness must be nonnegative." ) } );
+                }
+                else if( thickness > maxThickness - totalThickness )
+                {
+                    // Check before adding because the board implementation stores total thickness as an int.
+                    thicknessOverflow = true;
+                }
+                else
+                {
+                    totalThickness += thickness;
+                }
+            }
+
+            // clang-format off: preserve KiCad's lambda alignment.
+            auto validateNonNegative =
+                    [&]( double aValue, const wxString& aField, const wxString& aMessage )
+                    {
+                        if( !std::isfinite( aValue ) || aValue < 0.0 )
+                        {
+                            errors.push_back( { itemIndex, subLayerIndex, aField, aMessage } );
+                        }
+                    };
+            // clang-format on
+
+            if( item->HasEpsilonRValue() )
+            {
+                validateNonNegative( item->GetEpsilonR( subLayerIndex ), wxS( "epsilon_r" ),
+                                     _( "Epsilon R must be finite and nonnegative." ) );
+            }
+
+            if( item->HasLossTangentValue() )
+            {
+                validateNonNegative( item->GetLossTangent( subLayerIndex ), wxS( "loss_tangent" ),
+                                     _( "Loss tangent must be finite and nonnegative." ) );
+            }
+
+            if( item->HasSpecFreqValue() )
+            {
+                validateNonNegative( item->GetSpecFreq( subLayerIndex ), wxS( "spec_frequency" ),
+                                     _( "Specified frequency must be finite and nonnegative." ) );
+
+                const DIELECTRIC_MODEL model = item->GetDielectricModel( subLayerIndex );
+
+                // Only the constant and Djordjevic-Sarkar models are currently supported
+                if( model != DIELECTRIC_MODEL::CONSTANT && model != DIELECTRIC_MODEL::DJORDJEVIC_SARKAR )
+                {
+                    errors.push_back( { itemIndex, subLayerIndex, wxS( "dielectric_model" ),
+                                        _( "Unsupported dielectric model." ) } );
+                }
+            }
+        }
+    }
+
+    if( activeItemIndex != expectedItems.size() )
+    {
+        errors.push_back(
+                { -1, -1, wxS( "layers" ), _( "Stackup does not contain the expected number of active items." ) } );
+    }
+
+    if( m_EdgeConnectorConstraints != BS_EDGE_CONNECTOR_NONE && m_EdgeConnectorConstraints != BS_EDGE_CONNECTOR_IN_USE
+        && m_EdgeConnectorConstraints != BS_EDGE_CONNECTOR_BEVELLED )
+    {
+        errors.push_back( { -1, -1, wxS( "edge_connector" ), _( "Unsupported edge connector type." ) } );
+    }
+
+    if( thicknessOverflow )
+    {
+        errors.push_back( { -1, -1, wxS( "total_thickness" ),
+                            _( "Total board thickness exceeds the maximum supported value." ) } );
+    }
+
+    return errors;
+}
+
+
 void BOARD_STACKUP::Serialize( kiapi::board::BoardStackup& stackup ) const
 {
     using namespace kiapi::board;
@@ -579,20 +807,262 @@ void BOARD_STACKUP::Serialize( google::protobuf::Any& aContainer ) const
 
 bool BOARD_STACKUP::Deserialize( const google::protobuf::Any& aContainer )
 {
-    // Read-only for now
     kiapi::board::BoardStackup stackup;
 
     if( !aContainer.UnpackTo( &stackup ) )
         return false;
 
-    return Deserialize( stackup );
+    return !Deserialize( stackup ).has_value();
 }
 
 
-bool BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
+std::optional<BOARD_STACKUP::VALIDATION_ERROR> BOARD_STACKUP::Deserialize( const kiapi::board::BoardStackup& aInput )
 {
-    // Read-only for now
-    return false;
+    using namespace kiapi::board;
+
+    // Decode only into a working copy, and only commit the result if all layers are decoded successfully.
+    BOARD_STACKUP decoded;
+
+    if( aInput.has_finish() )
+        decoded.m_FinishType = wxString::FromUTF8( aInput.finish().type_name().c_str() );
+
+    decoded.m_HasDielectricConstrains = aInput.impedance().is_controlled();
+    decoded.m_EdgePlating = aInput.edge().plating().has_edge_plating();
+
+    if( aInput.edge().has_connector() )
+    {
+        const BoardEdgeConnectorType connectorType = aInput.edge().connector().type();
+
+        // FromProtoEnum() will return BS_EDGE_CONNECTOR_NONE for unknown values, so we need to check the value first
+        switch( connectorType )
+        {
+        case BECT_NONE:
+        case BECT_PLAIN:
+        case BECT_BEVELED:
+            decoded.m_EdgeConnectorConstraints =
+                    FromProtoEnum<BS_EDGE_CONNECTOR_CONSTRAINTS, BoardEdgeConnectorType>( connectorType );
+            break;
+
+        default: return VALIDATION_ERROR{ -1, -1, wxS( "edge_connector" ), _( "Unsupported edge connector type." ) };
+        }
+    }
+
+    // Protobuf has 64 bits, but the internal implementation uses int for thickness, so check for overflow
+    const int      minThickness = std::numeric_limits<int>::min();
+    const int      maxThickness = std::numeric_limits<int>::max();
+    const wxString thicknessRangeMsg = _( "Layer thickness is out of range." );
+
+    int nextDielectricId = 1;
+
+    for( int layerIndex = 0; layerIndex < aInput.layers_size(); ++layerIndex )
+    {
+        const BoardStackupLayer& layer = aInput.layers( layerIndex );
+
+        // Reject values that cannot be converted to an internal item type.
+        switch( layer.type() )
+        {
+        case BSLT_UNDEFINED:
+        case BSLT_COPPER:
+        case BSLT_DIELECTRIC:
+        case BSLT_SOLDERPASTE:
+        case BSLT_SOLDERMASK:
+        case BSLT_SILKSCREEN: break;
+
+        default: return VALIDATION_ERROR{ layerIndex, -1, wxS( "type" ), _( "Unsupported stackup layer type." ) };
+        }
+
+        auto item = std::make_unique<BOARD_STACKUP_ITEM>(
+                FromProtoEnum<BOARD_STACKUP_ITEM_TYPE, BoardStackupLayerType>( layer.type() ) );
+
+        item->SetEnabled( layer.enabled() );
+
+        const types::BoardLayer boardLayer = layer.layer();
+
+        if( !types::BoardLayer_IsValid( boardLayer ) || boardLayer == types::BL_UNKNOWN )
+            return VALIDATION_ERROR{ layerIndex, -1, wxS( "layer" ), _( "Unknown board layer." ) };
+
+        item->SetBrdLayerId( FromProtoEnum<PCB_LAYER_ID, types::BoardLayer>( boardLayer ) );
+
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC )
+            item->SetLayerName( wxString::FromUTF8( layer.user_name().c_str() ) );
+
+        const auto thickness = layer.thickness().value_nm();
+
+        if( thickness < minThickness || thickness > maxThickness )
+            return VALIDATION_ERROR{ layerIndex, -1, wxS( "thickness" ), thicknessRangeMsg };
+
+        item->SetThickness( static_cast<int>( thickness ) );
+
+        switch( item->GetType() )
+        {
+        case BS_ITEM_TYPE_DIELECTRIC:
+        {
+            if( !layer.has_dielectric() )
+            {
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "dielectric" ),
+                                         _( "Dielectric layer details are missing." ) };
+            }
+
+            const BoardStackupDielectricLayer& dielectric = layer.dielectric();
+
+            item->SetDielectricLayerId( nextDielectricId );
+
+            // Only increment the dielectric ID if the layer is enabled, so that
+            // disabled layers do not affect the numbering of subsequent layers.
+            if( item->IsEnabled() )
+                ++nextDielectricId;
+
+            switch( dielectric.type() )
+            {
+            case BSDT_NONE: item->SetTypeName( wxEmptyString ); break;
+
+            case BSDT_CORE: item->SetTypeName( KEY_CORE ); break;
+
+            case BSDT_PREPREG: item->SetTypeName( KEY_PREPREG ); break;
+
+            default:
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "dielectric_type" ),
+                                         _( "Unsupported dielectric type." ) };
+            }
+
+            if( dielectric.layer_size() == 0 )
+            {
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "sublayer_count" ),
+                                         _( "Stackup item must have at least one sublayer." ) };
+            }
+
+            for( int i = 0; i < dielectric.layer_size(); ++i )
+            {
+                const BoardStackupDielectricProperties& props = dielectric.layer( i );
+
+                auto sublayerThickness = props.thickness().value_nm();
+
+                // The outer thickness represents the same value as sublayer 0.
+                if( i == 0 )
+                {
+                    if( !props.has_thickness() )
+                    {
+                        sublayerThickness = thickness;
+                    }
+                    else if( layer.has_thickness() && sublayerThickness != thickness )
+                    {
+                        return VALIDATION_ERROR{ layerIndex, i, wxS( "thickness" ),
+                                                 _( "Sublayer thickness does not match the layer thickness." ) };
+                    }
+                }
+
+                if( sublayerThickness < minThickness || sublayerThickness > maxThickness )
+                    return VALIDATION_ERROR{ layerIndex, i, wxS( "thickness" ), thicknessRangeMsg };
+
+                switch( props.dielectric_model() )
+                {
+                case DM_CONSTANT:
+                case DM_DJORDJEVIC_SARKAR: break;
+
+                default:
+                    return VALIDATION_ERROR{ layerIndex, i, wxS( "dielectric_model" ),
+                                             _( "Unsupported dielectric model." ) };
+                }
+
+                // The constructor already creates sublayer 0.
+                if( i > 0 )
+                    item->AddDielectricPrms( i );
+
+                item->SetMaterial( wxString::FromUTF8( props.material_name().c_str() ), i );
+                item->SetThickness( static_cast<int>( sublayerThickness ), i );
+                item->SetThicknessLocked( props.thickness_locked(), i );
+                item->SetEpsilonR( props.epsilon_r(), i );
+                item->SetLossTangent( props.loss_tangent(), i );
+                item->SetSpecFreq( props.spec_frequency(), i );
+                item->SetDielectricModel( FromProtoEnum<DIELECTRIC_MODEL, DielectricModel>( props.dielectric_model() ),
+                                          i );
+            }
+
+            break;
+        }
+
+        case BS_ITEM_TYPE_SOLDERMASK:
+        {
+            if( !layer.has_soldermask() )
+            {
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "soldermask" ),
+                                         _( "Solder mask layer details are missing." ) };
+            }
+
+            const BoardStackupSoldermaskLayer& soldermask = layer.soldermask();
+
+            auto maskThickness = soldermask.thickness().value_nm();
+
+            // The outer and soldermask thickness fields describe the same value.
+            if( !soldermask.has_thickness() )
+            {
+                maskThickness = thickness;
+            }
+            else if( layer.has_thickness() && maskThickness != thickness )
+            {
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "thickness" ),
+                                         _( "Solder mask thickness does not match the layer thickness." ) };
+            }
+
+            if( maskThickness < minThickness || maskThickness > maxThickness )
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "thickness" ), thicknessRangeMsg };
+
+            item->SetMaterial( wxString::FromUTF8( soldermask.material_name().c_str() ) );
+            item->SetThickness( static_cast<int>( maskThickness ) );
+            item->SetEpsilonR( soldermask.epsilon_r() );
+            item->SetLossTangent( soldermask.loss_tangent() );
+            break;
+        }
+
+        case BS_ITEM_TYPE_SILKSCREEN:
+        {
+            if( !layer.has_silkscreen() )
+            {
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "silkscreen" ),
+                                         _( "Silkscreen layer details are missing." ) };
+            }
+
+            const BoardStackupSilkscreenLayer& silkscreen = layer.silkscreen();
+
+            item->SetMaterial( wxString::FromUTF8( silkscreen.material_name().c_str() ) );
+            break;
+        }
+
+        default:
+            // Catch-all for item types without a corresponding details message.
+            if( layer.details_case() != BoardStackupLayer::DETAILS_NOT_SET )
+            {
+                return VALIDATION_ERROR{ layerIndex, -1, wxS( "details" ),
+                                         _( "Layer type does not support details." ) };
+            }
+
+            break;
+        }
+
+        // Only apply color to editable items
+        if( layer.has_color() && item->IsColorEditable() )
+        {
+            const auto& color = layer.color();
+
+            // All color channels need to be finite and in the range [0.0, 1.0] to be valid.
+            for( double channel : { color.r(), color.g(), color.b(), color.a() } )
+            {
+                if( !std::isfinite( channel ) || channel < 0.0 || channel > 1.0 )
+                {
+                    return VALIDATION_ERROR{ layerIndex, -1, wxS( "color" ),
+                                             _( "Color channels must be finite and between 0 and 1." ) };
+                }
+            }
+
+            item->SetColor( kiapi::common::UnpackColor( color ).ToHexString() );
+        }
+
+        decoded.Add( item.get() );
+        item.release();
+    }
+
+    Swap( decoded );
+    return std::nullopt;
 }
 
 
@@ -605,7 +1075,32 @@ void BOARD_STACKUP::RemoveAll()
 }
 
 
+void BOARD_STACKUP::RemoveDisabledLayers()
+{
+    // Explicitly delete disabled layers, because std::erase_if()
+    // will not call delete on the removed items.
+    std::erase_if( m_list,
+                   []( BOARD_STACKUP_ITEM* aItem )
+                   {
+                       if( aItem->IsEnabled() )
+                           return false;
+
+                       delete aItem;
+                       return true;
+                   } );
+}
+
+
 BOARD_STACKUP_ITEM* BOARD_STACKUP::GetStackupLayer( int aIndex )
+{
+    if( aIndex < 0 || aIndex >= GetCount() )
+        return nullptr;
+
+    return GetList()[aIndex];
+}
+
+
+const BOARD_STACKUP_ITEM* BOARD_STACKUP::GetStackupLayer( int aIndex ) const
 {
     if( aIndex < 0 || aIndex >= GetCount() )
         return nullptr;

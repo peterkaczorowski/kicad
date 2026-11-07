@@ -127,6 +127,10 @@ message BoardStackupSilkscreenLayer
 
 message BoardStackupLayer
 {
+  // For dielectric layers, this is the first sublayer's thickness, not the total thickness.
+  // For solder mask, this represents the same thickness as soldermask.thickness.
+  // In an update, either thickness field may be omitted. If both are present, they must match.
+  // If both are omitted, the thickness is assumed zero.
   kiapi.common.types.Distance thickness = 1;
   kiapi.board.types.BoardLayer layer = 2;
   bool enabled = 3;
@@ -144,6 +148,9 @@ message BoardStackupLayer
 
   // The name of the layer shown in the KiCad GUI, which may be a default value like "F.Cu" or may
   // have been customized by the user.  This field does not apply to dielectric layers.
+  // In an update, leaving a name empty will restore the default name. Otherwise the name must not be "signal",
+  // must not contain characters that are forbidden in file names, like '%', and must be unique across all
+  // enabled board layers.
   string user_name = 8;
 }
 

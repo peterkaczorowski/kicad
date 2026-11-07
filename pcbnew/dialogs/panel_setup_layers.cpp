@@ -987,36 +987,14 @@ bool PANEL_SETUP_LAYERS::testLayerNames()
         ctl = (wxTextCtrl*) getName( layer );
         wxString name = ctl->GetValue();
 
-        // Check name for legality:
-        // 1) Cannot be blank.
-        // 2) Cannot have blanks.
-        // 3) Cannot have " chars
-        // 4) Cannot be 'signal'
-        // 5) Must be unique.
-        // 6) Cannot have illegal chars in filenames ( some filenames are built from layer names )
-        //    like : % $ \ " / :
-        wxString badchars = wxFileName::GetForbiddenChars( wxPATH_DOS );
-        badchars.Append( '%' );
-
-        if( !name )
+        // Layer name validation rules are shared with the API
+        if( std::optional<wxString> error = BOARD::ValidateLayerName( name ) )
         {
-            PAGED_DIALOG::GetDialog( this )->SetError( _( "Layer must have a name." ), this, ctl );
+            PAGED_DIALOG::GetDialog( this )->SetError( *error, this, ctl );
             return false;
         }
 
-        if( name.find_first_of( badchars ) != wxString::npos )
-        {
-            wxString msg = wxString::Format(_( "%s are forbidden in layer names." ), badchars );
-            PAGED_DIALOG::GetDialog( this )->SetError( msg, this, ctl );
-            return false;
-        }
-
-        if( name == wxT( "signal" ) )
-        {
-            PAGED_DIALOG::GetDialog( this )->SetError( _( "Layer name \"signal\" is reserved." ), this, ctl );
-            return false;
-        }
-
+        // Uniqueness needs to be checked here because it depends on the other layers
         for( const wxString& existingName : names )
         {
             if( name == existingName )

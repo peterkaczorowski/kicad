@@ -19,6 +19,7 @@
  */
 
 #include <magic_enum.hpp>
+#include <map>
 #include <memory>
 #include <pgm_base.h>
 #include <properties/property.h>
@@ -136,6 +137,7 @@ API_HANDLER_PCB::API_HANDLER_PCB( std::shared_ptr<PCB_CONTEXT> aContext, PCB_EDI
     registerHandler<GetItems, GetItemsResponse>( &API_HANDLER_PCB::handleGetItems );
 
     registerHandler<SetBoardEnabledLayers, BoardEnabledLayersResponse>( &API_HANDLER_PCB::handleSetBoardEnabledLayers );
+    registerHandler<UpdateBoardStackup, BoardStackupResponse>( &API_HANDLER_PCB::handleUpdateBoardStackup );
     registerHandler<GetBoardDesignRules, BoardDesignRulesResponse>( &API_HANDLER_PCB::handleGetBoardDesignRules );
     registerHandler<SetBoardDesignRules, BoardDesignRulesResponse>( &API_HANDLER_PCB::handleSetBoardDesignRules );
     registerHandler<GetCustomDesignRules, CustomRulesResponse>( &API_HANDLER_PCB::handleGetCustomDesignRules );
@@ -680,6 +682,10 @@ HANDLER_RESULT<BoardEnabledLayersResponse> API_HANDLER_PCB::handleSetBoardEnable
 
         for( PCB_LAYER_ID layer_id : removedLayers )
             modified |= board->RemoveAllItemsOnLayer( layer_id );
+
+        // UndoRedoList may have stale copies of pointers deleted above
+        if( frame() )
+            frame()->ClearUndoRedoList();
     }
 
     if( enabled != previousEnabled || modified )
@@ -690,6 +696,143 @@ HANDLER_RESULT<BoardEnabledLayersResponse> API_HANDLER_PCB::handleSetBoardEnable
     response.set_copper_layer_count( copperLayerCount );
     board::PackLayerSet( *response.mutable_layers(), enabled );
 
+    return response;
+}
+
+
+// Format a stackup error for an API response, using only applicable indices.
+static std::string formatStackupError( const std::string& aPrefix, const BOARD_STACKUP::VALIDATION_ERROR& aError )
+{
+    std::string location;
+
+    if( aError.m_StackupItemIndex >= 0 )
+    {
+        location = fmt::format( "item {}, ", aError.m_StackupItemIndex );
+
+        if( aError.m_SublayerIndex >= 0 )
+            location += fmt::format( "sublayer {}, ", aError.m_SublayerIndex );
+    }
+
+    return fmt::format( "{}: {}{}: {}", aPrefix, location, aError.m_FieldName.ToStdString(),
+                        aError.m_ErrorMessage.ToStdString() );
+}
+
+
+HANDLER_RESULT<BoardStackupResponse>
+API_HANDLER_PCB::handleUpdateBoardStackup( const HANDLER_CONTEXT<UpdateBoardStackup>& aCtx )
+{
+    if( auto document = validateDocument( aCtx.Request.board() ); !document )
+        return tl::unexpected( document.error() );
+
+    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
+    // Removing a layer while a change is open would leave the staged change
+    // in an invalid state, so refuse to update the stackup in that case
+    if( !m_commits.empty() )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BUSY );
+        error.set_error_message( "Cannot update the stackup while a change is open" );
+        return tl::unexpected( error );
+    }
+
+    // The proposed stackup stays in a separate object until it is validated
+    BOARD_STACKUP newStackup;
+
+    if( auto decodeError = newStackup.Deserialize( aCtx.Request.stackup() ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        error.set_error_message( formatStackupError( "Malformed board stackup", *decodeError ) );
+        return tl::unexpected( error );
+    }
+
+    // Replace physical layers with the ones from the newStackup while keeping layers like Edge.Cuts.
+    LSET enabled = board()->GetEnabledLayers() & ~BOARD_STACKUP::StackupAllowedBrdLayers();
+
+    for( const BOARD_STACKUP_ITEM* item : newStackup.GetList() )
+    {
+        if( item->IsEnabled() && IsValidLayer( item->GetBrdLayerId() ) )
+            enabled.set( item->GetBrdLayerId() );
+    }
+
+    const auto errors = newStackup.Validate( enabled );
+
+    if( !errors.empty() )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        // We can only report one error, so only the first error is reported to the API caller
+        error.set_error_message( formatStackupError( "Invalid board stackup", errors.front() ) );
+        return tl::unexpected( error );
+    }
+
+    // Layers are referenced by their name in board files, so names must be unique across all enabled
+    // layers, including non-physical layers such as Edge.Cuts.
+    std::map<PCB_LAYER_ID, wxString> layerNames;
+
+    for( PCB_LAYER_ID layer : enabled )
+        layerNames[layer] = board()->GetLayerName( layer );
+
+    for( const BOARD_STACKUP_ITEM* item : newStackup.GetList() )
+    {
+        if( !item->IsEnabled() || item->GetType() == BS_ITEM_TYPE_DIELECTRIC )
+            continue;
+
+        // SetLayerName() restores the default name when called with an empty name
+        layerNames[item->GetBrdLayerId()] =
+                item->GetLayerName().IsEmpty() ? LSET::Name( item->GetBrdLayerId() ) : item->GetLayerName();
+    }
+
+    std::map<wxString, PCB_LAYER_ID> layersByName;
+
+    for( const auto& [layer, name] : layerNames )
+    {
+        if( auto [it, inserted] = layersByName.emplace( name, layer ); !inserted )
+        {
+            ApiResponseStatus error;
+            error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+            error.set_error_message( fmt::format( "Invalid board stackup: layer name '{}' is used by both {} and {}",
+                                                  name.ToStdString(), LSET::Name( it->second ).ToStdString(),
+                                                  LSET::Name( layer ).ToStdString() ) );
+            return tl::unexpected( error );
+        }
+    }
+
+    newStackup.RemoveDisabledLayers();
+    const int thickness = newStackup.BuildBoardThicknessFromStackup();
+
+    // Validation must finish before changing layers, which may delete board items.
+    if( enabled != board()->GetEnabledLayers() )
+    {
+        HANDLER_CONTEXT<SetBoardEnabledLayers> layerCtx = { aCtx.ClientName, SetBoardEnabledLayers() };
+
+        *layerCtx.Request.mutable_board() = aCtx.Request.board();
+        layerCtx.Request.set_copper_layer_count( ( enabled & LSET::AllCuMask() ).count() );
+        board::PackLayerSet( *layerCtx.Request.mutable_layers(), enabled );
+
+        if( auto result = handleSetBoardEnabledLayers( layerCtx ); !result )
+            return tl::unexpected( result.error() );
+    }
+
+    for( const BOARD_STACKUP_ITEM* item : newStackup.GetList() )
+    {
+        if( item->GetType() != BS_ITEM_TYPE_DIELECTRIC )
+            board()->SetLayerName( item->GetBrdLayerId(), item->GetLayerName() );
+    }
+
+    BOARD_DESIGN_SETTINGS& settings = board()->GetDesignSettings();
+    settings.GetStackupDescriptor().Swap( newStackup );
+    settings.SetBoardThickness( thickness );
+    settings.m_HasStackup = true;
+
+    // Thickness changes affect backdrill lengths, so the drill model must be regenerated
+    board()->BumpDrillModelGeneration();
+    onModified();
+
+    BoardStackupResponse response;
+    board::PackBoardStackup( *board(), *response.mutable_stackup() );
     return response;
 }
 

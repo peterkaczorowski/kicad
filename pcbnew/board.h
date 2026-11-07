@@ -45,6 +45,7 @@
 #include <unordered_set>
 #include <project.h>
 #include <list>
+#include <optional>
 
 struct HISTORY_FILE_DATA;
 class BOARD_DESIGN_SETTINGS;
@@ -1101,7 +1102,27 @@ public:
     const wxString GetLayerName( PCB_LAYER_ID aLayer ) const;
 
     /**
+     * Check a user-entered layer name against the rules of the board setup dialog and the API.
+     *
+     * A name must not be empty, must not be the reserved word "signal", and must not
+     * contain characters that are forbidden in file names, as some output file names
+     * are built from layer names.
+     * Layer availability and name uniqueness are not checked here, as they depend on the
+     * names of the other layers.
+     *
+     * @return A translated error message, or std::nullopt if the name is valid.
+     */
+    static std::optional<wxString> ValidateLayerName( const wxString& aLayerName );
+
+    /**
      * Changes the name of the layer given by aLayer.
+     * 
+     * An empty name as new layer name will clear the user-defined name and revert to the default
+     * name for that layer.
+     * This function only rejects quote characters, because file importers can apply layer
+     * names that are not valid in the board setup dialog.  Use ValidateLayerName() to check
+     * whether a name is valid for user input.
+     * 
      * @param aLayer A layer, like B_Cu, etc.
      * @param aLayerName The new layer name
      * @return true if aLayerName was legal and unique among other layer names at other layer
