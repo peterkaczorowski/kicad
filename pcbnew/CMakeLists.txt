@@ -498,6 +498,7 @@ set( PCBNEW_CLASS_SRCS
     zone_filler.cpp
     zone_settings_bag.cpp
     edit_zone_helpers.cpp
+    net_visibility_helpers.cpp
 
     api/api_handler_board.cpp
     api/api_handler_fp_libraries.cpp

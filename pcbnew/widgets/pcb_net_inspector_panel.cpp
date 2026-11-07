@@ -26,6 +26,7 @@
 #include <confirm.h>
 #include <connectivity/connectivity_algo.h>
 #include <connectivity/connectivity_data.h>
+#include <net_visibility_helpers.h>
 #include <ratsnest/ratsnest_data.h>
 #include <dialogs/dialog_text_entry.h>
 #include <footprint.h>
@@ -1254,6 +1255,13 @@ void PCB_NET_INSPECTOR_PANEL::OnShowPanel()
 
 void PCB_NET_INSPECTOR_PANEL::OnNetsListContextMenu( wxDataViewEvent& event )
 {
+    // If nothing is selected, select the item under the cursor so the
+    // context menu actions apply to it; otherwise keep the existing selection
+    wxDataViewItem item = event.GetItem();
+
+    if( item.IsOk() && !m_netsList->HasSelection() )
+        m_netsList->Select( item );
+
     bool             multipleSelections = false;
     const LIST_ITEM* selItem = nullptr;
 
@@ -1324,6 +1332,39 @@ void PCB_NET_INSPECTOR_PANEL::OnNetsListContextMenu( wxDataViewEvent& event )
 
     if( !selItem || !selItem->GetIsGroup() )
         removeSelectedGroup->Enable( false );
+
+    menu.AppendSeparator();
+
+    wxMenu* ratsnestMenu = new wxMenu();
+    ratsnestMenu->Append(
+            new wxMenuItem( ratsnestMenu, ID_SHOW_SELECTED_NETS, _( "Show Selected" ), wxEmptyString, wxITEM_NORMAL ) );
+    ratsnestMenu->Append(
+            new wxMenuItem( ratsnestMenu, ID_HIDE_SELECTED_NETS, _( "Hide Selected" ), wxEmptyString, wxITEM_NORMAL ) );
+    ratsnestMenu->AppendSeparator();
+    ratsnestMenu->Append( new wxMenuItem( ratsnestMenu, ID_SHOW_ONLY_NETS, _( "Show Only Selected" ), wxEmptyString,
+                                          wxITEM_NORMAL ) );
+    ratsnestMenu->AppendSeparator();
+    ratsnestMenu->Append(
+            new wxMenuItem( ratsnestMenu, ID_SHOW_ALL_NETS, _( "Show All" ), wxEmptyString, wxITEM_NORMAL ) );
+    ratsnestMenu->Append(
+            new wxMenuItem( ratsnestMenu, ID_HIDE_ALL_NETS, _( "Hide All" ), wxEmptyString, wxITEM_NORMAL ) );
+    menu.AppendSubMenu( ratsnestMenu, _( "Ratsnest Visibility" ) );
+
+    // Smart-enable ratsnest menu items based on current selection and visibility state
+    {
+        auto* pcbRs = static_cast<KIGFX::PCB_RENDER_SETTINGS*>(
+                m_frame->GetCanvas()->GetView()->GetPainter()->GetSettings() );
+
+        NET_VISIBILITY_STATE visState = NET_VISIBILITY_HELPERS::GetVisibilityState(
+                m_frame->GetBoard(), getSelectedNetCodes(), pcbRs->GetHiddenNets() );
+        NET_VISIBILITY_MENU_STATE menuState = NET_VISIBILITY_HELPERS::GetMenuState( visState );
+
+        ratsnestMenu->Enable( ID_SHOW_SELECTED_NETS, menuState.enableShowSelected );
+        ratsnestMenu->Enable( ID_HIDE_SELECTED_NETS, menuState.enableHideSelected );
+        ratsnestMenu->Enable( ID_SHOW_ONLY_NETS, menuState.enableShowOnlySelected );
+        ratsnestMenu->Enable( ID_SHOW_ALL_NETS, menuState.enableShowAll );
+        ratsnestMenu->Enable( ID_HIDE_ALL_NETS, menuState.enableHideAll );
+    }
 
     menu.Bind( wxEVT_COMMAND_MENU_SELECTED, &PCB_NET_INSPECTOR_PANEL::onContextMenuSelection, this );
 
@@ -1613,6 +1654,31 @@ void PCB_NET_INSPECTOR_PANEL::onContextMenuSelection( wxCommandEvent& event )
         saveAndRebuild = false;
         break;
 
+    case ID_SHOW_SELECTED_NETS:
+        showSelectedNets();
+        saveAndRebuild = false;
+        break;
+
+    case ID_HIDE_SELECTED_NETS:
+        hideSelectedNets();
+        saveAndRebuild = false;
+        break;
+
+    case ID_SHOW_ONLY_NETS:
+        showOnlyNets();
+        saveAndRebuild = false;
+        break;
+
+    case ID_SHOW_ALL_NETS:
+        showAllNets();
+        saveAndRebuild = false;
+        break;
+
+    case ID_HIDE_ALL_NETS:
+        hideAllNets();
+        saveAndRebuild = false;
+        break;
+
     case ID_AUTOFIT_COLUMN:
         if( m_contextMenuColumn )
             autosizeColumn( m_contextMenuColumn );
@@ -1790,6 +1856,67 @@ void PCB_NET_INSPECTOR_PANEL::highlightSelectedNets()
     m_frame->GetCanvas()->Refresh();
 
     m_highlightingNets = false;
+}
+
+
+std::set<int> PCB_NET_INSPECTOR_PANEL::getSelectedNetCodes() const
+{
+    std::set<int> codes;
+
+    wxDataViewItemArray sel;
+    m_netsList->GetSelections( sel );
+
+    for( unsigned int i = 0; i < sel.GetCount(); ++i )
+    {
+        const LIST_ITEM* item = static_cast<const LIST_ITEM*>( sel.Item( i ).GetID() );
+
+        if( !item->GetIsGroup() )
+        {
+            codes.insert( item->GetNetCode() );
+        }
+        else
+        {
+            for( auto c = item->ChildrenBegin(), end = item->ChildrenEnd(); c != end; ++c )
+                codes.insert( ( *c )->GetNetCode() );
+        }
+    }
+
+    return codes;
+}
+
+
+void PCB_NET_INSPECTOR_PANEL::showSelectedNets()
+{
+    NET_VISIBILITY_HELPERS::ShowNets( m_frame->GetToolManager(), getSelectedNetCodes() );
+    m_frame->GetCanvas()->Refresh();
+}
+
+
+void PCB_NET_INSPECTOR_PANEL::hideSelectedNets()
+{
+    NET_VISIBILITY_HELPERS::HideNets( m_frame->GetToolManager(), getSelectedNetCodes() );
+    m_frame->GetCanvas()->Refresh();
+}
+
+
+void PCB_NET_INSPECTOR_PANEL::showOnlyNets()
+{
+    NET_VISIBILITY_HELPERS::ShowOnlyNets( m_frame->GetToolManager(), m_frame->GetBoard(), getSelectedNetCodes() );
+    m_frame->GetCanvas()->Refresh();
+}
+
+
+void PCB_NET_INSPECTOR_PANEL::showAllNets()
+{
+    NET_VISIBILITY_HELPERS::ShowAllNets( m_frame->GetToolManager(), m_frame->GetBoard() );
+    m_frame->GetCanvas()->Refresh();
+}
+
+
+void PCB_NET_INSPECTOR_PANEL::hideAllNets()
+{
+    NET_VISIBILITY_HELPERS::HideAllNets( m_frame->GetToolManager(), m_frame->GetBoard() );
+    m_frame->GetCanvas()->Refresh();
 }
 
 
