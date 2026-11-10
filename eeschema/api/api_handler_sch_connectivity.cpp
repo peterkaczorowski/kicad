@@ -70,6 +70,7 @@ void API_HANDLER_SCH::registerConnectivityHandlers()
 {
     registerHandler<GetSchematicNetlist, NetQueryResponse>( &API_HANDLER_SCH::handleGetSchematicNetlist );
     registerHandler<GetPinNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetPinNet );
+    registerHandler<GetNetMembers, NetQueryResponse>( &API_HANDLER_SCH::handleGetNetMembers );
 }
 
 HANDLER_RESULT<ConnectivitySnapshot> API_HANDLER_SCH::connectivitySnapshot( const DocumentSpecifier& document )
@@ -142,6 +143,24 @@ HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetPinNet( const HANDLER
     if( ids.size() != 1 )
         return tl::unexpected( badRequest( "Pin matches different nets; select its sheet instance or pin UUID" ) );
     filterNets( *snapshot, ids );
+    NetQueryResponse response;
+    *response.mutable_snapshot() = std::move( *snapshot );
+    return response;
+}
+
+HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetNetMembers( const HANDLER_CONTEXT<GetNetMembers>& ctx )
+{
+    const auto& request = ctx.Request;
+    if( request.net_id().empty() && request.name().empty() )
+        return tl::unexpected( badRequest( "Specify a net ID or exact resolved name" ) );
+    auto snapshot = connectivitySnapshot( request.document() );
+    if( !snapshot ) return tl::unexpected( snapshot.error() );
+    if( stale( *snapshot, request.session_id(), request.revision() ) )
+        return tl::unexpected( badRequest( "Stale connectivity snapshot; query the live model again" ) );
+    auto* net = findNet( *snapshot, request.net_id(), request.name() );
+    if( !net ) return tl::unexpected( badRequest( "Net not found or ambiguous; its ID may be stale" ) );
+    std::string id = net->id();
+    filterNets( *snapshot, { id } );
     NetQueryResponse response;
     *response.mutable_snapshot() = std::move( *snapshot );
     return response;

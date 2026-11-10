@@ -108,6 +108,15 @@ class SchematicClient:
             fields['pin_id'] = {'value': pin_id}
         return self._connectivity_query('GetPinNet', document=document, **fields).snapshot
 
+    def get_net_members(self, net_id='', *, name='', snapshot=None, document=None):
+        """Pass the originating snapshot to reject stale results explicitly."""
+        fields = dict(net_id=net_id, name=name)
+        if snapshot is not None:
+            fields.update(session_id=snapshot.session_id, revision=snapshot.revision)
+            if document is None:
+                document = snapshot.document
+        return self._connectivity_query('GetNetMembers', document=document, **fields).snapshot
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):
