@@ -102,6 +102,12 @@ class SchematicClient:
         """Full live hierarchy. Net IDs are scoped to snapshot.session_id/revision."""
         return self._connectivity_query('GetSchematicNetlist', document=document).snapshot
 
+    def get_pin_net(self, reference='', pin_number='', *, pin_id=None, document=None):
+        fields = dict(reference=reference, pin_number=str(pin_number))
+        if pin_id is not None:
+            fields['pin_id'] = {'value': pin_id}
+        return self._connectivity_query('GetPinNet', document=document, **fields).snapshot
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):

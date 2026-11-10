@@ -69,6 +69,7 @@ bool stale( const ConnectivitySnapshot& snapshot, const std::string& session, ui
 void API_HANDLER_SCH::registerConnectivityHandlers()
 {
     registerHandler<GetSchematicNetlist, NetQueryResponse>( &API_HANDLER_SCH::handleGetSchematicNetlist );
+    registerHandler<GetPinNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetPinNet );
 }
 
 HANDLER_RESULT<ConnectivitySnapshot> API_HANDLER_SCH::connectivitySnapshot( const DocumentSpecifier& document )
@@ -112,6 +113,35 @@ HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetSchematicNetlist(
 {
     auto snapshot = connectivitySnapshot( ctx.Request.document() );
     if( !snapshot ) return tl::unexpected( snapshot.error() );
+    NetQueryResponse response;
+    *response.mutable_snapshot() = std::move( *snapshot );
+    return response;
+}
+
+HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetPinNet( const HANDLER_CONTEXT<GetPinNet>& ctx )
+{
+    const auto& request = ctx.Request;
+    if( request.pin_id().value().empty() && ( request.reference().empty() || request.pin_number().empty() ) )
+        return tl::unexpected( badRequest( "Specify a reference and pin number, or a pin UUID" ) );
+    auto snapshot = connectivitySnapshot( request.document() );
+    if( !snapshot ) return tl::unexpected( snapshot.error() );
+    // An explicitly selected sheet instance disambiguates a reused child file.
+    std::set<std::string> local, all;
+    for( const auto& net : snapshot->nets() )
+        for( const auto& member : net.members() )
+        {
+            if( member.kind() != "pin" ) continue;
+            if( !request.reference().empty() && request.reference() != member.reference() ) continue;
+            if( !request.pin_number().empty() && request.pin_number() != member.pin_number() ) continue;
+            if( !request.pin_id().value().empty() && request.pin_id().value() != member.id().value() ) continue;
+            all.insert( net.id() );
+            if( sameSheet( member.document(), snapshot->document() ) ) local.insert( net.id() );
+        }
+    const auto& ids = local.empty() ? all : local;
+    if( ids.empty() ) return tl::unexpected( badRequest( "Pin not found in this schematic hierarchy" ) );
+    if( ids.size() != 1 )
+        return tl::unexpected( badRequest( "Pin matches different nets; select its sheet instance or pin UUID" ) );
+    filterNets( *snapshot, ids );
     NetQueryResponse response;
     *response.mutable_snapshot() = std::move( *snapshot );
     return response;
