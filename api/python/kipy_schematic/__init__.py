@@ -124,6 +124,11 @@ class SchematicClient:
         return self._connectivity_query('GetItemNet', document=document,
             items=[{'value': item_id} for item_id in item_ids], use_selection=use_selection).snapshot
 
+    def get_symbol_connections(self, reference, document=None):
+        """Pin table for all placed units, including intentional NC pins."""
+        return self._connectivity_query('GetSymbolConnections', document=document,
+            response='GetSymbolConnectionsResponse', reference=reference)
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):

@@ -72,6 +72,7 @@ void API_HANDLER_SCH::registerConnectivityHandlers()
     registerHandler<GetPinNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetPinNet );
     registerHandler<GetNetMembers, NetQueryResponse>( &API_HANDLER_SCH::handleGetNetMembers );
     registerHandler<GetItemNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetItemNet );
+    registerHandler<GetSymbolConnections, GetSymbolConnectionsResponse>( &API_HANDLER_SCH::handleGetSymbolConnections );
 }
 
 HANDLER_RESULT<ConnectivitySnapshot> API_HANDLER_SCH::connectivitySnapshot( const DocumentSpecifier& document )
@@ -206,6 +207,32 @@ HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetItemNet( const HANDLE
         return tl::unexpected( badRequest( "An item is missing on this sheet or has no electrical connection" ) );
     filterNets( *snapshot, ids );
     NetQueryResponse response;
+    *response.mutable_snapshot() = std::move( *snapshot );
+    return response;
+}
+
+HANDLER_RESULT<GetSymbolConnectionsResponse> API_HANDLER_SCH::handleGetSymbolConnections(
+        const HANDLER_CONTEXT<GetSymbolConnections>& ctx )
+{
+    if( ctx.Request.reference().empty() ) return tl::unexpected( badRequest( "Specify a physical reference" ) );
+    auto snapshot = connectivitySnapshot( ctx.Request.document() );
+    if( !snapshot ) return tl::unexpected( snapshot.error() );
+    GetSymbolConnectionsResponse response;
+    std::map<std::string, SymbolPinConnection> pins;
+    std::set<std::string> ids;
+    for( const auto& net : snapshot->nets() )
+        for( const auto& member : net.members() )
+        {
+            if( member.kind() != "pin" || member.reference() != ctx.Request.reference() ) continue;
+            std::string key = member.document().sheet_path().SerializeAsString() + member.id().value();
+            auto& connection = pins[key];
+            *connection.mutable_pin() = member;
+            connection.add_net_ids( net.id() );
+            ids.insert( net.id() );
+        }
+    if( pins.empty() ) return tl::unexpected( badRequest( "Symbol reference not found in this hierarchy" ) );
+    for( const auto& [key, pin] : pins ) *response.add_pins() = pin;
+    filterNets( *snapshot, ids );
     *response.mutable_snapshot() = std::move( *snapshot );
     return response;
 }
