@@ -73,6 +73,7 @@ void API_HANDLER_SCH::registerConnectivityHandlers()
     registerHandler<GetNetMembers, NetQueryResponse>( &API_HANDLER_SCH::handleGetNetMembers );
     registerHandler<GetItemNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetItemNet );
     registerHandler<GetSymbolConnections, GetSymbolConnectionsResponse>( &API_HANDLER_SCH::handleGetSymbolConnections );
+    registerHandler<HighlightNet, HighlightNetResponse>( &API_HANDLER_SCH::handleHighlightNet );
 }
 
 HANDLER_RESULT<ConnectivitySnapshot> API_HANDLER_SCH::connectivitySnapshot( const DocumentSpecifier& document )
@@ -233,6 +234,38 @@ HANDLER_RESULT<GetSymbolConnectionsResponse> API_HANDLER_SCH::handleGetSymbolCon
     if( pins.empty() ) return tl::unexpected( badRequest( "Symbol reference not found in this hierarchy" ) );
     for( const auto& [key, pin] : pins ) *response.add_pins() = pin;
     filterNets( *snapshot, ids );
+    *response.mutable_snapshot() = std::move( *snapshot );
+    return response;
+}
+
+HANDLER_RESULT<HighlightNetResponse> API_HANDLER_SCH::handleHighlightNet( const HANDLER_CONTEXT<HighlightNet>& ctx )
+{
+    const auto& request = ctx.Request;
+    if( !request.clear() && request.net_id().empty() && request.name().empty() )
+        return tl::unexpected( badRequest( "Specify a net ID/name, or clear=true" ) );
+    auto snapshot = connectivitySnapshot( request.document() );
+    if( !snapshot ) return tl::unexpected( snapshot.error() );
+    if( stale( *snapshot, request.session_id(), request.revision() ) )
+        return tl::unexpected( badRequest( "Stale connectivity snapshot; query the live model again" ) );
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    if( request.clear() )
+    {
+        frame->SetHighlightedConnection( wxEmptyString );
+        snapshot->clear_nets();
+    }
+    else
+    {
+        auto* net = findNet( *snapshot, request.net_id(), request.name() );
+        if( !net ) return tl::unexpected( badRequest( "Net not found or ambiguous; its ID may be stale" ) );
+        wxString name = wxString::FromUTF8( net->name() );
+        std::string id = net->id();
+        if( name.empty() ) return tl::unexpected( badRequest( "An isolated item has no named connection to highlight" ) );
+        frame->SetHighlightedConnection( name, nullptr, true );
+        filterNets( *snapshot, { id } );
+    }
+    frame->UpdateNetHighlightStatus();
+    frame->GetToolManager()->RunAction( SCH_ACTIONS::updateNetHighlighting );
+    HighlightNetResponse response;
     *response.mutable_snapshot() = std::move( *snapshot );
     return response;
 }
