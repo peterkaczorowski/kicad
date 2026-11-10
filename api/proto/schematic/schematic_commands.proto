@@ -19,6 +19,24 @@
 
 syntax = "proto3";
 
-package kiapi.schematic.types;
+package kiapi.schematic.commands;
+
+import "common/types/base_types.proto";
+import "schematic/schematic_types.proto";
+
+// Creates a new child file, or attaches an existing one when link_existing is true.
+// Undo/commit cancellation removes the sheet from the parent, never the child file.
+message CreateSheet
+{
+  kiapi.common.types.ItemHeader header = 1;
+  kiapi.schematic.types.Sheet sheet = 2;
+  bool link_existing = 3;
+}
+
+message CreateSheetResponse
+{
+  kiapi.common.types.ItemHeader header = 1;
+  kiapi.schematic.types.Sheet sheet = 2;
+}
 
 

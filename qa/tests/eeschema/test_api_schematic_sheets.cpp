@@ -43,4 +43,35 @@ BOOST_AUTO_TEST_CASE( EmptySheetHasNoPorts )
     BOOST_CHECK_EQUAL( packed.pins_size(), 0 );
 }
 
+BOOST_AUTO_TEST_CASE( SheetRoundTripAndInvalidInputs )
+{
+    SCH_SHEET original( nullptr, VECTOR2I( -10000, 20000 ), VECTOR2I( 30000, 40000 ) );
+    original.SetName( wxS( "power" ) );
+    original.SetFileName( wxS( "power.kicad_sch" ) );
+    auto* pin = new SCH_SHEET_PIN( &original, VECTOR2I( -10000, 30000 ), wxS( "DATA" ) );
+    pin->SetSide( SHEET_SIDE::LEFT );
+    pin->SetLabelShape( LABEL_BIDI );
+    original.AddPin( pin );
+    auto input = PackSchematicSheet( original );
+    std::string error;
+    auto decoded = UnpackSchematicSheet( input, nullptr, error );
+    BOOST_REQUIRE( decoded );
+    BOOST_CHECK_EQUAL( PackSchematicSheet( *decoded ).SerializeAsString(), input.SerializeAsString() );
+
+    input.mutable_pins( 0 )->mutable_position()->set_x_nm( 0 );
+    BOOST_CHECK( !UnpackSchematicSheet( input, nullptr, error ) );
+    input = PackSchematicSheet( original );
+    input.add_pins()->CopyFrom( input.pins( 0 ) );
+    BOOST_CHECK( !UnpackSchematicSheet( input, nullptr, error ) );
+    input = PackSchematicSheet( original );
+    input.mutable_size()->set_x_nm( 0 );
+    BOOST_CHECK( !UnpackSchematicSheet( input, nullptr, error ) );
+    input = PackSchematicSheet( original );
+    input.mutable_id()->set_value( "not-a-uuid" );
+    BOOST_CHECK( !UnpackSchematicSheet( input, nullptr, error ) );
+    input = PackSchematicSheet( original );
+    input.mutable_position()->set_x_nm( INT64_MAX );
+    BOOST_CHECK( !UnpackSchematicSheet( input, nullptr, error ) );
+}
+
 BOOST_AUTO_TEST_SUITE_END()

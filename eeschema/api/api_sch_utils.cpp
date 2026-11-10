@@ -38,6 +38,9 @@
 #include <sch_textbox.h>
 
 #include "api_sch_utils.h"
+#include <cmath>
+#include <limits>
+#include <set>
 
 namespace
 {
@@ -79,6 +82,87 @@ kiapi::schematic::types::Sheet PackSchematicSheet( const SCH_SHEET& aSheet )
     for( const SCH_SHEET_PIN* pin : aSheet.GetPins() )
         *result.add_pins() = PackSchematicSheetPin( *pin );
 
+    return result;
+}
+
+
+std::unique_ptr<SCH_SHEET> UnpackSchematicSheet( const kiapi::schematic::types::Sheet& aSheet,
+                                              EDA_ITEM* aParent, std::string& aError )
+{
+    auto vector = []( const kiapi::common::types::Vector2& value, VECTOR2I& out )
+    {
+        constexpr int64_t limit = int64_t( std::numeric_limits<int>::max() ) / 4 * 100;
+        if( value.x_nm() < -limit || value.x_nm() > limit
+            || value.y_nm() < -limit || value.y_nm() > limit )
+            return false;
+
+        out = VECTOR2I( std::llround( value.x_nm() / 100.0 ),
+                        std::llround( value.y_nm() / 100.0 ) );
+        return true;
+    };
+    auto validId = []( const std::string& id )
+    {
+        return id.empty() || ( KIID::SniffTest( wxString::FromUTF8( id ) )
+                              && KIID( id ) != niluuid );
+    };
+    VECTOR2I position, size;
+    if( aSheet.name().empty() || aSheet.filename().empty()
+        || !validId( aSheet.id().value() )
+        || !vector( aSheet.position(), position ) || !vector( aSheet.size(), size )
+        || size.x <= 0 || size.y <= 0 )
+    {
+        aError = "A sheet requires a name, filename, valid UUID and positive bounded size";
+        return nullptr;
+    }
+
+    auto result = std::make_unique<SCH_SHEET>( aParent, position, size );
+    if( !aSheet.id().value().empty() )
+        const_cast<KIID&>( result->m_Uuid ) = KIID( aSheet.id().value() );
+    result->SetName( wxString::FromUTF8( aSheet.name() ) );
+    result->SetFileName( wxString::FromUTF8( aSheet.filename() ) );
+
+    std::set<std::string> names, ids{ result->m_Uuid.AsStdString() };
+    for( const auto& input : aSheet.pins() )
+    {
+        VECTOR2I point;
+        if( input.name().empty() || !names.insert( input.name() ).second
+            || !validId( input.id().value() )
+            || ( !input.id().value().empty() && !ids.insert( KIID( input.id().value() ).AsStdString() ).second )
+            || ( !input.sheet_id().value().empty()
+                 && input.sheet_id().value() != result->m_Uuid.AsStdString() )
+            || !vector( input.position(), point )
+            || input.side() < kiapi::schematic::types::SPS_LEFT
+            || input.side() > kiapi::schematic::types::SPS_BOTTOM
+            || input.shape() < kiapi::schematic::types::SPH_INPUT
+            || input.shape() > kiapi::schematic::types::SPH_PASSIVE )
+        {
+            aError = "Invalid or duplicate sheet pin (name, UUID, parent, position, side or shape)";
+            return nullptr;
+        }
+        const VECTOR2I offset = point - position;
+        bool onEdge = false;
+        switch( input.side() )
+        {
+        case kiapi::schematic::types::SPS_LEFT:   onEdge = offset.x == 0; break;
+        case kiapi::schematic::types::SPS_RIGHT:  onEdge = offset.x == size.x; break;
+        case kiapi::schematic::types::SPS_TOP:    onEdge = offset.y == 0; break;
+        case kiapi::schematic::types::SPS_BOTTOM: onEdge = offset.y == size.y; break;
+        default: break;
+        }
+        if( !onEdge || offset.x < 0 || offset.x > size.x || offset.y < 0 || offset.y > size.y )
+        {
+            aError = "Sheet pin position must lie on its declared sheet edge";
+            return nullptr;
+        }
+        auto pin = std::make_unique<SCH_SHEET_PIN>( result.get(), point,
+                                                  wxString::FromUTF8( input.name() ) );
+        if( !input.id().value().empty() )
+            const_cast<KIID&>( pin->m_Uuid ) = KIID( input.id().value() );
+        pin->SetSide( static_cast<SHEET_SIDE>( input.side() - 1 ) );
+        pin->SetLabelShape( static_cast<LABEL_SHAPE>( input.shape() - 1 ) );
+        result->AddPin( pin.release() );
+    }
+    result->AutoplaceFields( nullptr, AUTOPLACE_AUTO );
     return result;
 }
 

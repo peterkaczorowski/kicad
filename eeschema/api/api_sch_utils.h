@@ -32,6 +32,8 @@ class SCH_SHEET_PIN;
 
 kiapi::schematic::types::Sheet PackSchematicSheet( const SCH_SHEET& aSheet );
 kiapi::schematic::types::SheetPin PackSchematicSheetPin( const SCH_SHEET_PIN& aPin );
+std::unique_ptr<SCH_SHEET> UnpackSchematicSheet( const kiapi::schematic::types::Sheet& aSheet,
+                                              EDA_ITEM* aParent, std::string& aError );
 
 std::unique_ptr<EDA_ITEM> CreateItemForType( KICAD_T aType, EDA_ITEM* aContainer );
 

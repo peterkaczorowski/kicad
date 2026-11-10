@@ -585,6 +585,7 @@ void SCH_COMMIT::Revert()
         return;
     }
 
+    bool                   refreshHierarchy = false;
     SCHEMATIC*             schematic = nullptr;
     std::vector<SCH_ITEM*> bulkAddedItems;
     std::vector<SCH_ITEM*> bulkRemovedItems;
@@ -602,6 +603,9 @@ void SCH_COMMIT::Revert()
 
         if( !schematic )
             schematic = item->Schematic();
+
+        if( item->Type() == SCH_SHEET_T )
+            refreshHierarchy = true;
 
         switch( changeType )
         {
@@ -711,6 +715,13 @@ void SCH_COMMIT::Revert()
 
         if( itemsChanged.size() > 0 )
             schematic->OnItemsChanged( itemsChanged );
+    }
+
+    if( schematic && refreshHierarchy )
+    {
+        schematic->RefreshHierarchy();
+        if( frame )
+            frame->UpdateHierarchyNavigator();
     }
 
     if( selTool )

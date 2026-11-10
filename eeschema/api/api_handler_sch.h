@@ -23,6 +23,7 @@
 
 #include <api/api_handler_editor.h>
 #include <api/common/commands/editor_commands.pb.h>
+#include <api/schematic/schematic_commands.pb.h>
 #include <kiid.h>
 #include <sch_sheet_path.h>
 
@@ -67,6 +68,11 @@ protected:
 private:
     std::optional<SCH_SHEET_PATH> resolveDocument( const DocumentSpecifier& aDocument ) const;
     DocumentSpecifier describeDocument( const SCH_SHEET_PATH& aPath ) const;
+    HANDLER_RESULT<kiapi::schematic::types::Sheet> createSheet(
+            const types::ItemHeader& aHeader, const kiapi::schematic::types::Sheet& aSheet,
+            const std::string& aClientName, std::optional<bool> aLinkExisting );
+    HANDLER_RESULT<kiapi::schematic::commands::CreateSheetResponse> handleCreateSheet(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::CreateSheet>& aCtx );
 
     HANDLER_RESULT<commands::GetItemsResponse> handleGetItems(
             const HANDLER_CONTEXT<commands::GetItems>& aCtx );
