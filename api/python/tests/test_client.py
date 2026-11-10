@@ -93,6 +93,31 @@ class ClientTest(unittest.TestCase):
         self.client.get_schematic_netlist(self.doc)
         self.assertEqual(self.transport.commands[-1].DESCRIPTOR.name, 'GetSchematicNetlist')
 
+    def test_net_rename_preview_and_refusal(self):
+        from kipy_schematic import _message
+        snapshot = _message('kiapi.schematic.types.ConnectivitySnapshot')(session_id='session', revision=3)
+        snapshot.document.CopyFrom(self.doc)
+        self.client.plan_net_rename('net-id', 'NEW', snapshot=snapshot)
+        request = self.transport.commands[-1]
+        self.assertEqual(request.DESCRIPTOR.name, 'PlanNetRename')
+        self.assertEqual((request.net_id, request.new_name, request.session_id, request.revision),
+                         ('net-id', 'NEW', 'session', 3))
+        self.assertEqual(request.document, self.doc)
+        plan = _message('kiapi.schematic.commands.NetRenamePlan')(can_apply=False, blockers=['Target exists'])
+        with self.assertRaisesRegex(ValueError, 'Target exists'):
+            self.client.rename_net(plan)
+        plan.can_apply = True
+        plan.id = 'issued-plan'
+        plan.document.CopyFrom(self.doc)
+        self.client.rename_net(plan)
+        request = self.transport.commands[-1]
+        self.assertEqual(request.plan_id, 'issued-plan')
+        self.assertEqual(request.document, self.doc)
+        self.assertNotIn('allow_merge', request.DESCRIPTOR.fields_by_name)
+        self.client._in_commit = True
+        with self.assertRaisesRegex(RuntimeError, 'independent Undo'):
+            self.client.rename_net(plan)
+
     def test_native_kipy_can_coexist(self):
         from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
         self.assertEqual(DocumentSpecifier(type=1).type, self.doc.type)

@@ -109,3 +109,57 @@ ERC, add markers, infer electrical types or repair the schematic. The canonical
 pin type returned is the value actually stored in the model. Highlighting uses
 the normal GUI net navigator; the returned members identify other sheets.
 Generic symbol/wire/label item creation and editing remain outside this API.
+
+## Rename a net (client 0.3)
+
+Renaming has two explicit stages. Both use the live, unsaved hierarchy:
+
+```python
+snapshot = client.get_pin_net('U8', 39, document=page)
+plan = client.plan_net_rename(snapshot.nets[0].id, 'PHI2_RENAMED', snapshot=snapshot)
+print('Can apply:', plan.can_apply)
+print('Refusals:', list(plan.blockers))
+print('Existing nets:', [net.name for net in plan.collisions])
+for change in plan.changes:
+    print(change.item.document.sheet_path.path_human_readable,
+          change.item.id.value, change.before, '->', change.after)
+
+# After inspecting the plan, explicitly apply it:
+# result = client.rename_net(plan)
+# result.snapshot contains the new connectivity revision.
+```
+
+An existing target name anywhere in the loaded hierarchy causes refusal, even
+when its current sheet scope would keep it separate. There is **no merge
+option**. `PHI2_SALLY -> PHI2` is refused if PHI2 exists. Matching is case
+sensitive, as in KiCad. Collision previews return `can_apply=False`, `collisions`
+and `blockers`; they receive no executable plan ID.
+
+The supported alias policy is explicit: rename **all identical literal labels
+and hierarchical ports belonging to the source net**, throughout the selected
+project hierarchy. The preview lists every affected instance, but a shared
+physical object is modified only once. Heterogeneous literal aliases, variables,
+power-symbol naming sources, generated names without labels, buses and bus
+members are refused. New names must be valid scalar label text without spaces,
+hierarchical paths or variables. The planner also compares the complete native
+graph after a reversible text preview and refuses any merge, split or change
+to another net, including side effects from shared sheet instances. Text and
+graph caches are restored before a preview response is returned. No dirty flag,
+Undo entry or schematic file is changed by preview/refusal.
+
+Only the same `SchematicClient` can apply its latest issued plan. A new preview
+supersedes its previous plan; plans are also invalidated by connectivity revision
+changes, editor sessions, successful use, or bounded-cache eviction. On apply,
+the server checks the current snapshot and recomputes the entire plan. Editing
+the protobuf plan in Python cannot change the server's stored operation.
+
+A successful rename creates **one independent Undo/Redo step**, updates all
+relevant screens, recalculates connections, and preserves wire geometry. It
+leaves the schematic unsaved. Finish any pending API transaction first;
+`rename_net` cannot be nested inside `client.commit()`. The response contains
+the applied plan and a fresh full connectivity snapshot. Read the net again
+after editing or undoing; previous IDs/revisions are stale.
+
+The real-editor acceptance test is `api/python/tests/test_live_net_rename.py`.
+It requires an explicitly marked disposable copy of Codex800XL and the PID of
+its isolated test editor, and exercises GUI Undo/Redo only on that process.

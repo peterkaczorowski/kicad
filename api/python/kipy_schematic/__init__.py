@@ -143,6 +143,32 @@ class SchematicClient:
         return self._connectivity_query('GetConnectivityIssues', document=document,
             response='GetConnectivityIssuesResponse')
 
+    def plan_net_rename(self, net_id, new_name, *, snapshot, document=None):
+        """Preview literal labels/ports throughout the hierarchy; never merge nets.
+
+        Inspect can_apply, blockers, collisions and changes before rename_net().
+        All naming labels/ports must have one identical literal text. Buses,
+        bus members, power sources, variables and heterogeneous aliases are refused.
+        """
+        if document is None:
+            document = snapshot.document
+        return self._connectivity_query('PlanNetRename', document=document,
+            response='PlanNetRenameResponse', net_id=net_id, new_name=new_name,
+            session_id=snapshot.session_id, revision=snapshot.revision).plan
+
+    def rename_net(self, plan):
+        """Apply this client's current server-issued plan as one Undo/Redo step.
+
+        Rejects any existing target name. No merge override is supported.
+        Schematics remain unsaved; this operation cannot be nested in commit().
+        """
+        if self._in_commit:
+            raise RuntimeError('RenameNet creates an independent Undo step; finish commit() first')
+        if not plan.can_apply or not plan.id:
+            raise ValueError('Rename refused: ' + '; '.join(plan.blockers))
+        return self._connectivity_query('RenameNet', document=plan.document,
+            response='RenameNetResponse', plan_id=plan.id)
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):

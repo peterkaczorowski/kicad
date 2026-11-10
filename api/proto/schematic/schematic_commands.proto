@@ -103,3 +103,47 @@ message GetConnectivityIssuesResponse
   kiapi.schematic.types.ConnectivitySnapshot snapshot = 1;
   repeated kiapi.schematic.types.ConnectivityIssue issues = 2;
 }
+
+// Preview is always read-only. Renaming to an existing name, merging, splitting,
+// or changing unrelated nets is forbidden; there is no allow_merge override.
+message NetRenameChange
+{
+  kiapi.schematic.types.NetMember item = 1;
+  string before = 2;
+  string after = 3;
+}
+message NetRenamePlan
+{
+  string id = 1; // server-issued, client-bound, one pending plan per client
+  kiapi.common.types.DocumentSpecifier document = 2;
+  string session_id = 3;
+  uint64 revision = 4;
+  string net_id = 5;
+  string old_name = 6;
+  string new_name = 7; // literal label/port text, not a hierarchical path
+  repeated NetRenameChange changes = 8;
+  repeated kiapi.schematic.types.SchematicNet collisions = 9;
+  repeated string blockers = 10;
+  bool can_apply = 11;
+  string alias_policy = 12;
+  string resolved_name = 13; // predicted fully qualified name
+}
+message PlanNetRename
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string net_id = 2;
+  string new_name = 3;
+  string session_id = 4; // mandatory originating snapshot
+  uint64 revision = 5;
+}
+message PlanNetRenameResponse { NetRenamePlan plan = 1; }
+message RenameNet
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string plan_id = 2; // must be issued to the same IPC client at the current revision
+}
+message RenameNetResponse
+{
+  NetRenamePlan plan = 1;
+  kiapi.schematic.types.ConnectivitySnapshot snapshot = 2;
+}

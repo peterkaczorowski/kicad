@@ -89,6 +89,7 @@ API_HANDLER_SCH::API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
     registerConnectivityHandlers();
+    registerNetRenameHandlers();
     registerHandler<kiapi::schematic::commands::CreateSheet, kiapi::schematic::commands::CreateSheetResponse>(
             &API_HANDLER_SCH::handleCreateSheet );
     registerHandler<GetItems, GetItemsResponse>( &API_HANDLER_SCH::handleGetItems );

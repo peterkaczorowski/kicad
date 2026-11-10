@@ -48,20 +48,24 @@ foreach( PROTO_SRC ${KIAPI_PROTO_SRCS} )
     string( REGEX REPLACE "\.proto$" ".pb.h" CPP_HEADER ${PROTO_SRC} )
     set( KIAPI_CPP_SRCS ${KIAPI_CPP_SRCS} ${KIAPI_CPP_BASEPATH}/${CPP_SRC} )
     set( KIAPI_CPP_HEADERS ${KIAPI_CPP_HEADERS} ${KIAPI_CPP_BASEPATH}/${CPP_HEADER} )
-    set( KIAPI_PROTO_SRC_FULLPATHS ${KIAPI_PROTO_SRC_FULLPATHS} ${CMAKE_CURRENT_SOURCE_DIR}/proto/${PROTO_SRC} )
+    # Generate each file independently. DEPFILE tracks imported .proto files;
+    # changing a schematic command must not rewrite unrelated common headers.
+    add_custom_command(
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${KIAPI_CPP_BASEPATH}
+        COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+            --cpp_out=dllexport_decl=KIAPI_IMPORTEXPORT:${KIAPI_CPP_BASEPATH}
+            --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
+            --experimental_allow_proto3_optional
+            --dependency_out=${KIAPI_CPP_BASEPATH}/${PROTO_SRC}.d
+            ${CMAKE_CURRENT_SOURCE_DIR}/proto/${PROTO_SRC}
+        COMMENT "Generating API protobuf source for ${PROTO_SRC}"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/${PROTO_SRC} ${Protobuf_PROTOC_EXECUTABLE}
+        DEPFILE ${KIAPI_CPP_BASEPATH}/${PROTO_SRC}.d
+        OUTPUT ${KIAPI_CPP_BASEPATH}/${CPP_SRC} ${KIAPI_CPP_BASEPATH}/${CPP_HEADER}
+        VERBATIM
+        )
 endforeach ()
-
-add_custom_command( COMMAND ${CMAKE_COMMAND} -E make_directory ${KIAPI_CPP_BASEPATH}
-    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
-    --cpp_out=dllexport_decl=KIAPI_IMPORTEXPORT:${KIAPI_CPP_BASEPATH}
-    --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
-    --experimental_allow_proto3_optional
-    ${KIAPI_PROTO_SRCS}
-    COMMENT "Generating API protobuf source files from proto definitions..."
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS ${KIAPI_PROTO_SRC_FULLPATHS}
-    OUTPUT ${KIAPI_CPP_SRCS} ${KIAPI_CPP_HEADERS}
-    )
 
 # kiapi must be a shared DLL because the protobuf messages can only be initialized once
 add_library( kiapi SHARED

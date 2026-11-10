@@ -33,6 +33,7 @@
 
 #include <view/view.h>
 #include <sch_commit.h>
+#include <sch_commit_flags.h>
 #include <connection_graph.h>
 
 #include <functional>
@@ -463,7 +464,8 @@ void SCH_COMMIT::pushSchEdit( const wxString& aMessage, int aCommitFlags )
                 wxLogTrace( wxS( "CONN_PROFILE" ),
                             wxS( "SCH_COMMIT::pushSchEdit() %s clean up connectivity rebuild." ),
                             connectivityCleanUp == LOCAL_CLEANUP ? wxS( "local" ) : wxS( "global" ) );
-                frame->RecalculateConnections( this, connectivityCleanUp );
+                frame->RecalculateConnections( this, ( aCommitFlags & SCH_COMMIT_NO_CLEANUP )
+                                                            ? NO_CLEANUP : connectivityCleanUp );
             }
         }
     }

@@ -69,6 +69,12 @@ private:
     HANDLER_RESULT<kiapi::schematic::types::ConnectivitySnapshot> connectivitySnapshot(
             const DocumentSpecifier& aDocument );
     void registerConnectivityHandlers();
+    void registerNetRenameHandlers();
+    std::map<std::string, kiapi::schematic::commands::NetRenamePlan> m_netRenamePlans;
+    HANDLER_RESULT<kiapi::schematic::commands::PlanNetRenameResponse> handlePlanNetRename(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::PlanNetRename>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::RenameNetResponse> handleRenameNet(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::RenameNet>& aCtx );
     std::string m_connectivitySession = KIID().AsStdString();
     std::string m_connectivityContent;
     uint64_t m_connectivityRevision = 0;
