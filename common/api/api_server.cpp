@@ -36,6 +36,8 @@
 #include <string_utils.h>
 
 #include <api/common/envelope.pb.h>
+#include <api/common/commands/editor_commands.pb.h>
+#include <set>
 
 #ifdef __UNIX__
 #include <sys/file.h>
@@ -240,15 +242,71 @@ void KICAD_API_SERVER::handleApiEvent( wxCommandEvent& aEvent )
     }
 
     API_RESULT result;
+    using namespace kiapi::common::commands;
+    GetOpenDocuments listingRequest;
+    const bool listing = request.message().UnpackTo( &listingRequest );
+    GetOpenDocumentsResponse listingResponse;
+    std::set<std::string> documents;
+    bool failed = false;
 
     for( API_HANDLER* handler : m_handlers )
     {
         result = handler->Handle( request );
 
         if( result.has_value() )
-            break;
+        {
+            if( !listing )
+                break;
+
+            GetOpenDocumentsResponse part;
+            if( !result->message().UnpackTo( &part ) )
+            {
+                ApiResponseStatus error;
+                error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+                error.set_error_message( "Invalid document listing returned by an editor" );
+                result = tl::unexpected( error );
+                failed = true;
+                break;
+            }
+            // Ask every editor, rather than depending on handler pointer order.
+            for( const auto& doc : part.documents() )
+            {
+                if( documents.insert( doc.SerializeAsString() ).second )
+                    *listingResponse.add_documents() = doc;
+            }
+        }
         else if( result.error().status() != ApiStatusCode::AS_UNHANDLED )
+        {
+            failed = true;
             break;
+        }
+    }
+
+    if( listing && !failed )
+    {
+        switch( listingRequest.type() )
+        {
+        case kiapi::common::types::DOCTYPE_SCHEMATIC:
+        case kiapi::common::types::DOCTYPE_SYMBOL:
+        case kiapi::common::types::DOCTYPE_PCB:
+        case kiapi::common::types::DOCTYPE_FOOTPRINT:
+        {
+            // A supported editor with no open document is an empty list.
+            ApiResponse response;
+            response.mutable_status()->set_status( ApiStatusCode::AS_OK );
+            response.mutable_message()->PackFrom( listingResponse );
+            result = response;
+            break;
+        }
+        default:
+        {
+            ApiResponseStatus error;
+            error.set_status( ApiStatusCode::AS_UNIMPLEMENTED );
+            error.set_error_message( "Document listing is not supported for the requested document type" );
+            result = tl::unexpected( error );
+            break;
+        }
+        }
     }
 
     // Note: at the point we call Reply(), we no longer own requestString.

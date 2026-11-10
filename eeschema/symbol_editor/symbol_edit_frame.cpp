@@ -116,6 +116,12 @@ BEGIN_EVENT_TABLE( SYMBOL_EDIT_FRAME, SCH_BASE_FRAME )
 END_EVENT_TABLE()
 
 
+#ifdef KICAD_IPC_API
+#include <api/api_handler_symbol.h>
+#include <api/api_server.h>
+#endif
+
+
 SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
         SCH_BASE_FRAME( aKiway, aParent, FRAME_SCH_SYMBOL_EDITOR, _( "Library Editor" ),
                         wxDefaultPosition, wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE,
@@ -296,11 +302,18 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // run SyncLibraries with progress reporter enabled. The progress reporter is useful
     // in debug mode because the loading time of ecah library can be really noticeable
     SyncLibraries( true );
+#ifdef KICAD_IPC_API
+    m_symbolApiHandler = std::make_unique<API_HANDLER_SYMBOL>( this );
+    Pgm().GetApiServer().RegisterHandler( m_symbolApiHandler.get() );
+#endif
 }
 
 
 SYMBOL_EDIT_FRAME::~SYMBOL_EDIT_FRAME()
 {
+#ifdef KICAD_IPC_API
+    Pgm().GetApiServer().DeregisterHandler( m_symbolApiHandler.get() );
+#endif
     // Shutdown all running tools
     if( m_toolManager )
         m_toolManager->ShutdownAllTools();

@@ -51,6 +51,8 @@ class EDA_LIST_DIALOG;
 /**
  * The symbol library editor main window.
  */
+class API_HANDLER_SYMBOL;
+
 class SYMBOL_EDIT_FRAME : public SCH_BASE_FRAME
 {
 public:
@@ -556,6 +558,9 @@ public:
 
 private:
     ///< Helper screen used when no symbol is loaded
+#ifdef KICAD_IPC_API
+    std::unique_ptr<API_HANDLER_SYMBOL> m_symbolApiHandler;
+#endif
     SCH_SCREEN*         m_dummyScreen;
 
     LIB_SYMBOL*         m_symbol;                // a symbol I own, it is not in any library, but a copy could be.
