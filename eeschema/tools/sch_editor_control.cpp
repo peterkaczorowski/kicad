@@ -80,6 +80,7 @@
 #include <tools/sch_tool_utils.h>
 #include <tools/sch_edit_table_tool.h>
 #include <drawing_sheet/ds_proxy_undo_item.h>
+#include <sch_page_format_undo.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
 #include <view/view_controls.h>
 #include <widgets/wx_infobar.h>
@@ -1636,7 +1637,8 @@ int SCH_EDITOR_CONTROL::Undo( const TOOL_EVENT& aEvent )
     m_toolMgr->GetTool<SCH_SELECTION_TOOL>()->RebuildSelection();
 
     m_frame->GetCanvas()->Refresh();
-    m_frame->OnModify();
+    if( !IsSchematicPageFormatUndo( *undo_list ) )
+        m_frame->OnModify();
 
     return 0;
 }
@@ -1667,7 +1669,8 @@ int SCH_EDITOR_CONTROL::Redo( const TOOL_EVENT& aEvent )
     m_toolMgr->GetTool<SCH_SELECTION_TOOL>()->RebuildSelection();
 
     m_frame->GetCanvas()->Refresh();
-    m_frame->OnModify();
+    if( !IsSchematicPageFormatUndo( *list ) )
+        m_frame->OnModify();
 
     return 0;
 }

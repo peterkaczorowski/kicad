@@ -1,0 +1,44 @@
+/* Copyright The KiCad Developers. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+
+package kiapi.schematic.commands;
+
+import "common/types/base_types.proto";
+
+enum PageOrientation
+{
+  PO_UNKNOWN = 0;
+  PO_LANDSCAPE = 1;
+  PO_PORTRAIT = 2;
+}
+
+message PageSettings
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string paper_format = 2; // KiCad paper name, e.g. A4, A3, USLetter or User.
+  PageOrientation orientation = 3;
+  int64 width_nm = 4; // Actual oriented dimensions.
+  int64 height_nm = 5;
+}
+
+message GetPageSettings
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+}
+message GetPageSettingsResponse { PageSettings settings = 1; }
+
+// Set standard paper and orientation for an explicit, nonempty list of sheets.
+// Every document must belong to one open schematic hierarchy. For any shared
+// sheet file being changed, list every loaded instance. The batch is validated
+// before modification and creates one Undo entry. It does not save files.
+message SetPageSettings
+{
+  repeated kiapi.common.types.DocumentSpecifier documents = 1;
+  string paper_format = 2;
+  PageOrientation orientation = 3;
+}
+message SetPageSettingsResponse
+{
+  repeated PageSettings pages = 1;
+  uint32 changed_screens = 2; // Number of distinct sheet files changed.
+}

@@ -19,6 +19,9 @@
  */
 
 #include <api/api_handler_sch.h>
+#include <api/schematic/page_settings.pb.h>
+#include <sch_page_format_undo.h>
+#include <cmath>
 #include <api/api_sch_utils.h>
 #include <api/api_utils.h>
 #include <magic_enum.hpp>
@@ -90,6 +93,7 @@ API_HANDLER_SCH::API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame ) :
 {
     registerConnectivityHandlers();
     registerNetRenameHandlers();
+    registerPageSettingsHandlers();
     registerHandler<kiapi::schematic::commands::CreateSheet, kiapi::schematic::commands::CreateSheetResponse>(
             &API_HANDLER_SCH::handleCreateSheet );
     registerHandler<GetItems, GetItemsResponse>( &API_HANDLER_SCH::handleGetItems );
@@ -607,4 +611,150 @@ std::optional<EDA_ITEM*> API_HANDLER_SCH::getItemFromDocument( const DocumentSpe
     // TODO
 
     return std::nullopt;
+}
+
+namespace
+{
+using namespace kiapi::schematic::commands;
+
+ApiResponseStatus pageSettingsError( const char* aMessage )
+{
+    ApiResponseStatus error;
+    error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+    error.set_error_message( aMessage );
+    return error;
+}
+
+ApiResponseStatus pageSettingsUnhandled()
+{
+    ApiResponseStatus error;
+    error.set_status( ApiStatusCode::AS_UNHANDLED );
+    return error;
+}
+
+bool isExplicitSchematicPage( const DocumentSpecifier& aDocument )
+{
+    return aDocument.type() == DocumentType::DOCTYPE_SCHEMATIC
+           && !aDocument.project().path().empty() && aDocument.has_sheet_path()
+           && aDocument.sheet_path().path_size() > 0;
+}
+
+PageSettings packPageSettings( const DocumentSpecifier& aDocument, const PAGE_INFO& aPage )
+{
+    PageSettings result;
+    *result.mutable_document() = aDocument;
+    result.set_paper_format( aPage.GetTypeAsString().ToStdString() );
+    result.set_orientation( aPage.IsPortrait() ? PO_PORTRAIT : PO_LANDSCAPE );
+    result.set_width_nm( std::llround( aPage.GetWidthMM() * 1000000 ) );
+    result.set_height_nm( std::llround( aPage.GetHeightMM() * 1000000 ) );
+    return result;
+}
+}
+
+
+void API_HANDLER_SCH::registerPageSettingsHandlers()
+{
+    using namespace kiapi::schematic::commands;
+    registerHandler<GetPageSettings, GetPageSettingsResponse>( &API_HANDLER_SCH::handleGetPageSettings );
+    registerHandler<SetPageSettings, SetPageSettingsResponse>( &API_HANDLER_SCH::handleSetPageSettings );
+}
+
+
+HANDLER_RESULT<kiapi::schematic::commands::GetPageSettingsResponse> API_HANDLER_SCH::handleGetPageSettings(
+        const HANDLER_CONTEXT<kiapi::schematic::commands::GetPageSettings>& aCtx )
+{
+    const auto& document = aCtx.Request.document();
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    if( !isExplicitSchematicPage( document ) )
+        return tl::unexpected( pageSettingsError( "An explicit schematic project and sheet UUID path are required" ) );
+    if( document.project().path() != frame->Schematic().Project().GetProjectPath().ToStdString() )
+        return tl::unexpected( pageSettingsUnhandled() );
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+    auto path = resolveDocument( document );
+    if( !path || !path->LastScreen() )
+        return tl::unexpected( pageSettingsError( "The selected schematic sheet is not open" ) );
+
+    kiapi::schematic::commands::GetPageSettingsResponse response;
+    *response.mutable_settings() = packPageSettings( describeDocument( *path ),
+                                                     path->LastScreen()->GetPageSettings() );
+    return response;
+}
+
+
+HANDLER_RESULT<kiapi::schematic::commands::SetPageSettingsResponse> API_HANDLER_SCH::handleSetPageSettings(
+        const HANDLER_CONTEXT<kiapi::schematic::commands::SetPageSettings>& aCtx )
+{
+    using namespace kiapi::schematic::commands;
+    const auto& request = aCtx.Request;
+    if( request.documents().empty() || !isExplicitSchematicPage( request.documents( 0 ) ) )
+        return tl::unexpected( pageSettingsError( "Specify a nonempty list of explicit schematic documents" ) );
+
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    if( request.documents( 0 ).project().path() != frame->Schematic().Project().GetProjectPath().ToStdString() )
+        return tl::unexpected( pageSettingsUnhandled() );
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+    if( !m_commits.empty() )
+        return tl::unexpected( pageSettingsError( "Finish pending API transactions first; page changes are one independent Undo step" ) );
+
+    PAGE_INFO page;
+    if( ( request.orientation() != PO_PORTRAIT && request.orientation() != PO_LANDSCAPE )
+        || !page.SetType( wxString::FromUTF8( request.paper_format() ), request.orientation() == PO_PORTRAIT )
+        || page.IsCustom() || page.GetType() == PAGE_SIZE_TYPE::GERBER )
+        return tl::unexpected( pageSettingsError( "Specify a standard schematic paper format and portrait or landscape orientation" ) );
+
+    std::set<wxString> selected;
+    std::vector<SCH_SHEET_PATH> paths;
+    std::set<SCH_SCREEN*> changed;
+    for( const auto& document : request.documents() )
+    {
+        if( !isExplicitSchematicPage( document ) )
+            return tl::unexpected( pageSettingsError( "Every target must specify a project and sheet UUID path" ) );
+        auto path = resolveDocument( document );
+        if( !path || !path->LastScreen() )
+            return tl::unexpected( pageSettingsError( "All target sheets must be open in the same schematic hierarchy" ) );
+        if( !selected.insert( path->Path().AsString() ).second )
+            continue;
+
+        paths.push_back( *path );
+        SCH_SCREEN* screen = path->LastScreen();
+        const PAGE_INFO& old = screen->GetPageSettings();
+        if( old.GetType() == page.GetType() && old.IsPortrait() == page.IsPortrait()
+            && old.GetSizeMils() == page.GetSizeMils() )
+            continue;
+        if( screen->IsReadOnly() )
+            return tl::unexpected( pageSettingsError( "A target schematic sheet is read-only" ) );
+        changed.insert( screen );
+    }
+
+    for( const auto& path : frame->Schematic().Hierarchy() )
+    {
+        if( changed.count( path.LastScreen() ) && !selected.count( path.Path().AsString() ) )
+            return tl::unexpected( pageSettingsError( "A changed file is shared: include every loaded instance of that sheet" ) );
+    }
+
+    PICKED_ITEMS_LIST undo;
+    undo.SetDescription( _( "Changed paper format via API" ) );
+    std::vector<std::unique_ptr<SCH_PAGE_FORMAT_UNDO_ITEM>> images;
+    for( SCH_SCREEN* screen : changed )
+    {
+        images.push_back( std::make_unique<SCH_PAGE_FORMAT_UNDO_ITEM>( screen->GetPageSettings() ) );
+        ITEM_PICKER picker( screen, images.back().get(), UNDO_REDO::PAGESETTINGS );
+        picker.SetFlags( UR_TRANSIENT );
+        undo.PushItem( picker );
+    }
+    if( !changed.empty() )
+    {
+        frame->SaveCopyInUndoList( undo, UNDO_REDO::PAGESETTINGS, false );
+        for( auto& image : images ) image.release(); // The undo list owns the images.
+        for( SCH_SCREEN* screen : changed ) screen->SetPageSettings( page );
+        NotifySchematicPageFormatChanged( *frame, changed );
+    }
+
+    SetPageSettingsResponse response;
+    response.set_changed_screens( changed.size() );
+    for( const auto& path : paths )
+        *response.add_pages() = packPageSettings( describeDocument( path ), path.LastScreen()->GetPageSettings() );
+    return response;
 }

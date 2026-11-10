@@ -35,6 +35,7 @@
 #include <sch_table.h>
 #include <tools/sch_selection_tool.h>
 #include <drawing_sheet/ds_proxy_undo_item.h>
+#include <sch_page_format_undo.h>
 #include <tool/actions.h>
 #include <wx/log.h>
 
@@ -256,6 +257,7 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
     SCH_CLEANUP_FLAGS      connectivityCleanUp = NO_CLEANUP;
     SCH_SHEET_LIST         sheets= m_schematic->Hierarchy();
     bool                   clearedRepeatItems = false;
+    std::set<SCH_SCREEN*>   pageFormatScreens;
 
     // Undo in the reverse order of list creation: (this can allow stacked changes like the
     // same item can be changed and deleted in the same complex command).
@@ -352,6 +354,14 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         }
         else if( status == UNDO_REDO::PAGESETTINGS )
         {
+            if( auto* format = dynamic_cast<SCH_PAGE_FORMAT_UNDO_ITEM*>( eda_item ) )
+            {
+                wxCHECK2( screen, continue );
+                format->Swap( *screen );
+                pageFormatScreens.insert( screen );
+                continue;
+            }
+
             if( GetCurrentSheet() != undoSheet )
             {
                 SetCurrentSheet( undoSheet );
@@ -553,6 +563,8 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             }
         }
     }
+
+    NotifySchematicPageFormatChanged( *this, pageFormatScreens );
 
     // Update the hierarchy navigator when there are sheet changes.
     if( rebuildHierarchyNavigator )

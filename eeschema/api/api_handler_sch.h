@@ -33,6 +33,14 @@ using namespace kiapi::common;
 class SCH_EDIT_FRAME;
 class SCH_ITEM;
 
+namespace kiapi::schematic::commands
+{
+class GetPageSettings;
+class GetPageSettingsResponse;
+class SetPageSettings;
+class SetPageSettingsResponse;
+}
+
 
 class API_HANDLER_SCH : public API_HANDLER_EDITOR
 {
@@ -70,6 +78,11 @@ private:
             const DocumentSpecifier& aDocument );
     void registerConnectivityHandlers();
     void registerNetRenameHandlers();
+    void registerPageSettingsHandlers();
+    HANDLER_RESULT<kiapi::schematic::commands::GetPageSettingsResponse> handleGetPageSettings(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetPageSettings>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::SetPageSettingsResponse> handleSetPageSettings(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::SetPageSettings>& aCtx );
     std::map<std::string, kiapi::schematic::commands::NetRenamePlan> m_netRenamePlans;
     HANDLER_RESULT<kiapi::schematic::commands::PlanNetRenameResponse> handlePlanNetRename(
             const HANDLER_CONTEXT<kiapi::schematic::commands::PlanNetRename>& aCtx );

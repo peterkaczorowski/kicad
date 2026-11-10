@@ -169,6 +169,30 @@ class SchematicClient:
         return self._connectivity_query('RenameNet', document=plan.document,
             response='RenameNetResponse', plan_id=plan.id)
 
+    def get_page_settings(self, document):
+        """Read paper format, orientation and dimensions of an explicit sheet."""
+        request = _message('kiapi.schematic.commands.GetPageSettings')()
+        request.document.CopyFrom(document)
+        return self._send(request, 'kiapi.schematic.commands.GetPageSettingsResponse').settings
+
+    def set_page_settings(self, paper_format, orientation, *, documents):
+        """Set standard paper on a list of sheets in one independent Undo step.
+
+        Orientation is 'landscape' or 'portrait'. Include every loaded instance
+        of a changed shared file. This changes the live editor without saving.
+        """
+        if self._in_commit:
+            raise RuntimeError('Page changes create an independent Undo step; finish commit() first')
+        orientations = {'landscape': 1, 'portrait': 2}
+        if not isinstance(orientation, str) or orientation.lower() not in orientations:
+            raise ValueError("orientation must be 'landscape' or 'portrait'")
+        request = _message('kiapi.schematic.commands.SetPageSettings')(
+            paper_format=paper_format, orientation=orientations[orientation.lower()])
+        request.documents.extend(documents)
+        if not request.documents:
+            raise ValueError('At least one explicit sheet document is required')
+        return self._send(request, 'kiapi.schematic.commands.SetPageSettingsResponse')
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):

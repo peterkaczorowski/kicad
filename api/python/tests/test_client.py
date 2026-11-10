@@ -118,6 +118,23 @@ class ClientTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'independent Undo'):
             self.client.rename_net(plan)
 
+    def test_page_settings_target_documents_and_orientation(self):
+        self.client.get_page_settings(self.doc)
+        request = self.transport.commands[-1]
+        self.assertEqual(request.DESCRIPTOR.name, 'GetPageSettings')
+        self.assertEqual(request.document, self.doc)
+        other = Document(type=1)
+        other.sheet_path.path.add(value='child-uuid')
+        self.client.set_page_settings('A3', 'portrait', documents=[self.doc, other])
+        request = self.transport.commands[-1]
+        self.assertEqual(request.DESCRIPTOR.name, 'SetPageSettings')
+        self.assertEqual(list(request.documents), [self.doc, other])
+        self.assertEqual((request.paper_format, request.orientation), ('A3', 2))
+        with self.assertRaises(ValueError):
+            self.client.set_page_settings('A3', 'diagonal', documents=[self.doc])
+        with self.assertRaises(ValueError):
+            self.client.set_page_settings('A3', 'landscape', documents=[])
+
     def test_native_kipy_can_coexist(self):
         from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
         self.assertEqual(DocumentSpecifier(type=1).type, self.doc.type)

@@ -163,3 +163,40 @@ after editing or undoing; previous IDs/revisions are stale.
 The real-editor acceptance test is `api/python/tests/test_live_net_rename.py`.
 It requires an explicitly marked disposable copy of Codex800XL and the PID of
 its isolated test editor, and exercises GUI Undo/Redo only on that process.
+
+## Schematic paper format (client 0.4)
+
+```python
+page = client.active_document()
+settings = client.get_page_settings(page)
+print(settings.paper_format, settings.orientation, settings.width_nm, settings.height_nm)
+
+# Supply the exact documents selected from get_open_documents().
+result = client.set_page_settings('A3', 'landscape', documents=[page])
+print(result.changed_screens, list(result.pages))
+```
+
+`GetPageSettings` takes an explicit project path and sheet UUID path. Orientation
+is `PO_LANDSCAPE` (1) or `PO_PORTRAIT` (2) in the response. Dimensions are actual
+oriented dimensions in nanometers; standard metric sizes follow KiCad's native
+rounding to whole mils. Existing custom paper can be read. Writing supports
+standard schematic paper (`A5`–`A0`, `A`–`E`, `USLetter`, `USLegal`, `USLedger`)
+and requires an explicit portrait or landscape orientation.
+
+`SetPageSettings` validates the entire nonempty target list before changing any
+sheet. Duplicate documents are coalesced. Paper settings belong to the file:
+when changing a shared file, select every loaded instance. A mixed project,
+missing sheet, read-only target being changed or omitted shared instance is
+rejected. An unchanged request creates no Undo entry. The response lists the
+resulting settings in request order and counts distinct files changed.
+
+A successful batch creates one independent Undo/Redo step and leaves the changed
+sheets unsaved. Finish other API transactions first. Paper changes preserve the
+sheet contents and title block; the current drawing frame updates without
+switching sheets or reloading. Save normally in the editor to persist the result.
+
+The live test `api/python/tests/test_live_page_settings.py` takes a marked,
+disposable HyperSpeed copy and an isolated configuration with IPC enabled. It
+starts its own editor and verifies A4 to A3, orientation, grouped Undo/Redo,
+shared files and save/reopen. `--capture` records the test editor's page frame
+before and after the batch on macOS.

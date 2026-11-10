@@ -21,14 +21,14 @@ shutil.copy2(source / 'kipy_schematic' / '__init__.py', package)
 subprocess.run([args.protoc, f'--proto_path={proto}', '--include_imports',
                 f'--descriptor_set_out={package / "_protocol.pb"}',
                 'common/commands/editor_commands.proto',
-                'schematic/schematic_commands.proto'], check=True)
+                'schematic/schematic_commands.proto', 'schematic/page_settings.proto'], check=True)
 (output / 'pyproject.toml').write_text('''[build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "kipy-schematic"
-version = "0.3.0"
+version = "0.4.0"
 requires-python = ">=3.10"
 dependencies = ["kicad-python>=0.8,<0.9", "protobuf>=5.29,<8"]
 

@@ -38,6 +38,7 @@ set( KIAPI_PROTO_SRCS
 
     schematic/schematic_types.proto
     schematic/schematic_commands.proto
+    schematic/page_settings.proto
     )
 
 # Generated C++ code must be in the build dir; it is dependent on the version of protoc installed
