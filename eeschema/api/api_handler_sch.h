@@ -66,6 +66,27 @@ protected:
                                                   const KIID& aId ) override;
 
 private:
+    HANDLER_RESULT<kiapi::schematic::types::ConnectivitySnapshot> connectivitySnapshot(
+            const DocumentSpecifier& aDocument );
+    void registerConnectivityHandlers();
+    std::string m_connectivitySession = KIID().AsStdString();
+    std::string m_connectivityContent;
+    uint64_t m_connectivityRevision = 0;
+    HANDLER_RESULT<kiapi::schematic::commands::NetQueryResponse> handleGetSchematicNetlist(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetSchematicNetlist>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::NetQueryResponse> handleGetPinNet(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetPinNet>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::NetQueryResponse> handleGetNetMembers(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetNetMembers>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::NetQueryResponse> handleGetItemNet(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetItemNet>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::GetSymbolConnectionsResponse> handleGetSymbolConnections(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetSymbolConnections>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::HighlightNetResponse> handleHighlightNet(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::HighlightNet>& aCtx );
+    HANDLER_RESULT<kiapi::schematic::commands::GetConnectivityIssuesResponse> handleGetConnectivityIssues(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetConnectivityIssues>& aCtx );
+
     std::optional<SCH_SHEET_PATH> resolveDocument( const DocumentSpecifier& aDocument ) const;
     DocumentSpecifier describeDocument( const SCH_SHEET_PATH& aPath ) const;
     HANDLER_RESULT<kiapi::schematic::types::Sheet> createSheet(

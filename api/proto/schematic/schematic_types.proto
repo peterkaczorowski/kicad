@@ -114,3 +114,57 @@ message Sheet
   kiapi.common.types.Vector2 size = 5;
   repeated SheetPin pins = 6;
 }
+
+// A connectivity snapshot is scoped to one open schematic hierarchy. Revisions
+// change when the serialized connectivity/model metadata changes, not on repaint.
+message NetMember
+{
+  kiapi.common.types.KIID id = 1;
+  kiapi.common.types.DocumentSpecifier document = 2;
+  string kind = 3; // pin, wire, label, global_label, hierarchical_label, sheet_pin, ...
+  kiapi.common.types.Vector2 position = 4;
+  kiapi.common.types.KIID symbol_id = 5;
+  string reference = 6; // physical reference, without unit suffix
+  int32 unit = 7;
+  string pin_number = 8;
+  string pin_name = 9;
+  string electrical_type = 10; // canonical model type; no inference from connectivity
+  string value = 11;
+  string text = 12;
+  bool dangling = 13;
+  bool no_connect = 14; // explicit NC marker or no_connect electrical pin type
+  kiapi.common.types.Vector2 end_position = 15; // wire endpoint
+}
+
+message SchematicNet
+{
+  string id = 1; // valid only within session_id + revision
+  string name = 2; // KiCad fully qualified resolved name
+  repeated string aliases = 3; // candidate driver names, not additional shorts
+  repeated NetMember members = 4;
+  bool is_bus = 5;
+  repeated string bus_member_ids = 6; // leaf nets of vectors/groups/aliases
+}
+
+message ConnectivitySnapshot
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string session_id = 2;
+  uint64 revision = 3;
+  repeated SchematicNet nets = 4;
+}
+
+message SymbolPinConnection
+{
+  NetMember pin = 1;
+  repeated string net_ids = 2;
+}
+
+message ConnectivityIssue
+{
+  string code = 1;
+  string description = 2;
+  string severity = 3; // info, warning, error
+  repeated NetMember items = 4;
+  repeated string net_ids = 5;
+}

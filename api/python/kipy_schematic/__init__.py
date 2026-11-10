@@ -1,4 +1,4 @@
-"""Sheet IPC client for this KiCad fork, using its exact protobuf schema.
+"""Schematic IPC client for this KiCad fork, using its exact protobuf schema.
 
 The public kipy transport is reused; the unfinished KiCad 11 kipy.schematic
 wrapper is deliberately not imported. DescriptorPool isolation allows this
@@ -92,6 +92,15 @@ class SchematicClient:
                 raise RuntimeError(f'Unexpected schematic item type: {packed.type_url}')
             items.append(item)
         return items
+
+    def _connectivity_query(self, command, *, document=None, response='NetQueryResponse', **fields):
+        request = _message('kiapi.schematic.commands.' + command)(**fields)
+        request.document.CopyFrom(document if document is not None else self.active_document())
+        return self._send(request, 'kiapi.schematic.commands.' + response)
+
+    def get_schematic_netlist(self, document=None):
+        """Full live hierarchy. Net IDs are scoped to snapshot.session_id/revision."""
+        return self._connectivity_query('GetSchematicNetlist', document=document).snapshot
 
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),

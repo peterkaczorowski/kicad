@@ -40,3 +40,66 @@ message CreateSheetResponse
 }
 
 
+
+// All connectivity reads rebuild the graph from the live model without cleanup,
+// file writes or ERC markers. The document selects a project and sheet instance;
+// returned nets include the entire hierarchy. Reference queries use the selected
+// sheet first, then the full hierarchy; ambiguous matches are rejected.
+message GetSchematicNetlist { kiapi.common.types.DocumentSpecifier document = 1; }
+
+message GetPinNet
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string reference = 2;
+  string pin_number = 3;
+  kiapi.common.types.KIID pin_id = 4; // optional additional constraint
+}
+
+message GetNetMembers
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string net_id = 2;
+  string name = 3; // exact resolved name, if net_id is not specified
+  string session_id = 4;
+  uint64 revision = 5; // optional optimistic snapshot check (0 means current)
+}
+
+message GetItemNet
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  repeated kiapi.common.types.KIID items = 2;
+  bool use_selection = 3; // selection belongs to the active sheet only
+}
+
+// Same envelope for full and filtered reads. Multiple nets are intentional for
+// multi-pin symbols, multi-selection, and buses (bus + its leaf members).
+message NetQueryResponse { kiapi.schematic.types.ConnectivitySnapshot snapshot = 1; }
+
+message GetSymbolConnections
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string reference = 2; // all placed units of this physical reference
+}
+message GetSymbolConnectionsResponse
+{
+  kiapi.schematic.types.ConnectivitySnapshot snapshot = 1;
+  repeated kiapi.schematic.types.SymbolPinConnection pins = 2;
+}
+
+message HighlightNet
+{
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string net_id = 2;
+  string name = 3;
+  string session_id = 4;
+  uint64 revision = 5;
+  bool clear = 6;
+}
+message HighlightNetResponse { kiapi.schematic.types.ConnectivitySnapshot snapshot = 1; }
+
+message GetConnectivityIssues { kiapi.common.types.DocumentSpecifier document = 1; }
+message GetConnectivityIssuesResponse
+{
+  kiapi.schematic.types.ConnectivitySnapshot snapshot = 1;
+  repeated kiapi.schematic.types.ConnectivityIssue issues = 2;
+}
