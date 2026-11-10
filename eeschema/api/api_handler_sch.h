@@ -24,6 +24,7 @@
 #include <api/api_handler_editor.h>
 #include <api/common/commands/editor_commands.pb.h>
 #include <kiid.h>
+#include <sch_sheet_path.h>
 
 using namespace kiapi;
 using namespace kiapi::common;
@@ -64,6 +65,14 @@ protected:
                                                   const KIID& aId ) override;
 
 private:
+    std::optional<SCH_SHEET_PATH> resolveDocument( const DocumentSpecifier& aDocument ) const;
+    DocumentSpecifier describeDocument( const SCH_SHEET_PATH& aPath ) const;
+
+    HANDLER_RESULT<commands::GetItemsResponse> handleGetItems(
+            const HANDLER_CONTEXT<commands::GetItems>& aCtx );
+    HANDLER_RESULT<commands::GetItemsResponse> handleGetItemsById(
+            const HANDLER_CONTEXT<commands::GetItemsById>& aCtx );
+
     HANDLER_RESULT<commands::GetOpenDocumentsResponse> handleGetOpenDocuments(
             const HANDLER_CONTEXT<commands::GetOpenDocuments>& aCtx );
 };

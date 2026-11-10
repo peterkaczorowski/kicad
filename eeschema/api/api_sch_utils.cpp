@@ -39,6 +39,49 @@
 
 #include "api_sch_utils.h"
 
+namespace
+{
+void packSchematicPosition( kiapi::common::types::Vector2* aOutput, const VECTOR2I& aPosition )
+{
+    // Eeschema uses 100 nm per internal unit; PCB coordinates already use nm.
+    aOutput->set_x_nm( int64_t( aPosition.x ) * 100 );
+    aOutput->set_y_nm( int64_t( aPosition.y ) * 100 );
+}
+}
+
+
+kiapi::schematic::types::SheetPin PackSchematicSheetPin( const SCH_SHEET_PIN& aPin )
+{
+    kiapi::schematic::types::SheetPin result;
+    result.mutable_id()->set_value( aPin.m_Uuid.AsStdString() );
+    result.set_name( aPin.GetText().ToStdString() );
+    packSchematicPosition( result.mutable_position(), aPin.GetPosition() );
+    result.set_side( static_cast<kiapi::schematic::types::SheetPinSide>( int( aPin.GetSide() ) + 1 ) );
+    result.set_shape( static_cast<kiapi::schematic::types::SheetPinShape>(
+            int( aPin.GetLabelShape() ) + 1 ) );
+
+    if( aPin.GetParent() )
+        result.mutable_sheet_id()->set_value( aPin.GetParent()->m_Uuid.AsStdString() );
+
+    return result;
+}
+
+
+kiapi::schematic::types::Sheet PackSchematicSheet( const SCH_SHEET& aSheet )
+{
+    kiapi::schematic::types::Sheet result;
+    result.mutable_id()->set_value( aSheet.m_Uuid.AsStdString() );
+    result.set_name( aSheet.GetName().ToStdString() );
+    result.set_filename( aSheet.GetFileName().ToStdString() );
+    packSchematicPosition( result.mutable_position(), aSheet.GetPosition() );
+    packSchematicPosition( result.mutable_size(), aSheet.GetSize() );
+
+    for( const SCH_SHEET_PIN* pin : aSheet.GetPins() )
+        *result.add_pins() = PackSchematicSheetPin( *pin );
+
+    return result;
+}
+
 
 std::unique_ptr<EDA_ITEM> CreateItemForType( KICAD_T aType, EDA_ITEM* aContainer )
 {

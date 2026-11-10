@@ -51,6 +51,7 @@ set( QA_EESCHEMA_SRCS
 
     # Base internal units (1=100nm) testing.
     test_sch_biu.cpp
+    test_api_schematic_sheets.cpp
 
     # Shared between programs, but dependent on the BIU
     ${CMAKE_SOURCE_DIR}/qa/tests/common/test_format_units.cpp

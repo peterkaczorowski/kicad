@@ -25,6 +25,10 @@
 #include <sch_commit.h>
 #include <sch_edit_frame.h>
 #include <wx/filename.h>
+#include <sch_sheet.h>
+#include <sch_sheet_pin.h>
+#include <project.h>
+#include <set>
 
 #include <api/common/types/base_types.pb.h>
 
@@ -37,6 +41,8 @@ using kiapi::common::types::ItemRequestStatus;
 API_HANDLER_SCH::API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
+    registerHandler<GetItems, GetItemsResponse>( &API_HANDLER_SCH::handleGetItems );
+    registerHandler<GetItemsById, GetItemsResponse>( &API_HANDLER_SCH::handleGetItemsById );
     registerHandler<GetOpenDocuments, GetOpenDocumentsResponse>(
             &API_HANDLER_SCH::handleGetOpenDocuments );
 }
@@ -50,14 +56,79 @@ std::unique_ptr<COMMIT> API_HANDLER_SCH::createCommit()
 
 bool API_HANDLER_SCH::validateDocumentInternal( const DocumentSpecifier& aDocument ) const
 {
+    return resolveDocument( aDocument ).has_value();
+}
+
+
+std::optional<SCH_SHEET_PATH> API_HANDLER_SCH::resolveDocument(
+        const DocumentSpecifier& aDocument ) const
+{
     if( aDocument.type() != DocumentType::DOCTYPE_SCHEMATIC )
-        return false;
+        return std::nullopt;
 
-    // TODO(JE) need serdes for SCH_SHEET_PATH <> SheetPath
-    return true;
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    const PROJECT& project = frame->Schematic().Project();
 
-    //wxString currentPath = m_frame->GetCurrentSheet().PathAsString();
-    //return 0 == aDocument.sheet_path().compare( currentPath.ToStdString() );
+    if( ( !aDocument.project().name().empty()
+          && aDocument.project().name() != project.GetProjectName().ToStdString() )
+        || ( !aDocument.project().path().empty()
+             && aDocument.project().path() != project.GetProjectPath().ToStdString() ) )
+    {
+        return std::nullopt;
+    }
+
+    if( aDocument.has_sheet_path() )
+    {
+        for( const SCH_SHEET_PATH& path : frame->Schematic().Hierarchy() )
+        {
+            const KIID_PATH ids = path.Path();
+
+            if( ids.size() != size_t( aDocument.sheet_path().path_size() ) )
+                continue;
+
+            bool match = true;
+
+            for( size_t i = 0; i < ids.size(); ++i )
+                match &= ids[i].AsStdString() == aDocument.sheet_path().path( i ).value();
+
+            if( match )
+                return path;
+        }
+
+        return std::nullopt;
+    }
+
+    if( aDocument.has_lib_id() )
+        return std::nullopt;
+
+    if( !aDocument.board_filename().empty() )
+    {
+        wxFileName current( frame->GetCurrentFileName() );
+
+        if( aDocument.board_filename() != current.GetFullName().ToStdString()
+            && aDocument.board_filename() != current.GetFullPath().ToStdString() )
+        {
+            return std::nullopt;
+        }
+    }
+
+    return frame->GetCurrentSheet();
+}
+
+
+DocumentSpecifier API_HANDLER_SCH::describeDocument( const SCH_SHEET_PATH& aPath ) const
+{
+    DocumentSpecifier result;
+    result.set_type( DocumentType::DOCTYPE_SCHEMATIC );
+
+    for( const KIID& id : aPath.Path() )
+        result.mutable_sheet_path()->add_path()->set_value( id.AsStdString() );
+
+    result.mutable_sheet_path()->set_path_human_readable( aPath.PathHumanReadable().ToStdString() );
+    const PROJECT& project = static_cast<SCH_EDIT_FRAME*>( m_frame )->Schematic().Project();
+    result.mutable_project()->set_name( project.GetProjectName().ToStdString() );
+    result.mutable_project()->set_path( project.GetProjectPath().ToStdString() );
+    return result;
 }
 
 
@@ -74,14 +145,127 @@ HANDLER_RESULT<GetOpenDocumentsResponse> API_HANDLER_SCH::handleGetOpenDocuments
     }
 
     GetOpenDocumentsResponse response;
-    common::types::DocumentSpecifier doc;
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    // Put the active page first; every returned document has an unambiguous UUID path.
+    *response.add_documents() = describeDocument( frame->GetCurrentSheet() );
 
-    wxFileName fn( m_frame->GetCurrentFileName() );
+    for( const SCH_SHEET_PATH& path : frame->Schematic().Hierarchy() )
+    {
+        if( path.Path() != frame->GetCurrentSheet().Path() )
+            *response.add_documents() = describeDocument( path );
+    }
 
-    doc.set_type( DocumentType::DOCTYPE_SCHEMATIC );
-    doc.set_board_filename( fn.GetFullName() );
+    return response;
+}
 
-    response.mutable_documents()->Add( std::move( doc ) );
+
+HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItems(
+        const HANDLER_CONTEXT<GetItems>& aCtx )
+{
+    auto path = resolveDocument( aCtx.Request.header().document() );
+
+    if( !path )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_UNHANDLED );
+        return tl::unexpected( error );
+    }
+
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+
+    const auto& header = aCtx.Request.header();
+    std::set<int> requested( aCtx.Request.types().begin(), aCtx.Request.types().end() );
+
+    if( requested.empty() )
+        requested.insert( types::KOT_SCH_SHEET );
+
+    if( header.field_mask().paths_size() != 0
+        || std::any_of( requested.begin(), requested.end(), []( int type )
+                       { return type != types::KOT_SCH_SHEET && type != types::KOT_SCH_SHEET_PIN; } ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        error.set_error_message( "Schematic GetItems currently supports sheets and sheet pins, without field masks" );
+        return tl::unexpected( error );
+    }
+
+    GetItemsResponse response;
+    *response.mutable_header() = header;
+    *response.mutable_header()->mutable_document() = describeDocument( *path );
+    response.set_status( types::IRS_OK );
+    bool foundContainer = header.container().value().empty();
+
+    for( SCH_ITEM* item : path->LastScreen()->Items() )
+    {
+        if( item->Type() != SCH_SHEET_T )
+            continue;
+
+        auto* sheet = static_cast<SCH_SHEET*>( item );
+
+        if( !header.container().value().empty() )
+        {
+            if( header.container().value() != sheet->m_Uuid.AsStdString() )
+                continue;
+
+            foundContainer = true;
+        }
+        else if( requested.count( types::KOT_SCH_SHEET ) )
+        {
+            response.add_items()->PackFrom( PackSchematicSheet( *sheet ) );
+        }
+
+        if( requested.count( types::KOT_SCH_SHEET_PIN ) )
+        {
+            for( const SCH_SHEET_PIN* pin : sheet->GetPins() )
+                response.add_items()->PackFrom( PackSchematicSheetPin( *pin ) );
+        }
+    }
+
+    if( !foundContainer )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
+        error.set_error_message( "The requested sheet container is not on this schematic page" );
+        return tl::unexpected( error );
+    }
+
+    return response;
+}
+
+
+HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItemsById(
+        const HANDLER_CONTEXT<GetItemsById>& aCtx )
+{
+    HANDLER_CONTEXT<GetItems> all;
+    all.Request.mutable_header()->CopyFrom( aCtx.Request.header() );
+    all.Request.add_types( types::KOT_SCH_SHEET );
+    all.Request.add_types( types::KOT_SCH_SHEET_PIN );
+    auto result = handleGetItems( all );
+
+    if( !result )
+        return result;
+
+    GetItemsResponse response;
+    *response.mutable_header() = result->header();
+    response.set_status( types::IRS_OK );
+    std::set<std::string> ids;
+
+    for( const auto& id : aCtx.Request.items() )
+        ids.insert( id.value() );
+
+    for( const auto& item : result->items() )
+    {
+        kiapi::schematic::types::Sheet sheet;
+        kiapi::schematic::types::SheetPin pin;
+
+        if( ( item.UnpackTo( &sheet ) && ids.count( sheet.id().value() ) )
+            || ( item.UnpackTo( &pin ) && ids.count( pin.id().value() ) ) )
+        {
+            *response.add_items() = item;
+        }
+    }
+
     return response;
 }
 

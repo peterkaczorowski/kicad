@@ -23,8 +23,15 @@
 
 #include <memory>
 #include <core/typeinfo.h>
+#include <import_export.h>
+#include <api/schematic/schematic_types.pb.h>
 
 class EDA_ITEM;
+class SCH_SHEET;
+class SCH_SHEET_PIN;
+
+kiapi::schematic::types::Sheet PackSchematicSheet( const SCH_SHEET& aSheet );
+kiapi::schematic::types::SheetPin PackSchematicSheetPin( const SCH_SHEET_PIN& aPin );
 
 std::unique_ptr<EDA_ITEM> CreateItemForType( KICAD_T aType, EDA_ITEM* aContainer );
 

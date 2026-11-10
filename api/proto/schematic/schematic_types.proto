@@ -73,3 +73,44 @@ message DirectiveLabel
   kiapi.common.types.Vector2 position = 2;
   Text                       text     = 3;
 }
+
+enum SheetPinSide
+{
+  SPS_UNKNOWN = 0;
+  SPS_LEFT = 1;
+  SPS_RIGHT = 2;
+  SPS_TOP = 3;
+  SPS_BOTTOM = 4;
+}
+
+enum SheetPinShape
+{
+  SPH_UNKNOWN = 0;
+  SPH_INPUT = 1;
+  SPH_OUTPUT = 2;
+  SPH_BIDIRECTIONAL = 3;
+  SPH_TRISTATE = 4;
+  SPH_PASSIVE = 5;
+}
+
+// Coordinates are nanometers, like common.types.Vector2 (not schematic internal units).
+message SheetPin
+{
+  kiapi.common.types.KIID id = 1;
+  string name = 2;
+  kiapi.common.types.Vector2 position = 3;
+  SheetPinSide side = 4;
+  SheetPinShape shape = 5;
+  kiapi.common.types.KIID sheet_id = 6;
+}
+
+// A hierarchical sheet symbol on the requested parent page.
+message Sheet
+{
+  kiapi.common.types.KIID id = 1;
+  string name = 2;
+  string filename = 3;
+  kiapi.common.types.Vector2 position = 4;
+  kiapi.common.types.Vector2 size = 5;
+  repeated SheetPin pins = 6;
+}
