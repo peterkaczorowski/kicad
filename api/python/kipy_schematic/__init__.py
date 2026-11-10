@@ -117,6 +117,13 @@ class SchematicClient:
                 document = snapshot.document
         return self._connectivity_query('GetNetMembers', document=document, **fields).snapshot
 
+    def get_item_net(self, item_ids=(), *, use_selection=False, document=None):
+        """A symbol or multi-selection returns all its nets; buses include leaf nets."""
+        if isinstance(item_ids, str):
+            item_ids = [item_ids]
+        return self._connectivity_query('GetItemNet', document=document,
+            items=[{'value': item_id} for item_id in item_ids], use_selection=use_selection).snapshot
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):

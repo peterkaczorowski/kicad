@@ -71,6 +71,7 @@ void API_HANDLER_SCH::registerConnectivityHandlers()
     registerHandler<GetSchematicNetlist, NetQueryResponse>( &API_HANDLER_SCH::handleGetSchematicNetlist );
     registerHandler<GetPinNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetPinNet );
     registerHandler<GetNetMembers, NetQueryResponse>( &API_HANDLER_SCH::handleGetNetMembers );
+    registerHandler<GetItemNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetItemNet );
 }
 
 HANDLER_RESULT<ConnectivitySnapshot> API_HANDLER_SCH::connectivitySnapshot( const DocumentSpecifier& document )
@@ -161,6 +162,49 @@ HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetNetMembers( const HAN
     if( !net ) return tl::unexpected( badRequest( "Net not found or ambiguous; its ID may be stale" ) );
     std::string id = net->id();
     filterNets( *snapshot, { id } );
+    NetQueryResponse response;
+    *response.mutable_snapshot() = std::move( *snapshot );
+    return response;
+}
+
+HANDLER_RESULT<NetQueryResponse> API_HANDLER_SCH::handleGetItemNet( const HANDLER_CONTEXT<GetItemNet>& ctx )
+{
+    const auto& request = ctx.Request;
+    if( request.use_selection() && request.items_size() )
+        return tl::unexpected( badRequest( "Use explicit item UUIDs or selection, not both" ) );
+    auto snapshot = connectivitySnapshot( request.document() );
+    if( !snapshot ) return tl::unexpected( snapshot.error() );
+    std::set<std::string> requested;
+    if( request.use_selection() )
+    {
+        auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+        if( !sameSheet( snapshot->document(), describeDocument( frame->GetCurrentSheet() ) ) )
+            return tl::unexpected( badRequest( "Selection belongs to the active sheet; select that document" ) );
+        auto* selection = frame->GetToolManager()->GetTool<SCH_SELECTION_TOOL>();
+        for( EDA_ITEM* item : selection->GetSelection() ) requested.insert( item->m_Uuid.AsStdString() );
+    }
+    else
+    {
+        for( const auto& item : request.items() ) requested.insert( item.value() );
+        if( requested.empty() ) return tl::unexpected( badRequest( "Specify item UUIDs or use_selection" ) );
+    }
+    std::set<std::string> found, ids;
+    for( const auto& net : snapshot->nets() )
+        for( const auto& member : net.members() )
+        {
+            if( !sameSheet( member.document(), snapshot->document() ) ) continue;
+            for( const auto& id : { member.id().value(), member.symbol_id().value() } )
+            {
+                if( !id.empty() && requested.count( id ) )
+                {
+                    found.insert( id );
+                    ids.insert( net.id() );
+                }
+            }
+        }
+    if( found != requested )
+        return tl::unexpected( badRequest( "An item is missing on this sheet or has no electrical connection" ) );
+    filterNets( *snapshot, ids );
     NetQueryResponse response;
     *response.mutable_snapshot() = std::move( *snapshot );
     return response;
