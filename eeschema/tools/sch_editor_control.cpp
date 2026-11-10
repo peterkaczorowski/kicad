@@ -449,7 +449,19 @@ int SCH_EDITOR_CONTROL::Revert( const TOOL_EVENT& aEvent )
 
     // Save original sheet path to restore if user cancels
     SCH_SHEET_PATH originalSheet = m_frame->GetCurrentSheet();
+    // Keep UUIDs, not sheet pointers: OpenProjectFiles replaces the hierarchy.
+    const KIID_PATH originalPath = originalSheet.Path();
+    const double originalScale = m_frame->GetCanvas()->GetView()->GetScale();
+    const VECTOR2D originalCenter = m_frame->GetCanvas()->GetView()->GetCenter();
     bool wasOnSubsheet = ( m_frame->GetCurrentSheet().Last() != &root );
+
+    auto restoreView = [&]()
+    {
+        KIGFX::VIEW* view = m_frame->GetCanvas()->GetView();
+        view->SetScale( originalScale );
+        view->SetCenter( originalCenter );
+        m_frame->GetCanvas()->Refresh();
+    };
 
     // Navigate to root sheet first (needed for proper reload), but don't repaint yet
     if( wasOnSubsheet )
@@ -476,6 +488,8 @@ int SCH_EDITOR_CONTROL::Revert( const TOOL_EVENT& aEvent )
             wxSafeYield();
         }
 
+        restoreView();
+
         return false;
     }
 
@@ -485,7 +499,18 @@ int SCH_EDITOR_CONTROL::Revert( const TOOL_EVENT& aEvent )
         screen->SetContentModified( false );    // do not prompt the user for changes
 
     m_frame->ReleaseFile();
-    m_frame->OpenProjectFiles( std::vector<wxString>( 1, schematic.GetFileName() ), KICTL_REVERT );
+    const wxString filename = schematic.GetFileName();
+
+    if( m_frame->OpenProjectFiles( std::vector<wxString>( 1, filename ), KICTL_REVERT ) )
+    {
+        // A deleted or replaced sheet deliberately leaves us on the root sheet.
+        if( auto restored = m_frame->Schematic().Hierarchy().GetSheetPathByKIIDPath( originalPath ) )
+        {
+            m_frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>( SCH_ACTIONS::changeSheet,
+                                                                   &*restored );
+            restoreView();
+        }
+    }
 
     return 0;
 }
