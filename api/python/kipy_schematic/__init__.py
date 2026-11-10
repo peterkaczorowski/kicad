@@ -138,6 +138,11 @@ class SchematicClient:
         return self._connectivity_query('HighlightNet', document=document,
             response='HighlightNetResponse', **fields).snapshot
 
+    def get_connectivity_issues(self, document=None):
+        """Read-only connectivity diagnostics, without adding ERC marker objects."""
+        return self._connectivity_query('GetConnectivityIssues', document=document,
+            response='GetConnectivityIssuesResponse')
+
     def create_sheet(self, name, filename, *, document=None,
                      position_nm=(0, 0), size_nm=(20000000, 10000000), pins=(),
                      link_existing=False):

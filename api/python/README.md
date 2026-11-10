@@ -52,3 +52,60 @@ Run the protocol/client tests against the generated package:
 ```sh
 PYTHONPATH=/absolute/build/path/schematic-client python api/python/tests/test_client.py
 ```
+
+## Live connectivity (client 0.2)
+
+All queries take an explicit schematic document (project path and sheet UUID
+path). `active_document()` is a convenience only when one project is open.
+The selected page disambiguates item UUIDs and reused sheet instances; returned
+net members cover the entire loaded hierarchy, including unsaved changes.
+
+```python
+snapshot = client.get_pin_net('U8', 39, document=page)
+for net in snapshot.nets:
+    print(net.id, net.name, list(net.aliases))
+    for member in net.members:
+        if member.kind == 'pin':
+            print(member.reference, member.unit, member.pin_number,
+                  member.pin_name, member.electrical_type, member.value,
+                  member.document.sheet_path.path_human_readable)
+
+members = client.get_net_members(snapshot.nets[0].id, snapshot=snapshot)
+client.highlight_net(snapshot.nets[0].id, snapshot=snapshot)
+client.highlight_net(clear=True, document=page)
+
+full = client.get_schematic_netlist(page)
+selected = client.get_item_net(use_selection=True, document=page)
+# client.get_item_net(['wire-uuid'], document=page)
+pin_table = client.get_symbol_connections('U8', document=page)
+diagnostics = client.get_connectivity_issues(page)
+
+# Structured full netlist export; no temporary GUI export is necessary:
+from google.protobuf.json_format import MessageToJson
+from pathlib import Path
+Path('netlist.json').write_text(MessageToJson(full))
+```
+
+A net ID is valid only for its `session_id` and `revision`. The revision is a
+monotonic **connectivity snapshot** revision, not an editor undo counter: it
+changes when the serialized graph, member geometry or metadata changes. It
+does not change for selection, highlight, repaint or other unrelated edits.
+Reopening an editor creates a different session. Pass `snapshot=` to lookups
+and highlighting to reject stale results. An old ID is never reused at a new
+revision. A later query after an edit recalculates connectivity without cleanup
+or file writes. Each result is internally consistent on the GUI thread.
+
+`GetItemNet` returns all nets for a symbol or multi-selection. Bus results
+include the bus plus its resolved leaf nets (`is_bus`, `bus_member_ids`), using
+KiCad's own hierarchy and bus alias resolution. Pin references omit the unit
+suffix; `unit` distinguishes the placed units, and NC state is explicit.
+`GetPinNet` prefers the selected sheet; ambiguous cross-sheet matches fail
+instead of silently choosing a connection. Exact resolved names are accepted
+by `get_net_members(name=...)`; aliases are metadata, not lookup shortcuts.
+
+Diagnostics report unconnected pins, explicit NC pins, dangling wires/labels,
+local naming-driver conflicts, and informational aliases. They do not run full
+ERC, add markers, infer electrical types or repair the schematic. The canonical
+pin type returned is the value actually stored in the model. Highlighting uses
+the normal GUI net navigator; the returned members identify other sheets.
+Generic symbol/wire/label item creation and editing remain outside this API.

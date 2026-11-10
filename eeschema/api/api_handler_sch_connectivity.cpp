@@ -74,6 +74,7 @@ void API_HANDLER_SCH::registerConnectivityHandlers()
     registerHandler<GetItemNet, NetQueryResponse>( &API_HANDLER_SCH::handleGetItemNet );
     registerHandler<GetSymbolConnections, GetSymbolConnectionsResponse>( &API_HANDLER_SCH::handleGetSymbolConnections );
     registerHandler<HighlightNet, HighlightNetResponse>( &API_HANDLER_SCH::handleHighlightNet );
+    registerHandler<GetConnectivityIssues, GetConnectivityIssuesResponse>( &API_HANDLER_SCH::handleGetConnectivityIssues );
 }
 
 HANDLER_RESULT<ConnectivitySnapshot> API_HANDLER_SCH::connectivitySnapshot( const DocumentSpecifier& document )
@@ -266,6 +267,98 @@ HANDLER_RESULT<HighlightNetResponse> API_HANDLER_SCH::handleHighlightNet( const 
     frame->UpdateNetHighlightStatus();
     frame->GetToolManager()->RunAction( SCH_ACTIONS::updateNetHighlighting );
     HighlightNetResponse response;
+    *response.mutable_snapshot() = std::move( *snapshot );
+    return response;
+}
+
+HANDLER_RESULT<GetConnectivityIssuesResponse> API_HANDLER_SCH::handleGetConnectivityIssues(
+        const HANDLER_CONTEXT<GetConnectivityIssues>& ctx )
+{
+    auto snapshot = connectivitySnapshot( ctx.Request.document() );
+    if( !snapshot ) return tl::unexpected( snapshot.error() );
+    GetConnectivityIssuesResponse response;
+    auto issue = [&]( const std::string& code, const std::string& description,
+                      const std::string& severity, const SchematicNet& net,
+                      const std::vector<NetMember>& items )
+    {
+        auto* result = response.add_issues();
+        result->set_code( code ); result->set_description( description ); result->set_severity( severity );
+        result->add_net_ids( net.id() );
+        for( const auto& member : items ) *result->add_items() = member;
+    };
+    for( const auto& net : snapshot->nets() )
+    {
+        if( net.aliases_size() > 1 && net.members_size() )
+        {
+            std::vector<NetMember> named;
+            for( const auto& member : net.members() )
+                if( !member.text().empty() || member.electrical_type() == "power_in"
+                    || member.electrical_type() == "power_out" ) named.push_back( member );
+            if( named.empty() ) named.push_back( net.members( 0 ) );
+            issue( "NET_ALIASES", "Connected naming candidates are exposed as aliases; this alone is not a wiring error",
+                   "info", net, named );
+        }
+        int pins = 0;
+        for( const auto& member : net.members() ) if( member.kind() == "pin" ) ++pins;
+        for( const auto& member : net.members() )
+        {
+            if( member.kind() == "pin" && member.no_connect() )
+            {
+                issue( "PIN_INTENTIONALLY_UNCONNECTED", "Pin has an explicit NC marker or no_connect electrical type",
+                       "info", net, { member } );
+                bool otherConnections = pins > 1;
+                for( const auto& other : net.members() )
+                    otherConnections |= other.kind() == "wire" || other.kind() == "label"
+                                        || other.kind() == "global_label" || other.kind() == "hierarchical_label"
+                                        || other.kind() == "sheet_pin";
+                if( otherConnections )
+                    issue( "NC_CONNECTED", "An intentionally unconnected pin shares a net with other connection items",
+                           "warning", net, { member } );
+            }
+            else if( member.kind() == "pin" && member.dangling() )
+                issue( "PIN_UNCONNECTED", "Pin has no physical connection", "warning", net, { member } );
+            else if( ( member.kind() == "wire" || member.kind() == "bus" ) && member.dangling() )
+                issue( "WIRE_DANGLING", "A wire or bus endpoint is dangling", "warning", net, { member } );
+            else if( ( member.kind() == "label" || member.kind() == "global_label"
+                       || member.kind() == "hierarchical_label" || member.kind() == "sheet_pin" ) && member.dangling() )
+                issue( "LABEL_DANGLING", "Label or port has no physical connection", "warning", net, { member } );
+        }
+    }
+    // Match native driver's local conflict criterion, without RunERC(), whose
+    // side effects would insert marker objects into the user's schematic.
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    for( const auto& [key, graphs] : frame->Schematic().ConnectionGraph()->GetNetMap() )
+        for( auto* graph : graphs )
+        {
+            const auto* primary = graph->GetDriver();
+            if( !primary ) continue;
+            std::string primaryName = graph->GetNameForDriver( const_cast<SCH_ITEM*>( primary ) ).ToStdString();
+            std::vector<NetMember> conflicts;
+            for( SCH_ITEM* item : graph->GetItems() )
+            {
+                bool named = item->Type() == SCH_LABEL_T || item->Type() == SCH_GLOBAL_LABEL_T
+                             || item->Type() == SCH_HIER_LABEL_T
+                             || ( item->Type() == SCH_PIN_T && static_cast<SCH_PIN*>( item )->IsPower() );
+                if( !named || item == primary || graph->GetNameForDriver( item ).ToStdString() == primaryName ) continue;
+                for( const auto& net : snapshot->nets() )
+                    if( net.name() == key.Name.ToStdString() && !net.is_bus() )
+                        for( const auto& member : net.members() )
+                            if( member.id().value() == item->m_Uuid.AsStdString()
+                                && sameSheet( member.document(), describeDocument( graph->GetSheet() ) ) )
+                                conflicts.push_back( member );
+            }
+            if( !conflicts.empty() )
+                for( const auto& net : snapshot->nets() )
+                    if( net.name() == key.Name.ToStdString() && !net.is_bus() )
+                    {
+                        for( const auto& member : net.members() )
+                            if( member.id().value() == primary->m_Uuid.AsStdString()
+                                && sameSheet( member.document(), describeDocument( graph->GetSheet() ) ) )
+                                conflicts.push_back( member );
+                        issue( "NET_NAME_CONFLICT", "Different naming drivers share a physical subgraph; KiCad resolved one primary name",
+                               "warning", net, conflicts );
+                    }
+        }
     *response.mutable_snapshot() = std::move( *snapshot );
     return response;
 }
