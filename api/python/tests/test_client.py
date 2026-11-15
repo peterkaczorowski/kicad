@@ -65,6 +65,20 @@ class ClientTest(unittest.TestCase):
         graphic = self.client.add_wire((0, 0), (1000000, 0), self.doc, graphic=True)
         self.assertEqual((bus.layer, graphic.layer), (2, 3))
 
+    def test_symbol_fields_transforms_and_pin_endpoints(self):
+        symbol = self.client.add_symbol('Timer:NE555P', (10000000, 20000000), self.doc,
+            reference='U1', rotation_degrees=90, mirror_x=True, fields={'Value': 'NE555'}, dnp=True)
+        self.assertEqual(symbol.lib_id.entry_name, 'NE555P')
+        self.assertEqual(symbol.fields[0].text.text, 'NE555')
+        self.assertEqual(symbol.rotation_degrees, 90)
+        self.assertTrue(symbol.mirror_x)
+        self.assertTrue(symbol.dnp)
+        with self.assertRaises(ValueError):
+            self.client.add_symbol('invalid', (0, 0), self.doc)
+        self.client.pin_position = lambda ref, number, doc: (1230000, 4560000)
+        wire = self.client.add_wire(('U1', '3'), (9000000, 4560000), self.doc)
+        self.assertEqual(wire.start.x_nm, 1230000)
+
     def test_connection_marker_helpers(self):
         junction = self.client.add_junction((1000000, 2000000), self.doc, diameter_nm=508000)
         self.assertEqual(junction.diameter_nm, 508000)

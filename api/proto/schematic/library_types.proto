@@ -1,0 +1,61 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.schematic.types;
+import "common/types/base_types.proto";
+
+// Coordinates in a library definition are local, canonical symbol coordinates, in nm.
+message SymbolField {
+  string name = 1;
+  kiapi.common.types.Text text = 2;
+  bool visible = 3;
+}
+message PinAlternate {
+  string name = 1;
+  kiapi.common.types.ElectricalPinType electrical_type = 2;
+  uint32 shape = 3;
+}
+message LibraryPin {
+  string number = 1;
+  string name = 2;
+  kiapi.common.types.Vector2 position = 3;
+  kiapi.common.types.ElectricalPinType electrical_type = 4;
+  // Counter-clockwise degrees, multiples of 90, in canonical library coordinates.
+  int32 orientation_degrees = 5;
+  int64 length_nm = 6;
+  int32 unit = 7;       // 0 = common to all units
+  int32 body_style = 8; // 0 = common to all body styles
+  uint32 shape = 9;     // Native GRAPHIC_PINSHAPE, validated before use.
+  bool visible = 10;
+  int64 name_size_nm = 11;
+  int64 number_size_nm = 12;
+  repeated PinAlternate alternates = 13;
+}
+message LibraryGraphic {
+  int32 unit = 1;
+  int32 body_style = 2;
+  oneof content {
+    kiapi.common.types.GraphicShape shape = 3;
+    kiapi.common.types.Text text = 4;
+    kiapi.common.types.TextBox text_box = 5;
+  }
+}
+message LibrarySymbolDefinition {
+  kiapi.common.types.LibraryIdentifier lib_id = 1;
+  int32 unit_count = 2;
+  int32 body_style_count = 3;
+  bool units_locked = 4;
+  bool global_power = 5;
+  repeated SymbolField fields = 6;
+  repeated LibraryPin pins = 7;
+  repeated LibraryGraphic graphics = 8;
+  string keywords = 9;
+  bool local_power = 10;
+  bool exclude_from_bom = 11;
+  bool exclude_from_board = 12;
+  bool pin_names_hidden = 13;
+  bool pin_numbers_hidden = 14;
+  int64 pin_name_offset_nm = 15;
+  repeated string footprint_filters = 16;
+  repeated string body_style_names = 17;
+  bool demorgan_body_styles = 18;
+}

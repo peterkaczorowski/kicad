@@ -1,0 +1,37 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.schematic.types;
+import "common/types/base_types.proto";
+import "schematic/library_types.proto";
+
+message SymbolPin {
+  kiapi.common.types.KIID id = 1;
+  string number = 2;
+  string name = 3;
+  kiapi.common.types.Vector2 position = 4; // absolute sheet coordinates after transforms
+  kiapi.common.types.ElectricalPinType electrical_type = 5;
+  int32 orientation_degrees = 6;
+  string alternate = 7;
+}
+message SymbolInstanceReference {
+  kiapi.common.types.SheetPath sheet_path = 1;
+  string reference = 2;
+  int32 unit = 3;
+}
+message Symbol {
+  kiapi.common.types.KIID id = 1;
+  kiapi.common.types.LibraryIdentifier lib_id = 2;
+  kiapi.common.types.Vector2 position = 3;
+  int32 rotation_degrees = 4;
+  bool mirror_x = 5;
+  bool mirror_y = 6;
+  int32 unit = 7;
+  int32 body_style = 8;
+  string reference = 9; // empty/question-mark = automatic next free annotation on create
+  repeated SymbolField fields = 10; // absolute schematic field positions
+  optional bool dnp = 11;
+  optional bool in_bom = 12;
+  optional bool on_board = 13;
+  repeated SymbolPin pins = 14; // read-only; use definition/library APIs to edit logical pins
+  repeated SymbolInstanceReference instances = 15;
+}

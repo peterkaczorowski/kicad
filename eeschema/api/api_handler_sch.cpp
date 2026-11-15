@@ -34,6 +34,11 @@
 #include <project.h>
 #include <set>
 #include <sch_line.h>
+#include <sch_symbol.h>
+#include <lib_symbol.h>
+#include <project_sch.h>
+#include <libraries/symbol_library_adapter.h>
+#include <refdes_utils.h>
 #include <sch_commit_flags.h>
 #include <view/view.h>
 #include <google/protobuf/util/field_mask_util.h>
@@ -625,7 +630,89 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_SCH::handleCreateUpdateItemsIntern
         }
         else if( aHeader.field_mask().paths_size() )
         { fail( ISC_INVALID_DATA, "CreateItems does not accept a field mask" ); continue; }
-        auto item = UnpackSchematicItem( full, error, existing, &*path );
+        std::unique_ptr<SCH_ITEM> item;
+        kiapi::schematic::types::Symbol symbolInput;
+        if( full.UnpackTo( &symbolInput ) )
+        {
+            auto* previous = dynamic_cast<SCH_SYMBOL*>( existing );
+            if( existing && !previous ) { fail( ISC_INVALID_DATA, "Cannot change item type" ); continue; }
+            const LIB_SYMBOL* definition = nullptr;
+            LIB_ID libId = LibIdFromProto( symbolInput.lib_id() );
+            if( libId.GetLibNickname().empty() || libId.GetLibItemName().empty() )
+            { fail( ISC_INVALID_DATA, "A complete library identifier is required" ); continue; }
+            if( previous && previous->GetLibId() == libId && !previous->IsMissingLibSymbol() )
+                definition = previous->GetLibSymbolRef().get();
+            else
+            {
+                try { definition = PROJECT_SCH::SymbolLibAdapter( &frame->Prj() )->LoadSymbol( libId ); }
+                catch( const IO_ERROR& e ) { error = e.What().ToStdString(); }
+            }
+            if( !definition ) { fail( ISC_INVALID_DATA, error.empty() ? "Symbol library or entry does not exist" : error ); continue; }
+            auto symbol = UnpackSchematicSymbol( symbolInput, *definition, *path, previous, error );
+            if( symbol )
+            {
+                // Reserve references for all instances before touching the live screen.
+                std::map<std::string, std::pair<wxString, int>> explicitRefs;
+                for( const auto& instance : symbolInput.instances() )
+                {
+                    std::string key;
+                    for( const auto& uuid : instance.sheet_path().path() ) key += "/" + uuid.value();
+                    if( !explicitRefs.emplace( key, std::make_pair( wxString::FromUTF8( instance.reference() ), instance.unit() ) ).second )
+                    { error = "Duplicate symbol instance path"; break; }
+                }
+                std::set<wxString> reserved;
+                for( const auto& page : frame->Schematic().Hierarchy() )
+                {
+                    if( page.LastScreen() != screen ) continue;
+                    std::string key;
+                    for( const KIID& uuid : page.Path() ) key += "/" + uuid.AsStdString();
+                    wxString ref;
+                    int unit = symbol->GetUnit();
+                    auto explicitIt = explicitRefs.find( key );
+                    if( explicitIt != explicitRefs.end() )
+                    {
+                        ref = explicitIt->second.first;
+                        unit = explicitIt->second.second;
+                        explicitRefs.erase( explicitIt );
+                    }
+                    else if( previous ) { ref = previous->GetRef( &page, false ); unit = previous->GetUnitSelection( &page ); }
+                    if( page.Path() == path->Path() )
+                    { ref = wxString::FromUTF8( symbolInput.reference() ); unit = symbol->GetUnit(); }
+                    wxString prefix = UTIL::GetRefDesPrefix( definition->GetReferenceField().GetText() );
+                    if( prefix.empty() ) prefix = "U";
+                    auto occupied = [&]( const wxString& candidate, bool allowOtherUnits )
+                    {
+                        if( reserved.count( candidate ) ) return true;
+                        for( const auto& otherPage : frame->Schematic().Hierarchy() )
+                            for( SCH_ITEM* other : otherPage.LastScreen()->Items() )
+                                if( auto* otherSymbol = dynamic_cast<SCH_SYMBOL*>( other ); otherSymbol && otherSymbol != existing
+                                    && otherSymbol->GetRef( &otherPage, false ).CmpNoCase( candidate ) == 0 )
+                                {
+                                    if( !allowOtherUnits || otherSymbol->GetLibId() != libId
+                                        || otherSymbol->GetUnitSelection( &otherPage ) == unit ) return true;
+                                }
+                        return false;
+                    };
+                    if( ref.empty() || ref.Contains( "?" ) )
+                    {
+                        int n = 1;
+                        do { ref = prefix + wxString::Format( "%d", n++ ); } while( occupied( ref, false ) );
+                    }
+                    if( unit < 1 || unit > definition->GetUnitCount() || UTIL::GetRefDesNumber( ref ) < 1
+                        || UTIL::GetRefDesPrefix( ref ).empty() || ref.Contains( " " ) || occupied( ref, true ) )
+                    { error = "Invalid unit or conflicting reference in schematic hierarchy"; break; }
+                    symbol->SetRef( &page, ref ); symbol->SetUnitSelection( &page, unit );
+                    reserved.insert( ref );
+                }
+                if( !explicitRefs.empty() && error.empty() ) error = "Symbol instance path does not refer to this shared screen";
+                if( error.empty() )
+                {
+                    symbol->GetField( FIELD_T::REFERENCE )->SetText( symbol->GetRef( &*path, false ) );
+                    item = std::move( symbol );
+                }
+            }
+        }
+        else item = UnpackSchematicItem( full, error, existing, &*path );
         if( !item ) { fail( ISC_INVALID_DATA, error ); continue; }
         if( aCreate )
         {

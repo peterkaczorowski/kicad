@@ -3,6 +3,7 @@
  */
 #include "api_sch_utils.h"
 #include <sch_line.h>
+#include <sch_symbol.h>
 #include <sch_label.h>
 #include <sch_junction.h>
 #include <sch_no_connect.h>
@@ -171,7 +172,7 @@ std::set<int> SupportedSchematicApiTypes()
     return { types::KOT_SCH_LINE, types::KOT_SCH_SHEET, types::KOT_SCH_SHEET_PIN,
              types::KOT_SCH_LABEL, types::KOT_SCH_GLOBAL_LABEL, types::KOT_SCH_HIER_LABEL,
              types::KOT_SCH_DIRECTIVE_LABEL, types::KOT_SCH_TEXT, types::KOT_SCH_JUNCTION,
-             types::KOT_SCH_NO_CONNECT, types::KOT_SCH_BUS_WIRE_ENTRY, types::KOT_SCH_BUS_BUS_ENTRY };
+             types::KOT_SCH_SYMBOL, types::KOT_SCH_NO_CONNECT, types::KOT_SCH_BUS_WIRE_ENTRY, types::KOT_SCH_BUS_BUS_ENTRY };
 }
 
 std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM& item,
@@ -180,6 +181,9 @@ std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM& item,
     google::protobuf::Any out;
     switch( item.Type() )
     {
+    case SCH_SYMBOL_T:
+        if( !path ) return std::nullopt;
+        out.PackFrom( PackSchematicSymbol( static_cast<const SCH_SYMBOL&>( item ), *path ) ); break;
     case SCH_JUNCTION_T:
     {
         Junction value;
@@ -337,7 +341,8 @@ bool MergeSchematicApiItem( const google::protobuf::Any& patch,
     { error = "Field masks require matching supported item types"; return false; }
     for( const auto& path : mask.paths() )
     {
-        if( path == "id" || path.rfind( "id.", 0 ) == 0
+        if( path == "pins" || path.rfind( "pins.", 0 ) == 0
+            || path == "id" || path.rfind( "id.", 0 ) == 0
             || !google::protobuf::util::FieldMaskUtil::GetFieldDescriptors(
                         source->GetDescriptor(), path, nullptr ) )
         { error = "Invalid or immutable field-mask path: " + path; return false; }

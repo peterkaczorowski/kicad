@@ -43,6 +43,9 @@ Document = _message('kiapi.common.types.DocumentSpecifier')
 Sheet = _message('kiapi.schematic.types.Sheet')
 SheetPin = _message('kiapi.schematic.types.SheetPin')
 Line = _message('kiapi.schematic.types.Line')
+Symbol = _message('kiapi.schematic.types.Symbol')
+SymbolField = _message('kiapi.schematic.types.SymbolField')
+LibrarySymbolDefinition = _message('kiapi.schematic.types.LibrarySymbolDefinition')
 Junction = _message('kiapi.schematic.types.Junction')
 NoConnect = _message('kiapi.schematic.types.NoConnect')
 BusEntry = _message('kiapi.schematic.types.BusEntry')
@@ -183,6 +186,40 @@ class SchematicClient:
         self.last_affected_documents = list(result.affected_documents)
         return result
 
+    def add_symbol(self, lib_id, position, document=None, *, reference='', unit=1,
+                   body_style=1, rotation_degrees=0, mirror_x=False, mirror_y=False,
+                   fields=None, dnp=None, in_bom=None, on_board=None, id=None):
+        item = Symbol(reference=reference, unit=unit, body_style=body_style,
+                      rotation_degrees=rotation_degrees, mirror_x=mirror_x, mirror_y=mirror_y)
+        nickname, separator, name = lib_id.partition(':')
+        if not separator or not nickname or not name:
+            raise ValueError('lib_id must be library:entry')
+        item.lib_id.library_nickname, item.lib_id.entry_name = nickname, name
+        item.id.value = str(id or uuid4())
+        item.position.x_nm, item.position.y_nm = position
+        for name, value in (fields or {}).items():
+            field = item.fields.add(name=name)
+            field.text.text = str(value)
+            field.text.position.CopyFrom(item.position)
+            field.visible = name in ('Reference', 'Value')
+        for name, value in (('dnp', dnp), ('in_bom', in_bom), ('on_board', on_board)):
+            if value is not None:
+                setattr(item, name, value)
+        return self.create_items([item], document)[0]
+
+    def pin_position(self, reference, number, document=None):
+        matches = [pin for symbol in self.get_items([35], document)
+                   if symbol.reference == reference for pin in symbol.pins if pin.number == str(number)]
+        positions = {(pin.position.x_nm, pin.position.y_nm) for pin in matches}
+        if len(positions) != 1:
+            raise ValueError(f'Pin {reference}.{number} is missing or ambiguous on the selected sheet')
+        return positions.pop()
+
+    def _wire_endpoint(self, endpoint, document):
+        if len(endpoint) == 2 and isinstance(endpoint[0], str):
+            return self.pin_position(endpoint[0], endpoint[1], document)
+        return endpoint
+
     def add_junction(self, position, document=None, *, diameter_nm=0, id=None):
         item = Junction(diameter_nm=diameter_nm)
         item.id.value = str(id or uuid4())
@@ -234,8 +271,8 @@ class SchematicClient:
         """Wire/bus endpoints in nm; zero-length segments and invalid layers are rejected."""
         line = Line(layer=3 if graphic else 2 if bus else 1)
         line.id.value = str(id or uuid4())
-        line.start.x_nm, line.start.y_nm = start
-        line.end.x_nm, line.end.y_nm = end
+        line.start.x_nm, line.start.y_nm = self._wire_endpoint(start, document)
+        line.end.x_nm, line.end.y_nm = self._wire_endpoint(end, document)
         return self.create_items([line], document)[0]
 
     def get_sheets(self, document=None):

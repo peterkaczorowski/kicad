@@ -311,3 +311,18 @@ Version 0.8 adds `Junction`, `NoConnect` and `BusEntry` to generic CRUD, with
 diameter selects the project default. Bus entries need a nonzero diagonal size.
 All use the same explicit document, transaction, field-mask and affected-instance
 contract as wires. Native commit cleanup may remove redundant junctions.
+
+Version 0.9 adds `Symbol` and `add_symbol('Timer:NE555P', (x_nm, y_nm),
+reference='U1', fields={'Value': 'NE555'})`. Empty references are assigned the next
+free designator; explicit conflicts are refused, while different units of the same
+library part may share a reference. Every live shared-sheet instance gets its own
+annotation (or explicit `instances` entries). `lib_id` loads from native project /
+global tables; native screen insertion maintains embedded definitions and pin UUIDs.
+Power symbols and PWR_FLAG use this same operation. Fields include absolute text
+position, style and visibility; `unit`, `body_style`, quarter-turn `rotation_degrees`,
+`mirror_x/y`, optional `dnp`, `in_bom` and `on_board` are editable. Readback includes
+absolute pin positions after transforms and instance annotations. Pins are read-only;
+field masks targeting pins are refused. Moving/rotating a symbol does not drag wires.
+`pin_position('U1', '3')` resolves an absolute endpoint; `add_wire(('U1', '3'), (x, y))`
+also accepts reference/number pairs (missing or ambiguous endpoints raise errors).
+Library writes are a separate persistence operation from schematic Undo transactions.

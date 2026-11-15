@@ -5,6 +5,10 @@
 #include <api/api_sch_utils.h>
 #include <sch_line.h>
 #include <sch_label.h>
+#include <lib_symbol.h>
+#include <sch_symbol.h>
+#include <sch_sheet.h>
+#include <sch_sheet_path.h>
 #include <api/schematic/connection_items.pb.h>
 
 BOOST_AUTO_TEST_SUITE( SchematicItemsApi )
@@ -159,5 +163,44 @@ BOOST_AUTO_TEST_CASE( ConnectionMarkersRoundTripAndValidation )
     BOOST_CHECK( !UnpackSchematicItem( data, error ) );
     junction.set_diameter_nm( -1 ); BOOST_REQUIRE( data.PackFrom( junction ) );
     BOOST_CHECK( !UnpackSchematicItem( data, error ) );
+}
+BOOST_AUTO_TEST_CASE( SymbolPinsUseAbsoluteTransformedCoordinates )
+{
+    LIB_SYMBOL definition( "Test" );
+    auto* pin = new SCH_PIN( &definition );
+    pin->SetNumber( "1" ); pin->SetName( "IN" );
+    pin->SetPosition( VECTOR2I( -10000, 20000 ) );
+    pin->SetUnit( 1 ); pin->SetBodyStyle( 1 );
+    pin->SetType( ELECTRICAL_PINTYPE::PT_INPUT );
+    definition.AddDrawItem( pin );
+    SCH_SHEET root;
+    SCH_SHEET_PATH path; path.push_back( &root );
+    kiapi::schematic::types::Symbol input;
+    input.mutable_lib_id()->set_library_nickname( "Test" );
+    input.mutable_lib_id()->set_entry_name( "Test" );
+    input.mutable_position()->set_x_nm( 10000000 );
+    input.mutable_position()->set_y_nm( 30000000 );
+    input.set_unit( 1 ); input.set_body_style( 1 );
+    for( int rotation : { 0, 90, 180, 270 } )
+        for( bool mirror : { false, true } )
+        {
+            input.set_rotation_degrees( rotation ); input.set_mirror_x( mirror );
+            std::string error;
+            auto symbol = UnpackSchematicSymbol( input, definition, path, nullptr, error );
+            BOOST_REQUIRE_MESSAGE( symbol, error );
+            symbol->SetRef( &path, "U1" );
+            auto out = PackSchematicSymbol( *symbol, path );
+            BOOST_REQUIRE_EQUAL( out.pins_size(), 1 );
+            auto expected = symbol->GetTransform().TransformCoordinate( pin->GetPosition() ) + symbol->GetPosition();
+            BOOST_CHECK_EQUAL( out.pins( 0 ).position().x_nm(), int64_t( expected.x ) * 100 );
+            BOOST_CHECK_EQUAL( out.pins( 0 ).position().y_nm(), int64_t( expected.y ) * 100 );
+            BOOST_CHECK_EQUAL( out.reference(), "U1" );
+            BOOST_CHECK( !out.pins( 0 ).id().value().empty() );
+        }
+    std::string error;
+    input.set_rotation_degrees( 45 );
+    BOOST_CHECK( !UnpackSchematicSymbol( input, definition, path, nullptr, error ) );
+    input.set_rotation_degrees( 0 ); input.set_unit( 2 );
+    BOOST_CHECK( !UnpackSchematicSymbol( input, definition, path, nullptr, error ) );
 }
 BOOST_AUTO_TEST_SUITE_END()
