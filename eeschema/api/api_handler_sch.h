@@ -48,6 +48,10 @@ public:
     API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame );
 
 protected:
+    HANDLER_RESULT<Empty> saveDocumentInternal( const DocumentSpecifier& ) override;
+    HANDLER_RESULT<Empty> saveCopyInternal( const DocumentSpecifier&, const wxString&, bool ) override;
+    HANDLER_RESULT<Empty> revertDocumentInternal( const DocumentSpecifier& ) override;
+
     std::unique_ptr<COMMIT> createCommit() override;
 
     kiapi::common::types::DocumentType thisDocumentType() const override

@@ -1052,6 +1052,7 @@ private:
     // The schematic editor control class should be able to access some internal
     // functions of the editor frame.
     friend class SCH_EDITOR_CONTROL;
+    friend class API_HANDLER_SCH;
 
     enum
     {

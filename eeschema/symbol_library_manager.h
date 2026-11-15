@@ -236,6 +236,9 @@ public:
      */
     bool UpdateSymbol( LIB_SYMBOL* aSymbol, const wxString& aLibrary );
 
+    /// Replace the saved baseline of one symbol, preserving other unsaved library buffers.
+    bool AcceptSymbolBaseline( const LIB_SYMBOL& aSymbol, const wxString& aLibrary );
+
     /**
      * Update the symbol buffer with a new version of the symbol when the name has changed.
      *

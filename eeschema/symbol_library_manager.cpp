@@ -1316,3 +1316,28 @@ int LIB_BUFFER::removeChildSymbols( const SYMBOL_BUFFER& aSymbolBuf )
 
     return cnt;
 }
+
+
+bool SYMBOL_LIBRARY_MANAGER::AcceptSymbolBaseline( const LIB_SYMBOL& aSymbol, const wxString& aLibrary )
+{
+    auto& library = getLibraryBuffer( aLibrary );
+    auto buffer = library.GetBuffer( aSymbol.GetName() );
+    if( !buffer )
+        return false;
+    // Preserve the objects referenced by derived symbols' weak parent pointers.
+    library.UpdateBuffer( *buffer, aSymbol );
+    buffer->GetOriginal() = aSymbol;
+    if( auto parent = aSymbol.GetParent().lock() )
+    {
+        // Keep inherited symbols attached to the editor's buffers, never to a replaceable IO cache.
+        GetBufferedSymbol( parent->GetName(), aLibrary );
+        if( auto parentBuffer = library.GetBuffer( parent->GetName() ) )
+        {
+            buffer->GetSymbol().SetParent( &parentBuffer->GetSymbol() );
+            buffer->GetOriginal().SetParent( &parentBuffer->GetOriginal() );
+        }
+    }
+    buffer->GetScreen()->SetContentModified( false );
+    OnDataChanged();
+    return true;
+}

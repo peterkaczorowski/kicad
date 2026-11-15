@@ -758,3 +758,79 @@ HANDLER_RESULT<kiapi::schematic::commands::SetPageSettingsResponse> API_HANDLER_
         *response.add_pages() = packPageSettings( describeDocument( path ), path.LastScreen()->GetPageSettings() );
     return response;
 }
+
+
+HANDLER_RESULT<Empty> API_HANDLER_SCH::saveDocumentInternal( const DocumentSpecifier& )
+{
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    auto hierarchy = frame->Schematic().Hierarchy();
+    std::set<SCH_SCREEN*> screens;
+    for( const auto& path : hierarchy )
+    {
+        SCH_SCREEN* screen = path.LastScreen();
+        if( !screens.insert( screen ).second )
+            continue;
+        wxFileName file( screen->GetFileName() );
+        if( !file.IsAbsolute() || file.GetExt() != "kicad_sch" || !file.IsDirWritable()
+            || ( file.FileExists() && !file.IsFileWritable() ) )
+            return documentError( "Every sheet needs an absolute writable native save path" );
+    }
+    screens.clear();
+    SCH_IO_KICAD_SEXPR io;
+    // Save the entire live hierarchy, including off-screen unsaved changes, once per screen.
+    for( const auto& path : hierarchy )
+    {
+        SCH_SCREEN* screen = path.LastScreen();
+        if( !screens.insert( screen ).second )
+            continue;
+        io.SaveSchematicFile( screen->GetFileName(), path.Last(), &frame->Schematic() );
+        screen->SetContentModified( false );
+    }
+    frame->updateTitle();
+    return Empty();
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_SCH::saveCopyInternal(
+        const DocumentSpecifier& aDocument, const wxString& aPath, bool aIncludeProject )
+{
+    if( aIncludeProject )
+        return documentError( "Schematic SaveCopy exports one sheet; include_project is not supported" );
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    auto path = resolveDocument( aDocument );
+    for( const auto& instance : frame->Schematic().Hierarchy() )
+    {
+        if( wxFileName( instance.LastScreen()->GetFileName() ) == wxFileName( aPath ) )
+            return documentError( "SaveCopy cannot overwrite an open sheet; use SaveDocument" );
+    }
+    SCH_IO_KICAD_SEXPR io;
+    io.SaveSchematicFile( aPath, path->Last(), &frame->Schematic() );
+    return Empty();
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_SCH::revertDocumentInternal( const DocumentSpecifier& )
+{
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    const KIID_PATH active = frame->GetCurrentSheet().Path();
+    const wxString filename = frame->Schematic().GetFileName();
+    if( !wxFileName::IsFileReadable( filename ) )
+        return documentError( "Schematic file cannot be read" );
+    // Validate the hierarchy first. In particular, a missing/broken child must not clear dirty state.
+    SCHEMATIC validation( &frame->Prj() );
+    SCH_IO_KICAD_SEXPR io;
+    std::unique_ptr<SCH_SHEET> parsed( io.LoadSchematicFile( filename, &validation ) );
+    if( !parsed || !io.GetError().empty() )
+        return documentError( "Cannot reload schematic hierarchy: " + io.GetError().ToStdString() );
+
+    SCH_SHEET_PATH root = frame->Schematic().Hierarchy().at( 0 );
+    frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>( SCH_ACTIONS::changeSheet, &root );
+    SCH_SCREENS screens( frame->Schematic().Root() );
+    for( auto* screen = screens.GetFirst(); screen; screen = screens.GetNext() )
+        screen->SetContentModified( false );
+    frame->ReleaseFile();
+    if( !frame->OpenProjectFiles( { filename }, KICTL_REVERT ) )
+        return documentError( "Could not reload schematic" );
+    if( auto restored = frame->Schematic().Hierarchy().GetSheetPathByKIIDPath( active ) )
+        frame->GetToolManager()->RunAction<SCH_SHEET_PATH*>( SCH_ACTIONS::changeSheet, &*restored );
+    m_netRenamePlans.clear();
+    return Empty();
+}
