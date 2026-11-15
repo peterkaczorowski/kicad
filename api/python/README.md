@@ -304,3 +304,10 @@ Spin values 0–3 mean native left/up/right/bottom. Shapes are 0 input, 1 output
 `Net Class`. The same generic read/update/delete and transaction rules apply.
 `add_text` creates ordinary schematic notes (object type 27); font/position data
 also uses nm. Text and labels preserve core formatting through native codecs.
+
+Version 0.8 adds `Junction`, `NoConnect` and `BusEntry` to generic CRUD, with
+`add_junction(position, diameter_nm=0)`, `add_no_connect(position)` and
+`add_bus_entry(position, size, bus_to_bus=False)`. Dimensions use nm; zero junction
+diameter selects the project default. Bus entries need a nonzero diagonal size.
+All use the same explicit document, transaction, field-mask and affected-instance
+contract as wires. Native commit cleanup may remove redundant junctions.

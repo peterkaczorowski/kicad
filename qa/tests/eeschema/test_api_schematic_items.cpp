@@ -5,6 +5,7 @@
 #include <api/api_sch_utils.h>
 #include <sch_line.h>
 #include <sch_label.h>
+#include <api/schematic/connection_items.pb.h>
 
 BOOST_AUTO_TEST_SUITE( SchematicItemsApi )
 
@@ -134,5 +135,29 @@ BOOST_AUTO_TEST_CASE( LabelsTextAndTransformValidation )
     auto item = UnpackSchematicItem( data, error );
     BOOST_REQUIRE_MESSAGE( item, error );
     BOOST_CHECK_EQUAL( item->GetPosition().x, 30000 );
+}
+BOOST_AUTO_TEST_CASE( ConnectionMarkersRoundTripAndValidation )
+{
+    using namespace kiapi::schematic::types;
+    Junction junction; junction.set_diameter_nm( 508000 );
+    junction.mutable_position()->set_x_nm( -2540000 );
+    NoConnect nc; nc.mutable_position()->set_y_nm( 5080000 );
+    BusEntry wireEntry; wireEntry.mutable_size()->set_x_nm( 2540000 );
+    wireEntry.mutable_size()->set_y_nm( -2540000 );
+    BusEntry busEntry = wireEntry; busEntry.set_bus_to_bus( true );
+    for( const google::protobuf::Message* value : std::vector<const google::protobuf::Message*>{ &junction, &nc, &wireEntry, &busEntry } )
+    {
+        google::protobuf::Any data; BOOST_REQUIRE( data.PackFrom( *value ) );
+        std::string error; auto item = UnpackSchematicItem( data, error );
+        BOOST_REQUIRE_MESSAGE( item, error );
+        auto packed = PackSchematicItem( *item ); BOOST_REQUIRE( packed );
+        auto restored = UnpackSchematicItem( *packed, error ); BOOST_REQUIRE_MESSAGE( restored, error );
+        BOOST_CHECK_EQUAL( PackSchematicItem( *restored )->SerializeAsString(), packed->SerializeAsString() );
+    }
+    std::string error; google::protobuf::Any data;
+    wireEntry.clear_size(); BOOST_REQUIRE( data.PackFrom( wireEntry ) );
+    BOOST_CHECK( !UnpackSchematicItem( data, error ) );
+    junction.set_diameter_nm( -1 ); BOOST_REQUIRE( data.PackFrom( junction ) );
+    BOOST_CHECK( !UnpackSchematicItem( data, error ) );
 }
 BOOST_AUTO_TEST_SUITE_END()

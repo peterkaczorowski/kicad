@@ -1,0 +1,20 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.schematic.types;
+import "common/types/base_types.proto";
+
+message Junction {
+  kiapi.common.types.KIID id = 1;
+  kiapi.common.types.Vector2 position = 2;
+  int64 diameter_nm = 3; // zero = project default
+}
+message NoConnect {
+  kiapi.common.types.KIID id = 1;
+  kiapi.common.types.Vector2 position = 2;
+}
+message BusEntry {
+  kiapi.common.types.KIID id = 1;
+  kiapi.common.types.Vector2 position = 2;
+  kiapi.common.types.Vector2 size = 3;
+  bool bus_to_bus = 4;
+}

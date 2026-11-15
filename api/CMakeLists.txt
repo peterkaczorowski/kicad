@@ -38,6 +38,7 @@ set( KIAPI_PROTO_SRCS
 
     schematic/schematic_types.proto
     schematic/schematic_commands.proto
+    schematic/connection_items.proto
     schematic/page_settings.proto
     )
 

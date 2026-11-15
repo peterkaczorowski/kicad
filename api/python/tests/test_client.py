@@ -65,6 +65,15 @@ class ClientTest(unittest.TestCase):
         graphic = self.client.add_wire((0, 0), (1000000, 0), self.doc, graphic=True)
         self.assertEqual((bus.layer, graphic.layer), (2, 3))
 
+    def test_connection_marker_helpers(self):
+        junction = self.client.add_junction((1000000, 2000000), self.doc, diameter_nm=508000)
+        self.assertEqual(junction.diameter_nm, 508000)
+        nc = self.client.add_no_connect((1000000, 2000000), self.doc)
+        self.assertEqual(nc.position.y_nm, 2000000)
+        entry = self.client.add_bus_entry((0, 0), (2540000, -2540000), self.doc, bus_to_bus=True)
+        self.assertTrue(entry.bus_to_bus)
+        self.assertEqual(entry.size.y_nm, -2540000)
+
     def test_label_kinds_rotations_properties_and_text(self):
         for kind, name in [('local', 'LocalLabel'), ('global', 'GlobalLabel'),
                            ('hierarchical', 'HierarchicalLabel'), ('directive', 'DirectiveLabel')]:

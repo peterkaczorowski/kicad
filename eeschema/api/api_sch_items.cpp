@@ -4,6 +4,10 @@
 #include "api_sch_utils.h"
 #include <sch_line.h>
 #include <sch_label.h>
+#include <sch_junction.h>
+#include <sch_no_connect.h>
+#include <sch_bus_entry.h>
+#include <api/schematic/connection_items.pb.h>
 #include <sch_field.h>
 #include <eda_text.h>
 #include <sch_sheet.h>
@@ -166,7 +170,8 @@ std::set<int> SupportedSchematicApiTypes()
 {
     return { types::KOT_SCH_LINE, types::KOT_SCH_SHEET, types::KOT_SCH_SHEET_PIN,
              types::KOT_SCH_LABEL, types::KOT_SCH_GLOBAL_LABEL, types::KOT_SCH_HIER_LABEL,
-             types::KOT_SCH_DIRECTIVE_LABEL, types::KOT_SCH_TEXT };
+             types::KOT_SCH_DIRECTIVE_LABEL, types::KOT_SCH_TEXT, types::KOT_SCH_JUNCTION,
+             types::KOT_SCH_NO_CONNECT, types::KOT_SCH_BUS_WIRE_ENTRY, types::KOT_SCH_BUS_BUS_ENTRY };
 }
 
 std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM& item,
@@ -175,6 +180,31 @@ std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM& item,
     google::protobuf::Any out;
     switch( item.Type() )
     {
+    case SCH_JUNCTION_T:
+    {
+        Junction value;
+        value.mutable_id()->set_value( item.m_Uuid.AsStdString() );
+        PackSchematicVector( *value.mutable_position(), item.GetPosition() );
+        value.set_diameter_nm( int64_t( static_cast<const SCH_JUNCTION&>( item ).GetDiameter() ) * 100 );
+        out.PackFrom( value ); break;
+    }
+    case SCH_NO_CONNECT_T:
+    {
+        NoConnect value;
+        value.mutable_id()->set_value( item.m_Uuid.AsStdString() );
+        PackSchematicVector( *value.mutable_position(), item.GetPosition() );
+        out.PackFrom( value ); break;
+    }
+    case SCH_BUS_WIRE_ENTRY_T:
+    case SCH_BUS_BUS_ENTRY_T:
+    {
+        BusEntry value;
+        value.mutable_id()->set_value( item.m_Uuid.AsStdString() );
+        PackSchematicVector( *value.mutable_position(), item.GetPosition() );
+        PackSchematicVector( *value.mutable_size(), static_cast<const SCH_BUS_ENTRY_BASE&>( item ).GetSize() );
+        value.set_bus_to_bus( item.Type() == SCH_BUS_BUS_ENTRY_T );
+        out.PackFrom( value ); break;
+    }
     case SCH_LINE_T: item.Serialize( out ); break;
     case SCH_LABEL_T: return packLabel<LocalLabel>( static_cast<const SCH_LABEL_BASE&>( item ) );
     case SCH_GLOBAL_LABEL_T: return packLabel<GlobalLabel>( static_cast<const SCH_LABEL_BASE&>( item ) );
@@ -199,6 +229,45 @@ std::unique_ptr<SCH_ITEM> UnpackSchematicItem( const google::protobuf::Any& data
         std::string& error, const SCH_ITEM* existing, const SCH_SHEET_PATH* path )
 {
     std::unique_ptr<SCH_ITEM> item;
+    if( data.Is<Junction>() || data.Is<NoConnect>() || data.Is<BusEntry>() )
+    {
+        VECTOR2I position, size;
+        types::KIID id;
+        KICAD_T kind;
+        if( data.Is<Junction>() )
+        {
+            Junction value; data.UnpackTo( &value );
+            if( value.diameter_nm() < 0 || value.diameter_nm() > int64_t( INT_MAX ) / 4 * 100
+                || !UnpackSchematicVector( value.position(), position ) )
+            { error = "Invalid junction dimension"; return nullptr; }
+            kind = SCH_JUNCTION_T;
+            auto junction = std::make_unique<SCH_JUNCTION>( position );
+            junction->SetDiameter( std::llround( value.diameter_nm() / 100.0 ) );
+            item = std::move( junction ); id = value.id();
+        }
+        else if( data.Is<NoConnect>() )
+        {
+            NoConnect value; data.UnpackTo( &value );
+            if( !UnpackSchematicVector( value.position(), position ) )
+            { error = "Invalid no-connect position"; return nullptr; }
+            kind = SCH_NO_CONNECT_T; item = std::make_unique<SCH_NO_CONNECT>( position ); id = value.id();
+        }
+        else
+        {
+            BusEntry value; data.UnpackTo( &value );
+            if( !UnpackSchematicVector( value.position(), position )
+                || !UnpackSchematicVector( value.size(), size ) || !size.x || !size.y )
+            { error = "Bus entry requires bounded position and nonzero diagonal size"; return nullptr; }
+            kind = value.bus_to_bus() ? SCH_BUS_BUS_ENTRY_T : SCH_BUS_WIRE_ENTRY_T;
+            std::unique_ptr<SCH_BUS_ENTRY_BASE> entry;
+            if( value.bus_to_bus() ) entry = std::make_unique<SCH_BUS_BUS_ENTRY>( position );
+            else entry = std::make_unique<SCH_BUS_WIRE_ENTRY>( position );
+            entry->SetSize( size ); item = std::move( entry ); id = value.id();
+        }
+        if( existing && existing->Type() != kind ) { error = "Cannot change item type"; return nullptr; }
+        if( !applyId( id, *item, error ) ) return nullptr;
+        return item;
+    }
     if( data.Is<LocalLabel>() ) return unpackLabel<LocalLabel, SCH_LABEL>( data, existing, SCH_LABEL_T, false, error );
     if( data.Is<GlobalLabel>() ) return unpackLabel<GlobalLabel, SCH_GLOBALLABEL>( data, existing, SCH_GLOBAL_LABEL_T, false, error );
     if( data.Is<HierarchicalLabel>() ) return unpackLabel<HierarchicalLabel, SCH_HIERLABEL>( data, existing, SCH_HIER_LABEL_T, false, error );

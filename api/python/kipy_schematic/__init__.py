@@ -43,6 +43,9 @@ Document = _message('kiapi.common.types.DocumentSpecifier')
 Sheet = _message('kiapi.schematic.types.Sheet')
 SheetPin = _message('kiapi.schematic.types.SheetPin')
 Line = _message('kiapi.schematic.types.Line')
+Junction = _message('kiapi.schematic.types.Junction')
+NoConnect = _message('kiapi.schematic.types.NoConnect')
+BusEntry = _message('kiapi.schematic.types.BusEntry')
 LocalLabel = _message('kiapi.schematic.types.LocalLabel')
 GlobalLabel = _message('kiapi.schematic.types.GlobalLabel')
 HierarchicalLabel = _message('kiapi.schematic.types.HierarchicalLabel')
@@ -179,6 +182,25 @@ class SchematicClient:
             raise RuntimeError('DeleteItems rejected one or more IDs')
         self.last_affected_documents = list(result.affected_documents)
         return result
+
+    def add_junction(self, position, document=None, *, diameter_nm=0, id=None):
+        item = Junction(diameter_nm=diameter_nm)
+        item.id.value = str(id or uuid4())
+        item.position.x_nm, item.position.y_nm = position
+        return self.create_items([item], document)[0]
+
+    def add_no_connect(self, position, document=None, *, id=None):
+        item = NoConnect()
+        item.id.value = str(id or uuid4())
+        item.position.x_nm, item.position.y_nm = position
+        return self.create_items([item], document)[0]
+
+    def add_bus_entry(self, position, size, document=None, *, bus_to_bus=False, id=None):
+        item = BusEntry(bus_to_bus=bus_to_bus)
+        item.id.value = str(id or uuid4())
+        item.position.x_nm, item.position.y_nm = position
+        item.size.x_nm, item.size.y_nm = size
+        return self.create_items([item], document)[0]
 
     def add_label(self, text, position, document=None, *, kind='local',
                   rotation_degrees=0, shape=0, properties=None, id=None):
