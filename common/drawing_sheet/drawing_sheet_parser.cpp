@@ -293,6 +293,14 @@ void DRAWING_SHEET_PARSER::Parse( DS_DATA_MODEL* aLayout )
             break;
         }
     }
+
+    if( token != T_RIGHT )
+        Expecting( T_RIGHT );
+
+    if( NextTok() != EOF )
+        Unexpected( CurText() );
+
+    checkVersion();
 }
 
 
@@ -319,12 +327,16 @@ void DRAWING_SHEET_PARSER::parseHeader( T aHeaderType )
             Expecting( T_version );
         }
     }
-    else
+    else if( aHeaderType == T_page_layout )
     {
         // We assign version 0 to files that were created before there was any versioning of
         // worksheets. The below line is not strictly necessary, as `m_requiredVersion` is already
         // initialized to 0 in the constructor.
         m_requiredVersion = 0;
+    }
+    else
+    {
+        Expecting( "kicad_wks, drawing_sheet or page_layout" );
     }
 }
 

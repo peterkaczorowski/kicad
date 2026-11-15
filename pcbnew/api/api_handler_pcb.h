@@ -59,18 +59,11 @@ private:
     static HANDLER_RESULT<std::unique_ptr<BOARD_ITEM>> createItemForType( KICAD_T aType,
                                                           BOARD_ITEM_CONTAINER* aContainer );
 
-    HANDLER_RESULT<commands::RunActionResponse> handleRunAction( const HANDLER_CONTEXT<commands::RunAction>& aCtx );
-
     HANDLER_RESULT<commands::GetOpenDocumentsResponse> handleGetOpenDocuments(
             const HANDLER_CONTEXT<commands::GetOpenDocuments>& aCtx );
-
-    HANDLER_RESULT<Empty> handleSaveDocument( const HANDLER_CONTEXT<commands::SaveDocument>& aCtx );
-
-    HANDLER_RESULT<Empty> handleSaveCopyOfDocument(
-            const HANDLER_CONTEXT<commands::SaveCopyOfDocument>& aCtx );
-
-    HANDLER_RESULT<Empty> handleRevertDocument(
-            const HANDLER_CONTEXT<commands::RevertDocument>& aCtx );
+    HANDLER_RESULT<Empty> saveDocumentInternal( const DocumentSpecifier& ) override;
+    HANDLER_RESULT<Empty> saveCopyInternal( const DocumentSpecifier&, const wxString&, bool ) override;
+    HANDLER_RESULT<Empty> revertDocumentInternal( const DocumentSpecifier& ) override;
 
     HANDLER_RESULT<commands::GetItemsResponse> handleGetItems(
             const HANDLER_CONTEXT<commands::GetItems>& aCtx );

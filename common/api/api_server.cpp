@@ -290,6 +290,7 @@ void KICAD_API_SERVER::handleApiEvent( wxCommandEvent& aEvent )
         case kiapi::common::types::DOCTYPE_SYMBOL:
         case kiapi::common::types::DOCTYPE_PCB:
         case kiapi::common::types::DOCTYPE_FOOTPRINT:
+        case kiapi::common::types::DOCTYPE_DRAWING_SHEET:
         {
             // A supported editor with no open document is an empty list.
             ApiResponse response;

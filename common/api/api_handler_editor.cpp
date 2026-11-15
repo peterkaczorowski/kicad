@@ -24,7 +24,15 @@
 #include <api/api_server.h>
 #include <api/api_utils.h>
 #include <eda_base_frame.h>
+#include <eda_draw_frame.h>
+#include <dialog_shim.h>
+#include <project.h>
+#include <tool/tool_manager.h>
+#include <tool/action_manager.h>
+#include <view/view.h>
+#include <wx/filename.h>
 #include <eda_item.h>
+#include <ki_exception.h>
 #include <pgm_base.h>
 #include <wx/wx.h>
 
@@ -41,6 +49,10 @@ API_HANDLER_EDITOR::API_HANDLER_EDITOR( EDA_BASE_FRAME* aFrame ) :
     registerHandler<UpdateItems, UpdateItemsResponse>( &API_HANDLER_EDITOR::handleUpdateItems );
     registerHandler<DeleteItems, DeleteItemsResponse>( &API_HANDLER_EDITOR::handleDeleteItems );
     registerHandler<HitTest, HitTestResponse>( &API_HANDLER_EDITOR::handleHitTest );
+    registerHandler<SaveDocument, Empty>( &API_HANDLER_EDITOR::handleSaveDocument );
+    registerHandler<SaveCopyOfDocument, Empty>( &API_HANDLER_EDITOR::handleSaveCopyOfDocument );
+    registerHandler<RevertDocument, Empty>( &API_HANDLER_EDITOR::handleRevertDocument );
+    registerHandler<RunAction, RunActionResponse>( &API_HANDLER_EDITOR::handleRunAction );
 }
 
 
@@ -70,10 +82,10 @@ HANDLER_RESULT<BeginCommitResponse> API_HANDLER_EDITOR::handleBeginCommit(
         const HANDLER_CONTEXT<BeginCommit>& aCtx )
 {
     // Handle legacy clients that don't know about the document field, when it's safe to do so
-    if( std::optional<ApiResponseStatus> r = rejectIfMultipleEditors( "BeginCommit" );
-        !aCtx.Request.has_header() && r.has_value() )
+    if( !aCtx.Request.has_header() )
     {
-        return tl::unexpected( *r );
+        if( auto error = rejectIfMultipleEditors( "BeginCommit" ) )
+            return tl::unexpected( *error );
     }
 
     // TODO Mark BeginCommit.header explicitly required in V12 and remove this optionality along with the above
@@ -113,10 +125,10 @@ HANDLER_RESULT<EndCommitResponse> API_HANDLER_EDITOR::handleEndCommit(
         const HANDLER_CONTEXT<EndCommit>& aCtx )
 {
     // Handle legacy clients that don't know about the document field, when it's safe to do so
-    if( std::optional<ApiResponseStatus> r = rejectIfMultipleEditors( "EndCommit" );
-        !aCtx.Request.has_header() && r.has_value() )
+    if( !aCtx.Request.has_header() )
     {
-        return tl::unexpected( *r );
+        if( auto error = rejectIfMultipleEditors( "EndCommit" ) )
+            return tl::unexpected( *error );
     }
 
     // TODO Mark EndCommit.header explicitly required in V12 and remove this optionality along with the above
@@ -208,6 +220,9 @@ void API_HANDLER_EDITOR::pushCurrentCommit( const std::string& aClientName,
 
 HANDLER_RESULT<bool> API_HANDLER_EDITOR::validateDocument( const DocumentSpecifier& aDocument )
 {
+    if( aDocument.type() != thisDocumentType() )
+        return documentError( "", ApiStatusCode::AS_UNHANDLED );
+
     if( !validateDocumentInternal( aDocument ) )
     {
         ApiResponseStatus e;
@@ -258,7 +273,21 @@ HANDLER_RESULT<std::optional<KIID>> API_HANDLER_EDITOR::validateItemHeaderDocume
 
 std::optional<ApiResponseStatus> API_HANDLER_EDITOR::checkForBusy()
 {
-    if( !m_frame->CanAcceptApiCommands() )
+    // On macOS a quasi-modal library dialog need not make IsEnabled() false.
+    // Check actual dialog modality as well as the frame's interactive-operation guard.
+    bool modal = false;
+    for( wxWindow* window : wxTopLevelWindows )
+    {
+        auto* dialog = dynamic_cast<wxDialog*>( window );
+        auto* shim = dynamic_cast<DIALOG_SHIM*>( window );
+        if( dialog && dialog->IsShown()
+            && ( dialog->IsModal() || ( shim && shim->IsQuasiModal() ) ) )
+        {
+            modal = true;
+            break;
+        }
+    }
+    if( modal || !m_frame->CanAcceptApiCommands() )
     {
         ApiResponseStatus e;
         e.set_status( ApiStatusCode::AS_BUSY );
@@ -417,5 +446,233 @@ HANDLER_RESULT<HitTestResponse> API_HANDLER_EDITOR::handleHitTest(
     else
         response.set_result( HitTestResult::HTR_NO_HIT );
 
+    return response;
+}
+
+
+// Document-only editors can participate in transaction exclusion without exposing item editing.
+namespace
+{
+class DOCUMENT_API_COMMIT : public COMMIT
+{
+public:
+    void Push( const wxString&, int ) override { clear(); }
+    void Revert() override { clear(); }
+protected:
+    EDA_ITEM* undoLevelItem( EDA_ITEM* aItem ) const override { return aItem; }
+    EDA_ITEM* makeImage( EDA_ITEM* aItem ) const override { return aItem->Clone(); }
+};
+}
+
+std::unique_ptr<COMMIT> API_HANDLER_EDITOR::createCommit()
+{
+    return std::make_unique<DOCUMENT_API_COMMIT>();
+}
+
+HANDLER_RESULT<ItemRequestStatus> API_HANDLER_EDITOR::handleCreateUpdateItemsInternal(
+        bool, const std::string&, const types::ItemHeader&,
+        const google::protobuf::RepeatedPtrField<google::protobuf::Any>&,
+        std::function<void( ItemStatus, google::protobuf::Any )> )
+{
+    return documentError( "Item editing is not supported in this editor", ApiStatusCode::AS_UNIMPLEMENTED );
+}
+
+void API_HANDLER_EDITOR::deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItems,
+                                              const std::string& )
+{
+    for( auto& [id, status] : aItems )
+        status = ItemDeletionStatus::IDS_IMMUTABLE;
+}
+
+std::optional<EDA_ITEM*> API_HANDLER_EDITOR::getItemFromDocument( const DocumentSpecifier&, const KIID& )
+{
+    return std::nullopt;
+}
+
+tl::unexpected<ApiResponseStatus> API_HANDLER_EDITOR::documentError(
+        const std::string& aMessage, ApiStatusCode aStatus )
+{
+    ApiResponseStatus error;
+    error.set_status( aStatus );
+    error.set_error_message( aMessage );
+    return tl::unexpected( error );
+}
+
+HANDLER_RESULT<bool> API_HANDLER_EDITOR::validateDocumentCommand( const DocumentSpecifier& aDocument )
+{
+    auto valid = validateDocument( aDocument );
+    if( !valid )
+        return tl::unexpected( valid.error() );
+    if( auto busy = checkForBusy() )
+        return tl::unexpected( *busy );
+    if( !m_commits.empty() )
+        return documentError( "Finish or drop the open API commit before running document commands" );
+    if( m_frame && !m_frame->ToolStackIsEmpty() )
+        return documentError( "An interactive tool is active", ApiStatusCode::AS_BUSY );
+    return true;
+}
+
+bool API_HANDLER_EDITOR::documentModified() const
+{
+    return m_frame && m_frame->IsContentModified();
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_EDITOR::saveDocumentInternal( const DocumentSpecifier& )
+{
+    return documentError( "Saving is not supported", ApiStatusCode::AS_UNIMPLEMENTED );
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_EDITOR::saveCopyInternal( const DocumentSpecifier&, const wxString&, bool )
+{
+    return documentError( "Saving a copy is not supported", ApiStatusCode::AS_UNIMPLEMENTED );
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_EDITOR::revertDocumentInternal( const DocumentSpecifier& )
+{
+    return documentError( "Reloading is not supported", ApiStatusCode::AS_UNIMPLEMENTED );
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_EDITOR::handleSaveDocument( const HANDLER_CONTEXT<SaveDocument>& aCtx )
+{
+    auto valid = validateDocumentCommand( aCtx.Request.document() );
+    if( !valid )
+        return tl::unexpected( valid.error() );
+    try
+    {
+        return saveDocumentInternal( aCtx.Request.document() );
+    }
+    catch( const IO_ERROR& error )
+    {
+        return documentError( error.What().ToStdString() );
+    }
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_EDITOR::handleSaveCopyOfDocument(
+        const HANDLER_CONTEXT<SaveCopyOfDocument>& aCtx )
+{
+    auto valid = validateDocumentCommand( aCtx.Request.document() );
+    if( !valid )
+        return tl::unexpected( valid.error() );
+    if( aCtx.Request.path().empty() )
+        return documentError( "A destination path is required" );
+
+    wxFileName path( wxString::FromUTF8( aCtx.Request.path() ) );
+    if( path.IsRelative() )
+    {
+        auto* frame = dynamic_cast<EDA_DRAW_FRAME*>( m_frame );
+        if( !frame )
+            return documentError( "An absolute destination path is required" );
+        path = frame->Prj().AbsolutePath( path.GetFullPath() );
+    }
+    const std::map<types::DocumentType, wxString> extensions = {
+        { types::DOCTYPE_PCB, "kicad_pcb" }, { types::DOCTYPE_SCHEMATIC, "kicad_sch" },
+        { types::DOCTYPE_SYMBOL, "kicad_sym" }, { types::DOCTYPE_FOOTPRINT, "kicad_mod" },
+        { types::DOCTYPE_DRAWING_SHEET, "kicad_wks" }
+    };
+    if( !path.IsOk() || !path.IsDirWritable() || path.GetExt() != extensions.at( thisDocumentType() ) )
+        return documentError( "Destination directory must be writable and extension must match the document type" );
+    if( path.FileExists() && ( !aCtx.Request.options().overwrite() || !path.IsFileWritable() ) )
+        return documentError( "Destination exists; overwrite permission and a writable file are required" );
+    try
+    {
+        return saveCopyInternal( aCtx.Request.document(), path.GetFullPath(),
+                                 aCtx.Request.options().include_project() );
+    }
+    catch( const IO_ERROR& error )
+    {
+        return documentError( error.What().ToStdString() );
+    }
+}
+
+HANDLER_RESULT<Empty> API_HANDLER_EDITOR::handleRevertDocument( const HANDLER_CONTEXT<RevertDocument>& aCtx )
+{
+    auto valid = validateDocumentCommand( aCtx.Request.document() );
+    if( !valid )
+        return tl::unexpected( valid.error() );
+    if( documentModified() && !aCtx.Request.discard_unsaved() )
+        return documentError( "Document has unsaved changes; set discard_unsaved=true to discard them" );
+
+    auto* frame = dynamic_cast<EDA_DRAW_FRAME*>( m_frame );
+    const double scale = frame ? frame->GetCanvas()->GetView()->GetScale() : 1.0;
+    const VECTOR2D center = frame ? frame->GetCanvas()->GetView()->GetCenter() : VECTOR2D();
+    try
+    {
+        auto result = revertDocumentInternal( aCtx.Request.document() );
+        if( frame )
+        {
+            frame->GetCanvas()->GetView()->SetScale( scale );
+            frame->GetCanvas()->GetView()->SetCenter( center );
+            frame->UpdateStatusBar();
+            frame->GetCanvas()->Refresh();
+        }
+        return result;
+    }
+    catch( const IO_ERROR& error )
+    {
+        return documentError( error.What().ToStdString() );
+    }
+}
+
+HANDLER_RESULT<RunActionResponse> API_HANDLER_EDITOR::handleRunAction(
+        const HANDLER_CONTEXT<RunAction>& aCtx )
+{
+    if( !aCtx.Request.has_document() )
+    {
+        if( auto error = rejectIfMultipleEditors( "RunAction" ) )
+            return tl::unexpected( *error );
+        if( auto busy = checkForBusy() )
+            return tl::unexpected( *busy );
+        if( !m_commits.empty() )
+            return documentError( "Finish or drop the open API commit before RunAction" );
+        if( m_frame && !m_frame->ToolStackIsEmpty() )
+            return documentError( "An interactive tool is active", ApiStatusCode::AS_BUSY );
+    }
+    else
+    {
+        auto valid = validateDocumentCommand( aCtx.Request.document() );
+        if( !valid )
+            return tl::unexpected( valid.error() );
+    }
+    // Never bypass the explicit dirty-revert policy through the GUI action.
+    if( aCtx.Request.action() == "common.Control.revert" )
+    {
+        if( !aCtx.Request.has_document() )
+            return documentError( "Revert actions require an explicit document" );
+        HANDLER_CONTEXT<RevertDocument> revert;
+        revert.Request.mutable_document()->CopyFrom( aCtx.Request.document() );
+        auto result = handleRevertDocument( revert );
+        if( !result )
+            return tl::unexpected( result.error() );
+        RunActionResponse response;
+        response.set_status( RAS_OK );
+        return response;
+    }
+    if( aCtx.Request.action() == "common.Control.save" )
+    {
+        if( !aCtx.Request.has_document() )
+            return documentError( "Save actions require an explicit document" );
+        HANDLER_CONTEXT<SaveDocument> save;
+        save.Request.mutable_document()->CopyFrom( aCtx.Request.document() );
+        auto result = handleSaveDocument( save );
+        if( !result )
+            return tl::unexpected( result.error() );
+        RunActionResponse response;
+        response.set_status( RAS_OK );
+        return response;
+    }
+    RunActionResponse response;
+    // Reply before running actions which may enter a modal event loop. Otherwise the
+    // request/reply socket cannot receive further requests (including busy checks).
+    // Use the GUI event queue, not TOOL_MANAGER::PostAction: the latter needs an
+    // active tool dispatch to drain its queue and can wait indefinitely during IPC.
+    auto* manager = m_frame ? m_frame->GetToolManager() : nullptr;
+    if( !manager || !manager->GetActionManager()->FindAction( aCtx.Request.action() ) )
+    {
+        response.set_status( RAS_INVALID );
+        return response;
+    }
+    m_frame->CallAfter( [frame = m_frame, action = aCtx.Request.action()]()
+                       { frame->GetToolManager()->RunAction( action ); } );
+    response.set_status( RAS_OK );
     return response;
 }

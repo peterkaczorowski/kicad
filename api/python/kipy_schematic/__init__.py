@@ -70,6 +70,51 @@ class SchematicClient:
             raise RuntimeError('Several schematic projects are open; select a document explicitly')
         return documents[0]
 
+    def _document_command(self, name, document, **fields):
+        if self._in_commit:
+            raise RuntimeError('Finish commit() before running document commands')
+        request = _message('kiapi.common.commands.' + name)(**fields)
+        request.document.CopyFrom(document)
+        return request
+
+    def revert_document(self, document, *, discard_unsaved=False):
+        """Reload from disk; refuse unsaved changes unless explicitly discarded.
+
+        Schematics reload the entire hierarchy and restore the active sheet UUID
+        path. Other editors restore zoom/center. Library editors reload the open
+        library item, preserving modifications to other buffered symbols.
+        """
+        request = self._document_command('RevertDocument', document,
+                                         discard_unsaved=discard_unsaved)
+        self._send(request, 'google.protobuf.Empty')
+
+    def save_document(self, document):
+        """Save the live document. Schematics save all loaded hierarchy screens."""
+        request = self._document_command('SaveDocument', document)
+        self._send(request, 'google.protobuf.Empty')
+
+    def save_copy_of_document(self, document, path, *, overwrite=False, include_project=False):
+        """Export without changing the active path or clearing unsaved changes.
+
+        Schematic copies contain the selected sheet only (child file links stay
+        unchanged). Symbol copies are self-contained single-symbol libraries;
+        footprints and drawing sheets are single files. include_project is
+        supported for PCB copies only. Overwriting needs explicit permission.
+        """
+        request = self._document_command('SaveCopyOfDocument', document, path=os.fspath(path))
+        request.options.overwrite = overwrite
+        request.options.include_project = include_project
+        self._send(request, 'google.protobuf.Empty')
+
+    def run_action(self, document, action):
+        """Run an editor action by name; return RunActionStatus (OK=1, invalid=2).
+
+        Action names are unstable. Revert/save actions use the safe document
+        handlers, so RunAction cannot bypass the dirty-revert policy.
+        """
+        request = self._document_command('RunAction', document, action=action)
+        return self._send(request, 'kiapi.common.commands.RunActionResponse').status
+
     def get_sheets(self, document=None):
         return self._get_items(document, 37, Sheet)
 

@@ -24,9 +24,11 @@
 #include <api/api_handler.h>
 #include <api/common/commands/editor_commands.pb.h>
 #include <commit.h>
+#include <google/protobuf/empty.pb.h>
 #include <kiid.h>
 
 using namespace kiapi::common;
+using google::protobuf::Empty;
 using kiapi::common::types::DocumentSpecifier;
 using kiapi::common::types::ItemRequestStatus;
 using kiapi::common::commands::ItemDeletionStatus;
@@ -81,11 +83,27 @@ protected:
     HANDLER_RESULT<commands::HitTestResponse> handleHitTest(
         const HANDLER_CONTEXT<commands::HitTest>& aCtx );
 
+    // All document commands share routing, busy/transaction checks and dirty-revert policy.
+    HANDLER_RESULT<Empty> handleSaveDocument( const HANDLER_CONTEXT<commands::SaveDocument>& aCtx );
+    HANDLER_RESULT<Empty> handleSaveCopyOfDocument(
+            const HANDLER_CONTEXT<commands::SaveCopyOfDocument>& aCtx );
+    HANDLER_RESULT<Empty> handleRevertDocument( const HANDLER_CONTEXT<commands::RevertDocument>& aCtx );
+    HANDLER_RESULT<commands::RunActionResponse> handleRunAction(
+            const HANDLER_CONTEXT<commands::RunAction>& aCtx );
+    HANDLER_RESULT<bool> validateDocumentCommand( const DocumentSpecifier& aDocument );
+    virtual bool documentModified() const;
+    virtual HANDLER_RESULT<Empty> saveDocumentInternal( const DocumentSpecifier& aDocument );
+    virtual HANDLER_RESULT<Empty> saveCopyInternal( const DocumentSpecifier& aDocument,
+                                                   const wxString& aPath, bool aIncludeProject );
+    virtual HANDLER_RESULT<Empty> revertDocumentInternal( const DocumentSpecifier& aDocument );
+    static tl::unexpected<ApiResponseStatus> documentError(
+            const std::string& aMessage, ApiStatusCode aStatus = ApiStatusCode::AS_BAD_REQUEST );
+
     /**
      * Override this to create an appropriate COMMIT subclass for the frame in question
      * @return a new COMMIT, bound to the editor frame
      */
-    virtual std::unique_ptr<COMMIT> createCommit() = 0;
+    virtual std::unique_ptr<COMMIT> createCommit();
 
     /**
      * Override this to specify which document type this editor handles
@@ -101,13 +119,13 @@ protected:
         const std::string& aClientName,
         const types::ItemHeader &aHeader,
         const google::protobuf::RepeatedPtrField<google::protobuf::Any>& aItems,
-        std::function<void( commands::ItemStatus, google::protobuf::Any )> aItemHandler ) = 0;
+        std::function<void( commands::ItemStatus, google::protobuf::Any )> aItemHandler );
 
     virtual void deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
-                                      const std::string& aClientName ) = 0;
+                                      const std::string& aClientName );
 
     virtual std::optional<EDA_ITEM*> getItemFromDocument( const DocumentSpecifier& aDocument,
-                                                          const KIID& aId ) = 0;
+                                                          const KIID& aId );
 
 protected:
     std::map<std::string, std::pair<KIID, std::unique_ptr<COMMIT>>> m_commits;

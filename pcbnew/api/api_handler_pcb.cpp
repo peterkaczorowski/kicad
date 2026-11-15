@@ -27,6 +27,7 @@
 #include <api/api_enums.h>
 #include <api/api_utils.h>
 #include <board_commit.h>
+#include <pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h>
 #include <board_connected_item.h>
 #include <board_design_settings.h>
 #include <footprint.h>
@@ -66,12 +67,8 @@ using types::ItemRequestStatus;
 API_HANDLER_PCB::API_HANDLER_PCB( PCB_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
-    registerHandler<RunAction, RunActionResponse>( &API_HANDLER_PCB::handleRunAction );
     registerHandler<GetOpenDocuments, GetOpenDocumentsResponse>(
             &API_HANDLER_PCB::handleGetOpenDocuments );
-    registerHandler<SaveDocument, Empty>( &API_HANDLER_PCB::handleSaveDocument );
-    registerHandler<SaveCopyOfDocument, Empty>( &API_HANDLER_PCB::handleSaveCopyOfDocument );
-    registerHandler<RevertDocument, Empty>( &API_HANDLER_PCB::handleRevertDocument );
 
     registerHandler<GetItems, GetItemsResponse>( &API_HANDLER_PCB::handleGetItems );
     registerHandler<GetItemsById, GetItemsResponse>( &API_HANDLER_PCB::handleGetItemsById );
@@ -152,23 +149,6 @@ PCB_EDIT_FRAME* API_HANDLER_PCB::frame() const
 }
 
 
-HANDLER_RESULT<RunActionResponse> API_HANDLER_PCB::handleRunAction(
-        const HANDLER_CONTEXT<RunAction>& aCtx )
-{
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
-        return tl::unexpected( *busy );
-
-    RunActionResponse response;
-
-    if( frame()->GetToolManager()->RunAction( aCtx.Request.action(), true ) )
-        response.set_status( RunActionStatus::RAS_OK );
-    else
-        response.set_status( RunActionStatus::RAS_INVALID );
-
-    return response;
-}
-
-
 HANDLER_RESULT<GetOpenDocumentsResponse> API_HANDLER_PCB::handleGetOpenDocuments(
         const HANDLER_CONTEXT<GetOpenDocuments>& aCtx )
 {
@@ -196,99 +176,44 @@ HANDLER_RESULT<GetOpenDocumentsResponse> API_HANDLER_PCB::handleGetOpenDocuments
 }
 
 
-HANDLER_RESULT<Empty> API_HANDLER_PCB::handleSaveDocument(
-        const HANDLER_CONTEXT<SaveDocument>& aCtx )
+HANDLER_RESULT<Empty> API_HANDLER_PCB::saveDocumentInternal( const DocumentSpecifier& )
 {
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
-        return tl::unexpected( *busy );
-
-    HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.document() );
-
-    if( !documentValidation )
-        return tl::unexpected( documentValidation.error() );
-
-    frame()->SaveBoard();
+    wxFileName path( frame()->Prj().AbsolutePath( frame()->GetBoard()->GetFileName() ) );
+    if( !path.IsOk() || path.GetExt() != "kicad_pcb" || !path.IsDirWritable()
+        || ( path.FileExists() && !path.IsFileWritable() ) )
+        return documentError( "Board needs an existing writable native save path" );
+    // The native writer propagates IO_ERROR rather than showing a dialog.
+    PCB_IO_KICAD_SEXPR io;
+    io.SaveBoard( path.GetFullPath(), frame()->GetBoard() );
+    frame()->GetScreen()->SetContentModified( false );
+    frame()->UpdateTitle();
     return Empty();
 }
 
-
-HANDLER_RESULT<Empty> API_HANDLER_PCB::handleSaveCopyOfDocument(
-        const HANDLER_CONTEXT<SaveCopyOfDocument>& aCtx )
+HANDLER_RESULT<Empty> API_HANDLER_PCB::saveCopyInternal(
+        const DocumentSpecifier&, const wxString& aPath, bool aIncludeProject )
 {
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
-        return tl::unexpected( *busy );
-
-    HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.document() );
-
-    if( !documentValidation )
-        return tl::unexpected( documentValidation.error() );
-
-    wxFileName boardPath( frame()->Prj().AbsolutePath( wxString::FromUTF8( aCtx.Request.path() ) ) );
-
-    if( !boardPath.IsOk() || !boardPath.IsDirWritable() )
-    {
-        ApiResponseStatus e;
-        e.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        e.set_error_message( fmt::format( "save path '{}' could not be opened",
-                                          boardPath.GetFullPath().ToStdString() ) );
-        return tl::unexpected( e );
-    }
-
-    if( boardPath.FileExists()
-        && ( !boardPath.IsFileWritable() || !aCtx.Request.options().overwrite() ) )
-    {
-        ApiResponseStatus e;
-        e.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        e.set_error_message( fmt::format( "save path '{}' exists and cannot be overwritten",
-                                          boardPath.GetFullPath().ToStdString() ) );
-        return tl::unexpected( e );
-    }
-
-    if( boardPath.GetExt() != FILEEXT::KiCadPcbFileExtension )
-    {
-        ApiResponseStatus e;
-        e.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        e.set_error_message( fmt::format( "save path '{}' must have a kicad_pcb extension",
-                                          boardPath.GetFullPath().ToStdString() ) );
-        return tl::unexpected( e );
-    }
-
-    BOARD* board = frame()->GetBoard();
-
-    if( board->GetFileName().Matches( boardPath.GetFullPath() ) )
-    {
-        frame()->SaveBoard();
-        return Empty();
-    }
-
-    bool includeProject = true;
-
-    if( aCtx.Request.has_options() )
-        includeProject = aCtx.Request.options().include_project();
-
-    frame()->SavePcbCopy( boardPath.GetFullPath(), includeProject, /* aHeadless = */ true );
-
+    if( wxFileName( aPath ) == wxFileName( frame()->Prj().AbsolutePath( frame()->GetBoard()->GetFileName() ) ) )
+        return documentError( "SaveCopy destination must differ from the open document; use SaveDocument" );
+    if( !frame()->SavePcbCopy( aPath, aIncludeProject, /* aHeadless */ true ) )
+        return documentError( "Could not save board copy" );
     return Empty();
 }
 
-
-HANDLER_RESULT<Empty> API_HANDLER_PCB::handleRevertDocument(
-        const HANDLER_CONTEXT<RevertDocument>& aCtx )
+HANDLER_RESULT<Empty> API_HANDLER_PCB::revertDocumentInternal( const DocumentSpecifier& )
 {
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
-        return tl::unexpected( *busy );
-
-    HANDLER_RESULT<bool> documentValidation = validateDocument( aCtx.Request.document() );
-
-    if( !documentValidation )
-        return tl::unexpected( documentValidation.error() );
-
-    wxFileName fn = frame()->Prj().AbsolutePath( frame()->GetBoard()->GetFileName() );
-
+    wxFileName path( frame()->Prj().AbsolutePath( frame()->GetBoard()->GetFileName() ) );
+    if( !path.FileExists() || !path.IsFileReadable() )
+        return documentError( "Board file cannot be read" );
+    // Parse before touching the live model or its dirty flags.
+    PCB_IO_KICAD_SEXPR io;
+    std::unique_ptr<BOARD> parsed( io.LoadBoard( path.GetFullPath(), nullptr, nullptr, &frame()->Prj() ) );
+    if( !parsed )
+        return documentError( "Board could not be loaded" );
     frame()->GetScreen()->SetContentModified( false );
     frame()->ReleaseFile();
-    frame()->OpenProjectFiles( std::vector<wxString>( 1, fn.GetFullPath() ), KICTL_REVERT );
-
+    if( !frame()->OpenProjectFiles( { path.GetFullPath() }, KICTL_REVERT ) )
+        return documentError( "Board could not be reloaded" );
     return Empty();
 }
 
@@ -323,7 +248,12 @@ bool API_HANDLER_PCB::validateDocumentInternal( const DocumentSpecifier& aDocume
         return false;
 
     wxFileName fn( frame()->GetCurrentFileName() );
-    return 0 == aDocument.board_filename().compare( fn.GetFullName() );
+    return aDocument.board_filename() == fn.GetFullName().ToStdString()
+           && ( aDocument.project().path().empty()
+                || wxFileName::DirName( wxString::FromUTF8( aDocument.project().path() ) )
+                           == wxFileName::DirName( frame()->Prj().GetProjectDirectory() ) )
+           && ( aDocument.project().name().empty()
+                || aDocument.project().name() == frame()->Prj().GetProjectName().ToStdString() );
 }
 
 

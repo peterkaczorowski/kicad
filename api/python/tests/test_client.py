@@ -32,6 +32,39 @@ class ClientTest(unittest.TestCase):
         self.doc = Document(type=1)
         self.doc.sheet_path.path.add(value='root-uuid')
 
+    def test_document_commands_route_every_editor_and_explicit_discard(self):
+        from pathlib import Path
+        for document_type in (1, 2, 3, 4, 5):
+            document = Document(type=document_type)
+            self.client.revert_document(document)
+            request = self.transport.commands[-1]
+            self.assertEqual(request.document, document)
+            self.assertFalse(request.discard_unsaved)
+            self.client.revert_document(document, discard_unsaved=True)
+            self.assertTrue(self.transport.commands[-1].discard_unsaved)
+            self.client.save_document(document)
+            self.assertEqual(self.transport.commands[-1].document, document)
+            self.client.save_copy_of_document(document, Path('/tmp/test-copy'), overwrite=True)
+            request = self.transport.commands[-1]
+            self.assertEqual(request.path, '/tmp/test-copy')
+            self.assertTrue(request.options.overwrite)
+            self.assertFalse(request.options.include_project)
+            self.client.run_action(document, 'common.Interactive.undo')
+            self.assertEqual(self.transport.commands[-1].document, document)
+            self.assertEqual(self.transport.commands[-1].action, 'common.Interactive.undo')
+
+    def test_document_commands_refuse_open_commit(self):
+        with self.client.commit(document=self.doc):
+            count = len(self.transport.commands)
+            calls = [lambda: self.client.revert_document(self.doc, discard_unsaved=True),
+                     lambda: self.client.save_document(self.doc),
+                     lambda: self.client.save_copy_of_document(self.doc, '/tmp/copy'),
+                     lambda: self.client.run_action(self.doc, 'common.Interactive.undo')]
+            for call in calls:
+                with self.assertRaisesRegex(RuntimeError, 'Finish commit'):
+                    call()
+            self.assertEqual(len(self.transport.commands), count)
+
     def test_empty_unsaved_page_and_sheet_pin_filter(self):
         self.assertEqual(self.client.get_sheets(self.doc), [])
         self.assertEqual(list(self.transport.commands[-1].types), [37])

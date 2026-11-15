@@ -200,3 +200,64 @@ disposable HyperSpeed copy and an isolated configuration with IPC enabled. It
 starts its own editor and verifies A4 to A3, orientation, grouped Undo/Redo,
 shared files and save/reopen. `--capture` records the test editor's page frame
 before and after the batch on macOS.
+
+
+## Document commands in every editor (client 0.5)
+
+`revert_document`, `save_document`, `save_copy_of_document` and `run_action`
+accept an explicit `Document` from `get_open_documents(document_type)`:
+schematic=1, symbol=2, PCB=3, footprint=4, drawing sheet=5. This same adapter
+also serves PCB documents; no separate PCB wrapper is required. Footprint and
+drawing sheet editors now register handlers and enumerate their current document.
+Library documents use `lib_id` and project context, not a tree selection.
+Drawing sheets use `board_filename` for their filename; an untitled layout
+uses an empty filename and can be exported with SaveCopy.
+
+```python
+board = client.get_open_documents(3)[0]
+client.save_document(board)
+client.save_copy_of_document(board, '/absolute/path/copy.kicad_pcb', overwrite=True)
+client.revert_document(board)  # refuses unsaved changes
+# Only after choosing to discard those changes:
+client.revert_document(board, discard_unsaved=True)
+assert client.run_action(board, 'common.Interactive.undo') == 1
+assert client.run_action(board, 'does.not.exist') == 2
+```
+
+All four commands refuse an open API transaction (including another client's),
+a modal dialog or an active interactive tool. Foreign document types are routed
+to the appropriate handler. Revert preserves zoom/center; schematics additionally
+restore the active sheet UUID path, falling back to root if it disappeared.
+Revert reloads the entire schematic hierarchy; symbol/footprint editors reload
+one library item from disk. Other unsaved symbol buffers remain intact.
+`run_action(doc, 'common.Control.revert')` follows the same safe policy and
+cannot silently discard changes. Action names are unstable implementation details.
+Other actions are queued with their declared default arguments: `RAS_OK` means
+accepted, not that a dialog or interactive tool has finished. The IPC socket
+remains responsive while a queued action displays a modal dialog.
+Wait for the expected live state before issuing dependent edits or saves after
+an action; an immediate read can precede the queued action.
+
+Save writes the complete schematic hierarchy once per screen, including
+non-active sheets. It does not implicitly save project settings. Library Save
+writes only the current item through global/project library tables and refuses
+read-only libraries. Schematic-linked symbols and board-linked footprints must
+be saved through their parent editor; explicit SaveCopy remains available.
+
+SaveCopy preserves the active path and unsaved flags. Schematic copies contain
+one selected sheet, keeping child file links unchanged. Symbol copies are
+self-contained single-symbol `.kicad_sym` libraries (inherited symbols are
+flattened). Footprint and drawing sheet copies are `.kicad_mod`/`.kicad_wks`
+files. `include_project=True` is supported only for PCB; other types reject it.
+The destination directory must exist, the extension must match, and overwriting
+requires `overwrite=True`. SaveCopy refuses to overwrite an open source file.
+Regenerate descriptors with `build_client.py` when updating from client 0.4.
+
+
+The repeatable live acceptance runner is `qa/tests/api/live_document_commands.py`.
+It requires a `.ipc-test-project` marker, an already-open test document and a
+source fixture containing `STAGE1_INITIAL`. It refuses reference project names,
+changes the test file on disk and exercises reload, dirty protection, copy/save,
+Undo/Redo, malformed requests, transaction exclusion and read-only libraries.
+Never pass a working user document to mutation tests. Modal and viewport checks
+must additionally be performed against the private test app.

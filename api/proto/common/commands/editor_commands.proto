@@ -85,6 +85,9 @@ message SaveCopyOfDocument
 message RevertDocument
 {
   kiapi.common.types.DocumentSpecifier document = 1;
+
+  // Explicit permission to discard unsaved changes; false refuses a dirty document.
+  bool discard_unsaved = 2;
 }
 
 /*
@@ -96,6 +99,9 @@ message RevertDocument
 message RunAction
 {
   string action = 1;  // Action name, like "eeschema.InteractiveSelection.ClearSelection"
+
+  // Required when more than one editor is open.
+  kiapi.common.types.DocumentSpecifier document = 2;
 }
 
 enum RunActionStatus
