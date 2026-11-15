@@ -44,6 +44,10 @@ set( PL_EDITOR_SRCS
     tools/pl_point_editor.cpp
     )
 
+if( KICAD_IPC_API )
+    list( APPEND PL_EDITOR_SRCS api_handler_drawing_sheet.cpp )
+endif()
+
 set( PL_EDITOR_EXTRA_SRCS
 )
 

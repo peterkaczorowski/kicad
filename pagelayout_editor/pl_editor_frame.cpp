@@ -23,6 +23,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#ifdef KICAD_IPC_API
+#include "api_handler_drawing_sheet.h"
+#include <api/api_server.h>
+#endif
+
+
 #include <kiface_base.h>
 #include <pgm_base.h>
 #include <bitmaps.h>
@@ -229,6 +235,10 @@ PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     OnNewDrawingSheet();
 
     // Ensure the window is on top
+#ifdef KICAD_IPC_API
+    m_documentApiHandler = std::make_unique<API_HANDLER_DRAWING_SHEET>( this );
+    Pgm().GetApiServer().RegisterHandler( m_documentApiHandler.get() );
+#endif
     Raise();
 
     // Register a call to update the toolbar sizes. It can't be done immediately because
@@ -267,6 +277,9 @@ PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 PL_EDITOR_FRAME::~PL_EDITOR_FRAME()
 {
+#ifdef KICAD_IPC_API
+    Pgm().GetApiServer().DeregisterHandler( m_documentApiHandler.get() );
+#endif
     // Ensure m_canvasType is up to date, to save it in config
     m_canvasType = GetCanvas()->GetBackend();
 

@@ -48,6 +48,8 @@ class NL_PL_EDITOR_PLUGIN;
 /**
  * The main window used in the drawing sheet editor.
  */
+class API_HANDLER_DRAWING_SHEET;
+
 class PL_EDITOR_FRAME : public EDA_DRAW_FRAME
 {
 public:
@@ -297,6 +299,10 @@ private:
             _("Right Top page corner"),
             _("Left Top page corner")
         };
+#ifdef KICAD_IPC_API
+    friend class API_HANDLER_DRAWING_SHEET;
+    std::unique_ptr<API_HANDLER_DRAWING_SHEET> m_documentApiHandler;
+#endif
 };
 
 #endif /* _PL_EDITOR_FRAME_H */
