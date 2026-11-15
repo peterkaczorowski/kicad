@@ -290,3 +290,17 @@ the adapter raises on failure, causing Drop and rollback of the transaction.
 Read-only queries remain available during a transaction; other clients cannot
 mutate it. `last_affected_documents` reports all instances of a shared screen.
 Symbol editing and library operations are still pending until later stage-2 commits.
+
+
+### Labels and text (client 0.7)
+
+`add_label(text, position_nm, document, kind='local', rotation_degrees=0,
+shape=0, properties=None)` supports local/global/hierarchical/directive labels.
+Object types are 30–33. All label protobufs now carry spin, shape and properties;
+`text.text.text` is the literal string in these pre-existing nested messages.
+Spin values 0–3 mean native left/up/right/bottom. Shapes are 0 input, 1 output,
+2 bidirectional, 3 tristate, 4 passive; directive shapes instead mean
+0 dot, 1 circle, 2 diamond, 3 rectangle. Properties carry native fields such as
+`Net Class`. The same generic read/update/delete and transaction rules apply.
+`add_text` creates ordinary schematic notes (object type 27); font/position data
+also uses nm. Text and labels preserve core formatting through native codecs.

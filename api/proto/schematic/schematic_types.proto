@@ -47,6 +47,7 @@ message Line
 message Text
 {
   kiapi.common.types.Text text = 1;
+  kiapi.common.types.KIID id = 2;
 }
 
 message LocalLabel
@@ -54,6 +55,13 @@ message LocalLabel
   kiapi.common.types.KIID    id       = 1;
   kiapi.common.types.Vector2 position = 2;
   Text                       text     = 3;
+  // Native spin: 0 left, 1 up, 2 right, 3 bottom.
+  uint32 spin = 4;
+  // Local/global/hier: 0 input, 1 output, 2 bidirectional, 3 tristate, 4 passive.
+  // Directive: 0 dot, 1 circle, 2 diamond, 3 rectangle.
+  uint32 shape = 5;
+  map<string, string> properties = 6;
+
 }
 
 message GlobalLabel
@@ -61,6 +69,13 @@ message GlobalLabel
   kiapi.common.types.KIID    id       = 1;
   kiapi.common.types.Vector2 position = 2;
   Text                       text     = 3;
+  // Native spin: 0 left, 1 up, 2 right, 3 bottom.
+  uint32 spin = 4;
+  // Local/global/hier: 0 input, 1 output, 2 bidirectional, 3 tristate, 4 passive.
+  // Directive: 0 dot, 1 circle, 2 diamond, 3 rectangle.
+  uint32 shape = 5;
+  map<string, string> properties = 6;
+
 }
 
 message HierarchicalLabel
@@ -68,6 +83,13 @@ message HierarchicalLabel
   kiapi.common.types.KIID    id       = 1;
   kiapi.common.types.Vector2 position = 2;
   Text                       text     = 3;
+  // Native spin: 0 left, 1 up, 2 right, 3 bottom.
+  uint32 spin = 4;
+  // Local/global/hier: 0 input, 1 output, 2 bidirectional, 3 tristate, 4 passive.
+  // Directive: 0 dot, 1 circle, 2 diamond, 3 rectangle.
+  uint32 shape = 5;
+  map<string, string> properties = 6;
+
 }
 
 message DirectiveLabel
@@ -75,6 +97,13 @@ message DirectiveLabel
   kiapi.common.types.KIID    id       = 1;
   kiapi.common.types.Vector2 position = 2;
   Text                       text     = 3;
+  // Native spin: 0 left, 1 up, 2 right, 3 bottom.
+  uint32 spin = 4;
+  // Local/global/hier: 0 input, 1 output, 2 bidirectional, 3 tristate, 4 passive.
+  // Directive: 0 dot, 1 circle, 2 diamond, 3 rectangle.
+  uint32 shape = 5;
+  map<string, string> properties = 6;
+
 }
 
 enum SheetPinSide

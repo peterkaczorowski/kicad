@@ -31,6 +31,7 @@
 #include <api/schematic/schematic_types.pb.h>
 
 class EDA_ITEM;
+class EDA_TEXT;
 class SCH_ITEM;
 class SCH_SHEET_PATH;
 class SCH_SHEET;
@@ -42,6 +43,10 @@ std::unique_ptr<SCH_SHEET> UnpackSchematicSheet( const kiapi::schematic::types::
                                               EDA_ITEM* aParent, std::string& aError );
 
 std::unique_ptr<EDA_ITEM> CreateItemForType( KICAD_T aType, EDA_ITEM* aContainer );
+
+bool ConvertSchematicUnits( google::protobuf::Message&, bool toApi, std::string& error );
+void PackSchematicText( kiapi::common::types::Text&, const EDA_TEXT& );
+bool UnpackSchematicText( const kiapi::common::types::Text&, EDA_TEXT&, std::string& error );
 
 // Schematic model units are 100 nm; all public API vectors are nanometers.
 void PackSchematicVector( kiapi::common::types::Vector2&, const VECTOR2I& );

@@ -4,6 +4,7 @@
 #include <boost/test/unit_test.hpp>
 #include <api/api_sch_utils.h>
 #include <sch_line.h>
+#include <sch_label.h>
 
 BOOST_AUTO_TEST_SUITE( SchematicItemsApi )
 
@@ -81,5 +82,57 @@ BOOST_AUTO_TEST_CASE( WireValidationAndSelectiveUpdates )
     input.PackFrom( wire );
     BOOST_CHECK( !UnpackSchematicItem( input, error ) );
     BOOST_CHECK_EQUAL( before->SerializeAsString(), PackSchematicItem( original )->SerializeAsString() );
+}
+BOOST_AUTO_TEST_CASE( LabelsTextAndTransformValidation )
+{
+    using namespace kiapi::schematic::types;
+    std::string error;
+    for( int kind = 0; kind < 4; ++kind )
+    {
+        google::protobuf::Any input;
+        auto prepare = [&]( auto& label )
+        {
+            label.mutable_position()->set_x_nm( 12000000 );
+            label.mutable_position()->set_y_nm( -2000000 );
+            label.mutable_text()->mutable_text()->set_text( "CLK" );
+            label.set_spin( 1 );
+            label.set_shape( 2 );
+            (*label.mutable_properties())["Netclass"] = "Fast";
+            BOOST_REQUIRE( input.PackFrom( label ) );
+        };
+        if( kind == 0 ) { LocalLabel label; prepare( label ); }
+        if( kind == 1 ) { GlobalLabel label; prepare( label ); }
+        if( kind == 2 ) { HierarchicalLabel label; prepare( label ); }
+        if( kind == 3 ) { DirectiveLabel label; prepare( label ); }
+        auto item = UnpackSchematicItem( input, error );
+        BOOST_REQUIRE_MESSAGE( item, error );
+        auto* label = static_cast<SCH_LABEL_BASE*>( item.get() );
+        BOOST_CHECK_EQUAL( label->GetPosition().x, 120000 );
+        BOOST_CHECK_EQUAL( label->GetPosition().y, -20000 );
+        BOOST_CHECK_EQUAL( label->GetText(), "CLK" );
+        BOOST_CHECK_EQUAL( int( label->GetSpinStyle() ), 1 );
+        auto packed = PackSchematicItem( *item );
+        BOOST_REQUIRE( packed );
+        auto restored = UnpackSchematicItem( *packed, error );
+        BOOST_REQUIRE_MESSAGE( restored, error );
+        BOOST_CHECK_EQUAL( PackSchematicItem( *restored )->SerializeAsString(), packed->SerializeAsString() );
+    }
+    LocalLabel bad;
+    bad.mutable_text()->mutable_text()->set_text( "CLK" );
+    bad.set_spin( 4 );
+    google::protobuf::Any data;
+    BOOST_REQUIRE( data.PackFrom( bad ) );
+    BOOST_CHECK( !UnpackSchematicItem( data, error ) );
+    bad.set_spin( 0 );
+    bad.mutable_text()->mutable_text()->mutable_attributes()->mutable_size()->set_x_nm( -1 );
+    BOOST_REQUIRE( data.PackFrom( bad ) );
+    BOOST_CHECK( !UnpackSchematicItem( data, error ) );
+    Text text;
+    text.mutable_text()->set_text( "Note" );
+    text.mutable_text()->mutable_position()->set_x_nm( 3000000 );
+    BOOST_REQUIRE( data.PackFrom( text ) );
+    auto item = UnpackSchematicItem( data, error );
+    BOOST_REQUIRE_MESSAGE( item, error );
+    BOOST_CHECK_EQUAL( item->GetPosition().x, 30000 );
 }
 BOOST_AUTO_TEST_SUITE_END()

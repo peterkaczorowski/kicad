@@ -65,6 +65,23 @@ class ClientTest(unittest.TestCase):
         graphic = self.client.add_wire((0, 0), (1000000, 0), self.doc, graphic=True)
         self.assertEqual((bus.layer, graphic.layer), (2, 3))
 
+    def test_label_kinds_rotations_properties_and_text(self):
+        for kind, name in [('local', 'LocalLabel'), ('global', 'GlobalLabel'),
+                           ('hierarchical', 'HierarchicalLabel'), ('directive', 'DirectiveLabel')]:
+            result = self.client.add_label('CLK', (12340000, -5500000), self.doc,
+                                           kind=kind, rotation_degrees=90, properties={'Net Class': 'Fast'})
+            self.assertEqual(result.DESCRIPTOR.name, name)
+            self.assertEqual(result.text.text.text, 'CLK')
+            self.assertEqual(result.position.x_nm, 12340000)
+            self.assertEqual(result.spin, 1)
+            self.assertEqual(result.properties['Net Class'], 'Fast')
+        with self.assertRaises(ValueError):
+            self.client.add_label('CLK', (0, 0), self.doc, rotation_degrees=45)
+        text = self.client.add_text('Note', (1000000, 2000000), self.doc)
+        self.assertEqual(text.text.text, 'Note')
+        self.assertEqual(text.text.position.y_nm, 2000000)
+        self.assertEqual(text.text.attributes.size.x_nm, 1270000)
+
     def test_failed_item_batch_drops_enclosing_transaction(self):
         class RejectingTransport(Transport):
             def send(self, request, response_type):

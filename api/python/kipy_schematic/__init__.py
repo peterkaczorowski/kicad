@@ -43,6 +43,11 @@ Document = _message('kiapi.common.types.DocumentSpecifier')
 Sheet = _message('kiapi.schematic.types.Sheet')
 SheetPin = _message('kiapi.schematic.types.SheetPin')
 Line = _message('kiapi.schematic.types.Line')
+LocalLabel = _message('kiapi.schematic.types.LocalLabel')
+GlobalLabel = _message('kiapi.schematic.types.GlobalLabel')
+HierarchicalLabel = _message('kiapi.schematic.types.HierarchicalLabel')
+DirectiveLabel = _message('kiapi.schematic.types.DirectiveLabel')
+Text = _message('kiapi.schematic.types.Text')
 
 
 class SchematicClient:
@@ -174,6 +179,34 @@ class SchematicClient:
             raise RuntimeError('DeleteItems rejected one or more IDs')
         self.last_affected_documents = list(result.affected_documents)
         return result
+
+    def add_label(self, text, position, document=None, *, kind='local',
+                  rotation_degrees=0, shape=0, properties=None, id=None):
+        """Create local/global/hierarchical/directive label at an electrical anchor in nm.
+
+        Spin rotations 0/90/180/270 correspond to native left/up/right/bottom.
+        Shapes: input/output/bidirectional/tristate/passive = 0..4; directive
+        dot/circle/diamond/rectangle = 0..3. Properties include net-class fields.
+        """
+        classes = {'local': LocalLabel, 'global': GlobalLabel,
+                   'hierarchical': HierarchicalLabel, 'directive': DirectiveLabel}
+        if kind not in classes or rotation_degrees % 90:
+            raise ValueError('Unknown label kind or non-quarter-turn rotation')
+        label = classes[kind](spin=(rotation_degrees // 90) % 4, shape=shape)
+        label.id.value = str(id or uuid4())
+        label.position.x_nm, label.position.y_nm = position
+        label.text.text.text = text
+        if properties:
+            label.properties.update(properties)
+        return self.create_items([label], document)[0]
+
+    def add_text(self, text, position, document=None, *, size_nm=1270000, id=None):
+        item = Text()
+        item.id.value = str(id or uuid4())
+        item.text.text = text
+        item.text.position.x_nm, item.text.position.y_nm = position
+        item.text.attributes.size.x_nm = item.text.attributes.size.y_nm = size_nm
+        return self.create_items([item], document)[0]
 
     def add_wire(self, start, end, document=None, *, bus=False, graphic=False, id=None):
         """Wire/bus endpoints in nm; zero-length segments and invalid layers are rejected."""
