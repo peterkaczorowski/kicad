@@ -32,6 +32,7 @@
 #include <board.h>
 #include <embedded_files.h>
 #include <footprint.h>
+#include <pcb_field.h>
 #include <pcb_barcode.h>
 #include <pcb_dimension.h>
 #include <pcb_reference_image.h>
@@ -228,6 +229,25 @@ BOOST_FIXTURE_TEST_CASE( EmbeddedFiles, PROTO_TEST_FIXTURE )
                 BOOST_CHECK_EQUAL( expected->compressedEncodedData, actual->compressedEncodedData );
             }
         }
+    }
+}
+
+// SaveCopy and library writers clone a footprint, sometimes more than once. Mandatory
+// field assignment must not silently generate new UUIDs on every otherwise identical export.
+BOOST_AUTO_TEST_CASE( FootprintCopiesKeepFieldIdsAndDuplicatesRenewThem )
+{
+    FOOTPRINT original( nullptr );
+    auto copy = std::unique_ptr<FOOTPRINT>( static_cast<FOOTPRINT*>( original.Clone() ) );
+    auto second = std::unique_ptr<FOOTPRINT>( static_cast<FOOTPRINT*>( copy->Clone() ) );
+    auto duplicate = std::unique_ptr<FOOTPRINT>(
+            static_cast<FOOTPRINT*>( original.Duplicate( IGNORE_PARENT_GROUP ) ) );
+    BOOST_REQUIRE_EQUAL( original.GetFields().size(), 4 );
+    for( PCB_FIELD* field : original.GetFields() )
+    {
+        BOOST_CHECK( copy->GetField( field->GetId() )->m_Uuid == field->m_Uuid );
+        BOOST_CHECK( second->GetField( field->GetId() )->m_Uuid == field->m_Uuid );
+        BOOST_CHECK( duplicate->GetField( field->GetId() )->m_Uuid != field->m_Uuid );
+        BOOST_CHECK( copy->GetField( field->GetId() )->GetParent() == copy.get() );
     }
 }
 

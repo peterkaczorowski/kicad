@@ -20,6 +20,12 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifdef KICAD_IPC_API
+#include <api/api_handler_footprint.h>
+#include <api/api_server.h>
+#endif
+
+
 #include "tool/embed_tool.h"
 #include "tools/convert_tool.h"
 #include "tools/drawing_tool.h"
@@ -318,6 +324,10 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     Bind( wxEVT_CHAR_HOOK, &TOOL_DISPATCHER::DispatchWxEvent, m_toolDispatcher );
 
     // Ensure the window is on top
+#ifdef KICAD_IPC_API
+    m_documentApiHandler = std::make_unique<API_HANDLER_FOOTPRINT>( this );
+    Pgm().GetApiServer().RegisterHandler( m_documentApiHandler.get() );
+#endif
     Raise();
     Show( true );
 
@@ -338,6 +348,9 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 FOOTPRINT_EDIT_FRAME::~FOOTPRINT_EDIT_FRAME()
 {
+#ifdef KICAD_IPC_API
+    Pgm().GetApiServer().DeregisterHandler( m_documentApiHandler.get() );
+#endif
     // Shutdown all running tools
     if( m_toolManager )
         m_toolManager->ShutdownAllTools();

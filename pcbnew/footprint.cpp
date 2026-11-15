@@ -180,6 +180,8 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
             PCB_FIELD* existingField = GetField( field->GetId() );
             ptrMap[field] = existingField;
             *existingField = *field;
+            // Assignment preserves the destination identity; a clone must copy the source ID.
+            existingField->SetUuidDirect( field->m_Uuid );
             existingField->SetParent( this );
         }
         else

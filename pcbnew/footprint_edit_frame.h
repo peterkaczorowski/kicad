@@ -37,6 +37,8 @@ class EDA_LIST_DIALOG;
 namespace PCB { struct IFACE; }     // A KIFACE coded in pcbnew.cpp
 
 
+class API_HANDLER_FOOTPRINT;
+
 class FOOTPRINT_EDIT_FRAME : public PCB_BASE_EDIT_FRAME
 {
 public:
@@ -354,6 +356,10 @@ private:
     std::unique_ptr<FOOTPRINT>  m_originalFootprintCopy;
     wxString                    m_footprintNameWhenLoaded;
     std::map<KIID, KIID>        m_boardFootprintUuids;
+#ifdef KICAD_IPC_API
+    friend class API_HANDLER_FOOTPRINT;
+    std::unique_ptr<API_HANDLER_FOOTPRINT> m_documentApiHandler;
+#endif
 };
 
 #endif      // FOOTPRINT_EDIT_FRAME_H
