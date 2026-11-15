@@ -385,7 +385,9 @@ SCH_LAYER_ID FromProtoEnum( schematic::types::SchematicLayer aValue )
 {
     switch( aValue )
     {
-
+    case schematic::types::SL_WIRE: return LAYER_WIRE;
+    case schematic::types::SL_BUS: return LAYER_BUS;
+    case schematic::types::SL_NOTES: return LAYER_NOTES;
     default:
         wxCHECK_MSG( false, SCH_LAYER_ID_START,
                      "Unhandled case in FromProtoEnum<schematic::types::SchematicLayer>" );
@@ -398,7 +400,9 @@ schematic::types::SchematicLayer ToProtoEnum( SCH_LAYER_ID aValue )
 {
     switch( aValue )
     {
-
+    case LAYER_WIRE: return schematic::types::SL_WIRE;
+    case LAYER_BUS: return schematic::types::SL_BUS;
+    case LAYER_NOTES: return schematic::types::SL_NOTES;
     default:
         wxCHECK_MSG( false, schematic::types::SchematicLayer::SL_UNKNOWN,
                      "Unhandled case in ToProtoEnum<SCH_LAYER_ID>");

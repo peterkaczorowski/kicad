@@ -40,6 +40,7 @@
 #include <board_item.h>
 #include <api/api_enums.h>
 #include <api/api_utils.h>
+#include <api/api_sch_utils.h>
 #include <api/schematic/schematic_types.pb.h>
 #include <properties/property.h>
 #include <properties/property_mgr.h>
@@ -108,8 +109,8 @@ void SCH_LINE::Serialize( google::protobuf::Any &aContainer ) const
     kiapi::schematic::types::Line line;
 
     line.mutable_id()->set_value( m_Uuid.AsStdString() );
-    kiapi::common::PackVector2( *line.mutable_start(), GetStartPoint() );
-    kiapi::common::PackVector2( *line.mutable_end(), GetEndPoint() );
+    PackSchematicVector( *line.mutable_start(), GetStartPoint() );
+    PackSchematicVector( *line.mutable_end(), GetEndPoint() );
     line.set_layer(
             ToProtoEnum<SCH_LAYER_ID, kiapi::schematic::types::SchematicLayer>( GetLayer() ) );
 
@@ -124,23 +125,20 @@ bool SCH_LINE::Deserialize( const google::protobuf::Any &aContainer )
     if( !aContainer.UnpackTo( &line ) )
         return false;
 
-    const_cast<KIID&>( m_Uuid ) = KIID( line.id().value() );
-    SetStartPoint( kiapi::common::UnpackVector2( line.start() ) );
-    SetEndPoint( kiapi::common::UnpackVector2( line.end() ) );
-    SCH_LAYER_ID layer =
-            FromProtoEnum<SCH_LAYER_ID, kiapi::schematic::types::SchematicLayer>( line.layer() );
-
-    switch( layer )
-    {
-    case LAYER_WIRE:
-    case LAYER_BUS:
-    case LAYER_NOTES:
-        SetLayer( layer );
-        break;
-
-    default:
-        break;
-    }
+    VECTOR2I start, end;
+    if( !UnpackSchematicVector( line.start(), start )
+        || !UnpackSchematicVector( line.end(), end ) || start == end
+        || line.layer() < kiapi::schematic::types::SL_WIRE
+        || line.layer() > kiapi::schematic::types::SL_NOTES
+        || ( !line.id().value().empty()
+             && ( !KIID::SniffTest( wxString::FromUTF8( line.id().value() ) )
+                  || KIID( line.id().value() ) == niluuid ) ) )
+        return false;
+    if( !line.id().value().empty() )
+        const_cast<KIID&>( m_Uuid ) = KIID( line.id().value() );
+    SetStartPoint( start );
+    SetEndPoint( end );
+    SetLayer( FromProtoEnum<SCH_LAYER_ID, kiapi::schematic::types::SchematicLayer>( line.layer() ) );
 
     return true;
 }

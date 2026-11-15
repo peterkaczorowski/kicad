@@ -26,6 +26,9 @@ import "common/types/base_types.proto";
 enum SchematicLayer
 {
   SL_UNKNOWN = 0;
+  SL_WIRE = 1;
+  SL_BUS = 2;
+  SL_NOTES = 3;
 }
 
 /// Represents a schematic line segment, which may be a wire, bus, or graphical line

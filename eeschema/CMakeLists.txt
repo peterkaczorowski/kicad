@@ -447,6 +447,7 @@ set( EESCHEMA_SRCS
     toolbars_sch_editor.cpp
     toolbars_symbol_viewer.cpp
 
+    api/api_sch_items.cpp
     api/api_sch_utils.cpp
     api/api_sch_connectivity.cpp
     api/api_sch_net_rename.cpp

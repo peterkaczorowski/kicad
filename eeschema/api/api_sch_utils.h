@@ -22,11 +22,17 @@
 #define KICAD_API_SCH_UTILS_H
 
 #include <memory>
+#include <google/protobuf/any.pb.h>
+#include <optional>
+#include <set>
+#include <math/vector2d.h>
 #include <core/typeinfo.h>
 #include <import_export.h>
 #include <api/schematic/schematic_types.pb.h>
 
 class EDA_ITEM;
+class SCH_ITEM;
+class SCH_SHEET_PATH;
 class SCH_SHEET;
 class SCH_SHEET_PIN;
 
@@ -36,5 +42,20 @@ std::unique_ptr<SCH_SHEET> UnpackSchematicSheet( const kiapi::schematic::types::
                                               EDA_ITEM* aParent, std::string& aError );
 
 std::unique_ptr<EDA_ITEM> CreateItemForType( KICAD_T aType, EDA_ITEM* aContainer );
+
+// Schematic model units are 100 nm; all public API vectors are nanometers.
+void PackSchematicVector( kiapi::common::types::Vector2&, const VECTOR2I& );
+bool UnpackSchematicVector( const kiapi::common::types::Vector2&, VECTOR2I& );
+std::set<int> SupportedSchematicApiTypes();
+std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM&,
+                                                      const SCH_SHEET_PATH* = nullptr );
+std::unique_ptr<SCH_ITEM> UnpackSchematicItem( const google::protobuf::Any&, std::string&,
+                                             const SCH_ITEM* = nullptr,
+                                             const SCH_SHEET_PATH* = nullptr );
+std::string SchematicApiItemId( const google::protobuf::Any& );
+bool MergeSchematicApiItem( const google::protobuf::Any& patch,
+                           const google::protobuf::Any& original,
+                           const google::protobuf::FieldMask&, google::protobuf::Any& out,
+                           std::string& error );
 
 #endif //KICAD_API_SCH_UTILS_H

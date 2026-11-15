@@ -60,6 +60,8 @@ protected:
     }
 
     bool validateDocumentInternal( const DocumentSpecifier& aDocument ) const override;
+    std::vector<DocumentSpecifier> documentsAffectedBy( const DocumentSpecifier& ) const override;
+
 
     HANDLER_RESULT<std::unique_ptr<EDA_ITEM>> createItemForType( KICAD_T aType,
                                                                  EDA_ITEM* aContainer );
@@ -71,7 +73,8 @@ protected:
             std::function<void(commands::ItemStatus, google::protobuf::Any)> aItemHandler )
             override;
 
-    void deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
+    void deleteItemsInternal( const DocumentSpecifier& aDocument,
+                              std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
                               const std::string& aClientName ) override;
 
     std::optional<EDA_ITEM*> getItemFromDocument( const DocumentSpecifier& aDocument,
@@ -114,7 +117,8 @@ private:
     DocumentSpecifier describeDocument( const SCH_SHEET_PATH& aPath ) const;
     HANDLER_RESULT<kiapi::schematic::types::Sheet> createSheet(
             const types::ItemHeader& aHeader, const kiapi::schematic::types::Sheet& aSheet,
-            const std::string& aClientName, std::optional<bool> aLinkExisting );
+            const std::string& aClientName, std::optional<bool> aLinkExisting,
+            bool aDeferPush = false );
     HANDLER_RESULT<kiapi::schematic::commands::CreateSheetResponse> handleCreateSheet(
             const HANDLER_CONTEXT<kiapi::schematic::commands::CreateSheet>& aCtx );
 

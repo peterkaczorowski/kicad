@@ -28,7 +28,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kipy-schematic"
-version = "0.5.0"
+version = "0.6.0"
 requires-python = ">=3.10"
 dependencies = ["kicad-python>=0.8,<0.9", "protobuf>=5.29,<8"]
 

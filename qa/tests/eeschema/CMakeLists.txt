@@ -51,6 +51,7 @@ set( QA_EESCHEMA_SRCS
 
     # Base internal units (1=100nm) testing.
     test_sch_biu.cpp
+    test_api_schematic_items.cpp
     test_api_schematic_sheets.cpp
     test_api_schematic_connectivity.cpp
     test_api_schematic_net_rename.cpp

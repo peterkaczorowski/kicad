@@ -95,7 +95,7 @@ HANDLER_RESULT<BeginCommitResponse> API_HANDLER_EDITOR::handleBeginCommit(
             return tl::unexpected( valid.error() );
     }
 
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+    if( std::optional<ApiResponseStatus> busy = checkForWrite( aCtx.ClientName ) )
         return tl::unexpected( *busy );
 
     if( m_commits.count( aCtx.ClientName ) )
@@ -299,6 +299,23 @@ std::optional<ApiResponseStatus> API_HANDLER_EDITOR::checkForBusy()
 }
 
 
+std::optional<ApiResponseStatus> API_HANDLER_EDITOR::checkForWrite( const std::string& client )
+{
+    if( auto busy = checkForBusy() ) return busy;
+    bool foreign = std::any_of( m_commits.begin(), m_commits.end(),
+                               [&]( const auto& entry ) { return entry.first != client; } );
+    if( foreign || ( m_frame && !m_frame->ToolStackIsEmpty() ) )
+    {
+        ApiResponseStatus error;
+        error.set_status( ApiStatusCode::AS_BUSY );
+        error.set_error_message( foreign ? "Another API client has an open commit"
+                                        : "An interactive tool is active" );
+        return error;
+    }
+    return std::nullopt;
+}
+
+
 HANDLER_RESULT<CreateItemsResponse> API_HANDLER_EDITOR::handleCreateItems(
         const HANDLER_CONTEXT<CreateItems>& aCtx )
 {
@@ -308,7 +325,7 @@ HANDLER_RESULT<CreateItemsResponse> API_HANDLER_EDITOR::handleCreateItems(
     if( !document )
         return tl::unexpected( document.error() );
 
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+    if( std::optional<ApiResponseStatus> busy = checkForWrite( aCtx.ClientName ) )
         return tl::unexpected( *busy );
 
     CreateItemsResponse response;
@@ -328,6 +345,9 @@ HANDLER_RESULT<CreateItemsResponse> API_HANDLER_EDITOR::handleCreateItems(
         return tl::unexpected( result.error() );
 
     response.set_status( *result );
+    *response.mutable_header() = aCtx.Request.header();
+    for( const auto& document : documentsAffectedBy( aCtx.Request.header().document() ) )
+        *response.add_affected_documents() = document;
     return response;
 }
 
@@ -341,7 +361,7 @@ HANDLER_RESULT<UpdateItemsResponse> API_HANDLER_EDITOR::handleUpdateItems(
     if( !document )
         return tl::unexpected( document.error() );
 
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+    if( std::optional<ApiResponseStatus> busy = checkForWrite( aCtx.ClientName ) )
         return tl::unexpected( *busy );
 
     UpdateItemsResponse response;
@@ -361,6 +381,9 @@ HANDLER_RESULT<UpdateItemsResponse> API_HANDLER_EDITOR::handleUpdateItems(
         return tl::unexpected( result.error() );
 
     response.set_status( *result );
+    *response.mutable_header() = aCtx.Request.header();
+    for( const auto& document : documentsAffectedBy( aCtx.Request.header().document() ) )
+        *response.add_affected_documents() = document;
     return response;
 }
 
@@ -368,15 +391,18 @@ HANDLER_RESULT<UpdateItemsResponse> API_HANDLER_EDITOR::handleUpdateItems(
 HANDLER_RESULT<DeleteItemsResponse> API_HANDLER_EDITOR::handleDeleteItems(
         const HANDLER_CONTEXT<DeleteItems>& aCtx )
 {
-    if( !validateItemHeaderDocument( aCtx.Request.header() ) )
-    {
-        ApiResponseStatus e;
-        // No message needed for AS_UNHANDLED; this is an internal flag for the API server
-        e.set_status( ApiStatusCode::AS_UNHANDLED );
-        return tl::unexpected( e );
-    }
+    auto valid = validateItemHeaderDocument( aCtx.Request.header() );
+    if( !valid )
+        return tl::unexpected( valid.error() );
 
-    if( std::optional<ApiResponseStatus> busy = checkForBusy() )
+    const auto& header = aCtx.Request.header();
+    if( thisDocumentType() == types::DOCTYPE_SCHEMATIC
+        && ( header.document().project().path().empty() || !header.document().has_sheet_path()
+             || header.document().sheet_path().path_size() == 0
+             || !header.container().value().empty() || header.field_mask().paths_size() ) )
+        return documentError( "Schematic deletion requires an explicit project/sheet and no container or mask" );
+
+    if( std::optional<ApiResponseStatus> busy = checkForWrite( aCtx.ClientName ) )
         return tl::unexpected( *busy );
 
     std::map<KIID, ItemDeletionStatus> itemsToDelete;
@@ -398,7 +424,7 @@ HANDLER_RESULT<DeleteItemsResponse> API_HANDLER_EDITOR::handleDeleteItems(
         return tl::unexpected( e );
     }
 
-    deleteItemsInternal( itemsToDelete, aCtx.ClientName );
+    deleteItemsInternal( aCtx.Request.header().document(), itemsToDelete, aCtx.ClientName );
 
     DeleteItemsResponse response;
 
@@ -410,6 +436,9 @@ HANDLER_RESULT<DeleteItemsResponse> API_HANDLER_EDITOR::handleDeleteItems(
     }
 
     response.set_status( kiapi::common::types::ItemRequestStatus::IRS_OK );
+    *response.mutable_header() = aCtx.Request.header();
+    for( const auto& document : documentsAffectedBy( aCtx.Request.header().document() ) )
+        *response.add_affected_documents() = document;
     return response;
 }
 
@@ -477,7 +506,8 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_EDITOR::handleCreateUpdateItemsInt
     return documentError( "Item editing is not supported in this editor", ApiStatusCode::AS_UNIMPLEMENTED );
 }
 
-void API_HANDLER_EDITOR::deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItems,
+void API_HANDLER_EDITOR::deleteItemsInternal( const DocumentSpecifier&,
+                                              std::map<KIID, ItemDeletionStatus>& aItems,
                                               const std::string& )
 {
     for( auto& [id, status] : aItems )

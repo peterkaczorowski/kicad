@@ -261,3 +261,32 @@ changes the test file on disk and exercises reload, dirty protection, copy/save,
 Undo/Redo, malformed requests, transaction exclusion and read-only libraries.
 Never pass a working user document to mutation tests. Modal and viewport checks
 must additionally be performed against the private test app.
+
+
+## Live schematic items (client 0.6, stage 2 in progress)
+
+Wire/bus/graphical `Line` CRUD is available through `get_items`, `create_items`,
+`update_items(fields=[...])`, `delete_items` and `add_wire(start_nm, end_nm)`.
+Object type 23 selects lines. Layer values are WIRE=1, BUS=2, NOTES=3; coordinates
+are integer nm and round to the schematic's 100 nm resolution. Zero-length,
+out-of-range and invalid UUID data are rejected before applying that item.
+
+```python
+page = client.active_document()
+with client.commit('Connect two points', document=page):
+    line = client.add_wire((10000000, 10000000), (20000000, 10000000), page)
+    line.end.y_nm = 15000000
+    client.update_items([line], page, fields=['end'])
+```
+
+Items are attached immediately, so reads/connectivity in the same open commit
+see current edits. Drop restores the old live model; EndCommit performs normal
+native connectivity cleanup in the same Undo step. Cleanup may merge/split
+segments and retire their provisional IDs; read the model again after commit.
+Undo/Redo preserves the final committed UUIDs. Updates without a mask replace
+all supported protocol properties; fields absent from the protocol are preserved.
+Per-item failures carry explicit status. Wrap dependent batches in `commit()`:
+the adapter raises on failure, causing Drop and rollback of the transaction.
+Read-only queries remain available during a transaction; other clients cannot
+mutate it. `last_affected_documents` reports all instances of a shared screen.
+Symbol editing and library operations are still pending until later stage-2 commits.

@@ -60,6 +60,10 @@ protected:
      * @return an error status if busy, std::nullopt if not busy
      */
     virtual std::optional<ApiResponseStatus> checkForBusy();
+    std::optional<ApiResponseStatus> checkForWrite( const std::string& aClientName );
+    virtual std::vector<DocumentSpecifier> documentsAffectedBy( const DocumentSpecifier& document ) const
+    { return { document }; }
+
 
     HANDLER_RESULT<commands::BeginCommitResponse> handleBeginCommit(
         const HANDLER_CONTEXT<commands::BeginCommit>& aCtx );
@@ -121,7 +125,8 @@ protected:
         const google::protobuf::RepeatedPtrField<google::protobuf::Any>& aItems,
         std::function<void( commands::ItemStatus, google::protobuf::Any )> aItemHandler );
 
-    virtual void deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
+    virtual void deleteItemsInternal( const DocumentSpecifier& aDocument,
+                              std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
                                       const std::string& aClientName );
 
     virtual std::optional<EDA_ITEM*> getItemFromDocument( const DocumentSpecifier& aDocument,

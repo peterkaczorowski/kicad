@@ -24,6 +24,7 @@
 #include <cmath>
 #include <api/api_sch_utils.h>
 #include <api/api_utils.h>
+#include <api/api_enums.h>
 #include <magic_enum.hpp>
 #include <sch_commit.h>
 #include <sch_edit_frame.h>
@@ -32,6 +33,10 @@
 #include <sch_sheet_pin.h>
 #include <project.h>
 #include <set>
+#include <sch_line.h>
+#include <sch_commit_flags.h>
+#include <view/view.h>
+#include <google/protobuf/util/field_mask_util.h>
 #include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
 #include <wx/file.h>
 #include <wx/filefn.h>
@@ -54,11 +59,11 @@ class SCHEMATIC_API_COMMIT : public SCH_COMMIT
 {
 public:
     explicit SCHEMATIC_API_COMMIT( SCH_EDIT_FRAME* frame ) : SCH_COMMIT( frame ), m_frame( frame ) {}
-    void Track( SCH_SHEET* sheet ) { m_sheets.push_back( sheet ); }
+    void Track( SCH_ITEM* item ) { m_added.push_back( item ); }
     void Push( const wxString& message, int flags = 0 ) override
     {
         SCH_COMMIT::Push( message, flags );
-        m_sheets.clear();
+        m_added.clear();
     }
     void Revert() override
     {
@@ -67,7 +72,7 @@ public:
         SCH_SHEET_PATH safePath = m_frame->GetCurrentSheet();
         for( size_t i = 1; i < safePath.size(); ++i )
         {
-            if( std::find( m_sheets.begin(), m_sheets.end(), safePath.at( i ) ) != m_sheets.end() )
+            if( std::find( m_added.begin(), m_added.end(), safePath.at( i ) ) != m_added.end() )
             {
                 while( safePath.size() > i )
                     safePath.pop_back();
@@ -77,13 +82,13 @@ public:
             }
         }
         SCH_COMMIT::Revert();
-        for( SCH_SHEET* sheet : m_sheets )
-            delete sheet;
-        m_sheets.clear();
+        for( SCH_ITEM* item : m_added )
+            delete item;
+        m_added.clear();
     }
 private:
     SCH_EDIT_FRAME* m_frame;
-    std::vector<SCH_SHEET*> m_sheets;
+    std::vector<SCH_ITEM*> m_added;
 };
 }
 
@@ -106,6 +111,17 @@ API_HANDLER_SCH::API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame ) :
 std::unique_ptr<COMMIT> API_HANDLER_SCH::createCommit()
 {
     return std::make_unique<SCHEMATIC_API_COMMIT>( static_cast<SCH_EDIT_FRAME*>( m_frame ) );
+}
+
+
+std::vector<DocumentSpecifier> API_HANDLER_SCH::documentsAffectedBy( const DocumentSpecifier& document ) const
+{
+    std::vector<DocumentSpecifier> result;
+    auto selected = resolveDocument( document );
+    if( selected )
+        for( const auto& path : static_cast<SCH_EDIT_FRAME*>( m_frame )->Schematic().Hierarchy() )
+            if( path.LastScreen() == selected->LastScreen() ) result.push_back( describeDocument( path ) );
+    return result;
 }
 
 
@@ -222,7 +238,9 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItems(
     if( !path )
     {
         ApiResponseStatus error;
-        error.set_status( ApiStatusCode::AS_UNHANDLED );
+        error.set_status( aCtx.Request.header().document().type() == DocumentType::DOCTYPE_SCHEMATIC
+                                  ? ApiStatusCode::AS_BAD_REQUEST : ApiStatusCode::AS_UNHANDLED );
+        error.set_error_message( "The requested schematic page is not open" );
         return tl::unexpected( error );
     }
 
@@ -232,18 +250,12 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItems(
     const auto& header = aCtx.Request.header();
     std::set<int> requested( aCtx.Request.types().begin(), aCtx.Request.types().end() );
 
-    if( requested.empty() )
-        requested.insert( types::KOT_SCH_SHEET );
-
+    auto supported = SupportedSchematicApiTypes();
+    if( requested.empty() ) requested = supported;
     if( header.field_mask().paths_size() != 0
-        || std::any_of( requested.begin(), requested.end(), []( int type )
-                       { return type != types::KOT_SCH_SHEET && type != types::KOT_SCH_SHEET_PIN; } ) )
-    {
-        ApiResponseStatus error;
-        error.set_status( ApiStatusCode::AS_BAD_REQUEST );
-        error.set_error_message( "Schematic GetItems currently supports sheets and sheet pins, without field masks" );
-        return tl::unexpected( error );
-    }
+        || std::any_of( requested.begin(), requested.end(),
+                        [&]( int type ) { return !supported.count( type ); } ) )
+        return documentError( "Unsupported schematic read type or field mask" );
 
     GetItemsResponse response;
     *response.mutable_header() = header;
@@ -254,7 +266,12 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItems(
     for( SCH_ITEM* item : path->LastScreen()->Items() )
     {
         if( item->Type() != SCH_SHEET_T )
+        {
+            if( header.container().value().empty()
+                && requested.count( ToProtoEnum<KICAD_T, types::KiCadObjectType>( item->Type() ) ) )
+                if( auto packed = PackSchematicItem( *item, &*path ) ) *response.add_items() = *packed;
             continue;
+        }
 
         auto* sheet = static_cast<SCH_SHEET*>( item );
 
@@ -294,8 +311,8 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItemsById(
 {
     HANDLER_CONTEXT<GetItems> all;
     all.Request.mutable_header()->CopyFrom( aCtx.Request.header() );
-    all.Request.add_types( types::KOT_SCH_SHEET );
-    all.Request.add_types( types::KOT_SCH_SHEET_PIN );
+    for( int type : SupportedSchematicApiTypes() )
+        all.Request.add_types( static_cast<types::KiCadObjectType>( type ) );
     auto result = handleGetItems( all );
 
     if( !result )
@@ -311,14 +328,8 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_SCH::handleGetItemsById(
 
     for( const auto& item : result->items() )
     {
-        kiapi::schematic::types::Sheet sheet;
-        kiapi::schematic::types::SheetPin pin;
-
-        if( ( item.UnpackTo( &sheet ) && ids.count( sheet.id().value() ) )
-            || ( item.UnpackTo( &pin ) && ids.count( pin.id().value() ) ) )
-        {
+        if( ids.count( SchematicApiItemId( item ) ) )
             *response.add_items() = item;
-        }
     }
 
     return response;
@@ -371,7 +382,7 @@ HANDLER_RESULT<std::unique_ptr<EDA_ITEM>> API_HANDLER_SCH::createItemForType( KI
 
 HANDLER_RESULT<kiapi::schematic::types::Sheet> API_HANDLER_SCH::createSheet(
         const types::ItemHeader& aHeader, const kiapi::schematic::types::Sheet& aInput,
-        const std::string& aClientName, std::optional<bool> aLinkExisting )
+        const std::string& aClientName, std::optional<bool> aLinkExisting, bool aDeferPush )
 {
     auto fail = []( const std::string& message )
             -> HANDLER_RESULT<kiapi::schematic::types::Sheet>
@@ -526,7 +537,7 @@ HANDLER_RESULT<kiapi::schematic::types::Sheet> API_HANDLER_SCH::createSheet(
     commit->Added( created, path->LastScreen() );
     commit->Track( created );
     schematic.RefreshHierarchy();
-    if( !m_activeClients.count( aClientName ) )
+    if( !aDeferPush && !m_activeClients.count( aClientName ) )
         pushCurrentCommit( aClientName, _( "Created sheet via API" ) );
     return result;
 }
@@ -541,7 +552,7 @@ HANDLER_RESULT<kiapi::schematic::commands::CreateSheetResponse> API_HANDLER_SCH:
         error.set_status( ApiStatusCode::AS_UNHANDLED );
         return tl::unexpected( error );
     }
-    if( auto busy = checkForBusy() )
+    if( auto busy = checkForWrite( aCtx.ClientName ) )
         return tl::unexpected( *busy );
     auto result = createSheet( aCtx.Request.header(), aCtx.Request.sheet(), aCtx.ClientName,
                               aCtx.Request.link_existing() );
@@ -559,57 +570,127 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_SCH::handleCreateUpdateItemsIntern
         const google::protobuf::RepeatedPtrField<google::protobuf::Any>& aItems,
         std::function<void( ItemStatus, google::protobuf::Any )> aItemHandler )
 {
-    if( !aCreate )
+    auto path = resolveDocument( aHeader.document() );
+    if( !path || aHeader.document().project().path().empty() || !aHeader.document().has_sheet_path() )
+        return documentError( "Item edits require an explicit project and sheet UUID path" );
+    if( !aHeader.container().value().empty() )
+        return documentError( "These schematic items must be created on the selected sheet" );
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    SCH_SCREEN* screen = path->LastScreen();
+    auto* commit = static_cast<SCHEMATIC_API_COMMIT*>( getCurrentCommit( aClientName ) );
+    for( const auto& input : aItems )
     {
-        ApiResponseStatus error;
-        error.set_status( ApiStatusCode::AS_UNIMPLEMENTED );
-        error.set_error_message( "Schematic UpdateItems is not implemented; use CreateSheet to create or attach sheets" );
-        return tl::unexpected( error );
-    }
-    for( const auto& item : aItems )
-    {
-        kiapi::schematic::types::Sheet input;
         ItemStatus status;
         google::protobuf::Any output;
-        if( !item.UnpackTo( &input ) )
+        kiapi::schematic::types::Sheet sheet;
+        if( aCreate && input.UnpackTo( &sheet ) )
         {
-            status.set_code( ItemStatusCode::ISC_INVALID_TYPE );
-            status.set_error_message( "Schematic CreateItems currently accepts Sheet messages only" );
+            auto result = createSheet( aHeader, sheet, aClientName, std::nullopt, true );
+            if( result ) { status.set_code( ISC_OK ); output.PackFrom( *result ); }
+            else { status.set_code( ISC_INVALID_DATA ); status.set_error_message( result.error().error_message() ); }
+            aItemHandler( status, output );
+            commit = static_cast<SCHEMATIC_API_COMMIT*>( getCurrentCommit( aClientName ) );
+            continue;
+        }
+        auto fail = [&]( ItemStatusCode code, const std::string& message )
+                    { status.set_code( code ); status.set_error_message( message ); aItemHandler( status, input ); };
+        const std::string id = SchematicApiItemId( input );
+        SCH_ITEM* existing = nullptr;
+        for( SCH_ITEM* candidate : screen->Items() )
+            if( candidate->m_Uuid.AsStdString() == id ) { existing = candidate; break; }
+        if( aCreate && !id.empty() )
+        {
+            bool collision = false;
+            for( const auto& page : frame->Schematic().Hierarchy() )
+            {
+                collision |= page.Last()->m_Uuid.AsStdString() == id
+                             || page.LastScreen()->GetUuid().AsStdString() == id;
+                for( SCH_ITEM* candidate : page.LastScreen()->Items() )
+                {
+                    collision |= candidate->m_Uuid.AsStdString() == id;
+                    candidate->RunOnChildren( [&]( SCH_ITEM* child )
+                            { collision |= child->m_Uuid.AsStdString() == id; }, RECURSE_MODE::RECURSE );
+                }
+            }
+            if( collision ) { fail( ISC_EXISTING, "UUID is already in use in this schematic" ); continue; }
+        }
+        if( !aCreate && !existing ) { fail( ISC_NONEXISTENT, "UUID is not on the selected sheet" ); continue; }
+        std::string error;
+        google::protobuf::Any full = input;
+        if( !aCreate )
+        {
+            auto original = PackSchematicItem( *existing, &*path );
+            if( !original || !MergeSchematicApiItem( input, *original, aHeader.field_mask(), full, error ) )
+            { fail( ISC_INVALID_DATA, error.empty() ? "Unsupported update type" : error ); continue; }
+        }
+        else if( aHeader.field_mask().paths_size() )
+        { fail( ISC_INVALID_DATA, "CreateItems does not accept a field mask" ); continue; }
+        auto item = UnpackSchematicItem( full, error, existing, &*path );
+        if( !item ) { fail( ISC_INVALID_DATA, error ); continue; }
+        if( aCreate )
+        {
+            SCH_ITEM* added = item.release();
+            screen->Append( added );
+            if( screen == frame->GetScreen() ) frame->GetCanvas()->GetView()->Add( added );
+            commit->Added( added, screen );
+            commit->Track( added );
+            std::vector<SCH_ITEM*> changed{ added };
+            frame->Schematic().OnItemsAdded( changed );
+            added->SetConnectivityDirty();
+            if( auto packed = PackSchematicItem( *added, &*path ) ) output = *packed;
         }
         else
         {
-            auto result = createSheet( aHeader, input, aClientName, std::nullopt );
-            if( result )
-            {
-                status.set_code( ItemStatusCode::ISC_OK );
-                output.PackFrom( *result );
-            }
-            else
-            {
-                status.set_code( ItemStatusCode::ISC_INVALID_TYPE );
-                status.set_error_message( result.error().error_message() );
-            }
+            commit->Modify( existing, screen );
+            existing->SwapItemData( item.get() );
+            existing->SetConnectivityDirty();
+            screen->Update( existing );
+            std::vector<SCH_ITEM*> changed{ existing };
+            frame->Schematic().OnItemsChanged( changed );
+            if( screen == frame->GetScreen() ) frame->UpdateItem( existing, true, true );
+            if( auto packed = PackSchematicItem( *existing, &*path ) ) output = *packed;
         }
+        status.set_code( ISC_OK );
         aItemHandler( status, output );
     }
+    if( !m_activeClients.count( aClientName ) )
+        pushCurrentCommit( aClientName, aCreate ? _( "Created items via API" ) : _( "Updated items via API" ) );
+    frame->GetCanvas()->Refresh();
     return ItemRequestStatus::IRS_OK;
 }
 
-void API_HANDLER_SCH::deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
-                                           const std::string& aClientName )
+void API_HANDLER_SCH::deleteItemsInternal( const DocumentSpecifier& document,
+        std::map<KIID, ItemDeletionStatus>& items, const std::string& client )
 {
-    // TODO
+    auto path = resolveDocument( document );
+    if( !path ) return;
+    auto* frame = static_cast<SCH_EDIT_FRAME*>( m_frame );
+    auto* commit = static_cast<SCHEMATIC_API_COMMIT*>( getCurrentCommit( client ) );
+    for( auto& [id, status] : items )
+    {
+        SCH_ITEM* found = nullptr;
+        for( SCH_ITEM* item : path->LastScreen()->Items() )
+            if( item->m_Uuid == id ) { found = item; break; }
+        if( !found ) continue;
+        auto packed = PackSchematicItem( *found, &*path );
+        if( !packed || found->Type() == SCH_SHEET_T ) { status = IDS_IMMUTABLE; continue; }
+        frame->RemoveFromScreen( found, path->LastScreen() );
+        commit->Removed( found, path->LastScreen() );
+        std::vector<SCH_ITEM*> removed{ found };
+        frame->Schematic().OnItemsRemoved( removed );
+        status = IDS_OK;
+    }
+    if( !m_activeClients.count( client ) ) pushCurrentCommit( client, _( "Deleted items via API" ) );
+    frame->GetCanvas()->Refresh();
 }
 
-
-std::optional<EDA_ITEM*> API_HANDLER_SCH::getItemFromDocument( const DocumentSpecifier& aDocument,
-                                                               const KIID& aId )
+std::optional<EDA_ITEM*> API_HANDLER_SCH::getItemFromDocument( const DocumentSpecifier& document,
+                                                               const KIID& id )
 {
-    if( !validateDocument( aDocument ) )
-        return std::nullopt;
-
-    // TODO
-
+    auto path = resolveDocument( document );
+    if( path )
+        for( SCH_ITEM* item : path->LastScreen()->Items() )
+            if( item->m_Uuid == id ) return item;
     return std::nullopt;
 }
 

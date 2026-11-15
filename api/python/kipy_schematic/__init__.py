@@ -42,6 +42,7 @@ def _message(name):
 Document = _message('kiapi.common.types.DocumentSpecifier')
 Sheet = _message('kiapi.schematic.types.Sheet')
 SheetPin = _message('kiapi.schematic.types.SheetPin')
+Line = _message('kiapi.schematic.types.Line')
 
 
 class SchematicClient:
@@ -52,6 +53,7 @@ class SchematicClient:
             'schematic-' + uuid4().hex,
             token if token is not None else os.environ.get('KICAD_API_TOKEN', ''), timeout_ms)
         self._in_commit = False
+        self.last_affected_documents = []
 
     def _send(self, command, response):
         return self._transport.send(command, _message(response))
@@ -114,6 +116,72 @@ class SchematicClient:
         """
         request = self._document_command('RunAction', document, action=action)
         return self._send(request, 'kiapi.common.commands.RunActionResponse').status
+
+    @staticmethod
+    def _unpack_item(packed):
+        item = _message(packed.type_url.rsplit('/', 1)[-1])()
+        if not packed.Unpack(item):
+            raise RuntimeError('Malformed schematic item: ' + packed.type_url)
+        return item
+
+    def get_items(self, types=None, document=None, *, ids=None):
+        """Read supported live items; types are KiCadObjectType numbers, ids optional."""
+        name = 'GetItemsById' if ids is not None else 'GetItems'
+        request = _message('kiapi.common.commands.' + name)()
+        request.header.document.CopyFrom(document if document is not None else self.active_document())
+        if ids is not None:
+            for value in ids:
+                request.items.add(value=str(value))
+        elif types is not None:
+            request.types.extend(types)
+        result = self._send(request, 'kiapi.common.commands.GetItemsResponse')
+        if result.status != 1:
+            raise RuntimeError(f'{name} failed: status {result.status}')
+        return [self._unpack_item(item) for item in result.items]
+
+    def _edit_items(self, command, items, document, fields=None):
+        request = _message('kiapi.common.commands.' + command)()
+        request.header.document.CopyFrom(document if document is not None else self.active_document())
+        if fields:
+            request.header.field_mask.paths.extend(fields)
+        for item in items:
+            request.items.add().Pack(item)
+        result = self._send(request, 'kiapi.common.commands.' + command + 'Response')
+        if result.status != 1:
+            raise RuntimeError(f'{command} failed: status {result.status}')
+        self.last_affected_documents = list(result.affected_documents)
+        entries = result.created_items if command == 'CreateItems' else result.updated_items
+        for entry in entries:
+            if entry.status.code != 1:
+                raise RuntimeError(f'{command}: {entry.status.error_message} (status {entry.status.code})')
+        return [self._unpack_item(entry.item) for entry in entries]
+
+    def create_items(self, items, document=None):
+        """Create a batch in the current commit, or one independent Undo step."""
+        return self._edit_items('CreateItems', items, document)
+
+    def update_items(self, items, document=None, *, fields=None):
+        """Patch only named protobuf fields; omit fields for a full supported update."""
+        return self._edit_items('UpdateItems', items, document, fields)
+
+    def delete_items(self, ids, document=None):
+        request = _message('kiapi.common.commands.DeleteItems')()
+        request.header.document.CopyFrom(document if document is not None else self.active_document())
+        for value in ids:
+            request.item_ids.add(value=str(value))
+        result = self._send(request, 'kiapi.common.commands.DeleteItemsResponse')
+        if result.status != 1 or any(item.status != 1 for item in result.deleted_items):
+            raise RuntimeError('DeleteItems rejected one or more IDs')
+        self.last_affected_documents = list(result.affected_documents)
+        return result
+
+    def add_wire(self, start, end, document=None, *, bus=False, graphic=False, id=None):
+        """Wire/bus endpoints in nm; zero-length segments and invalid layers are rejected."""
+        line = Line(layer=3 if graphic else 2 if bus else 1)
+        line.id.value = str(id or uuid4())
+        line.start.x_nm, line.start.y_nm = start
+        line.end.x_nm, line.end.y_nm = end
+        return self.create_items([line], document)[0]
 
     def get_sheets(self, document=None):
         return self._get_items(document, 37, Sheet)

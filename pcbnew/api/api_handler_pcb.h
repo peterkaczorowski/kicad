@@ -197,7 +197,8 @@ protected:
 
     bool validateDocumentInternal( const DocumentSpecifier& aDocument ) const override;
 
-    void deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
+    void deleteItemsInternal( const DocumentSpecifier& aDocument,
+                              std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
                               const std::string& aClientName ) override;
 
     std::optional<EDA_ITEM*> getItemFromDocument( const DocumentSpecifier& aDocument, const KIID& aId ) override;

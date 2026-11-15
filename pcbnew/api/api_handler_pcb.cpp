@@ -718,7 +718,8 @@ HANDLER_RESULT<GetItemsResponse> API_HANDLER_PCB::handleGetItemsById(
     return response;
 }
 
-void API_HANDLER_PCB::deleteItemsInternal( std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
+void API_HANDLER_PCB::deleteItemsInternal( const DocumentSpecifier& aDocument,
+                              std::map<KIID, ItemDeletionStatus>& aItemsToDelete,
                                            const std::string& aClientName )
 {
     BOARD* board = frame()->GetBoard();

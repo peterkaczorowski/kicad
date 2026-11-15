@@ -238,6 +238,8 @@ message CreateItemsResponse
 
   // Status of each item to be created
   repeated ItemCreationResult created_items = 3;
+  // All instances sharing the modified schematic screen (other editors: requested document).
+  repeated kiapi.common.types.DocumentSpecifier affected_documents = 4;
 }
 
 message GetItems
@@ -297,6 +299,8 @@ message UpdateItemsResponse
 
   // Status of each item to be created
   repeated ItemUpdateResult updated_items = 3;
+  // All instances sharing the modified schematic screen (other editors: requested document).
+  repeated kiapi.common.types.DocumentSpecifier affected_documents = 4;
 }
 
 // Deletes items in a given document
@@ -334,6 +338,8 @@ message DeleteItemsResponse
 
   // Status of each item requested to be deleted
   repeated ItemDeletionResult deleted_items = 3;
+  // All instances sharing the modified schematic screen (other editors: requested document).
+  repeated kiapi.common.types.DocumentSpecifier affected_documents = 4;
 }
 
 enum BoundingBoxMode

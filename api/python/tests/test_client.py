@@ -15,8 +15,21 @@ class Transport:
             document = response.documents.add(type=1)
             document.sheet_path.path.add(value='root-uuid')
             document.project.name = 'test'
-        elif name == 'GetItems':
+        elif name in ('GetItems', 'GetItemsById'):
             response.status = 1
+        elif name in ('CreateItems', 'UpdateItems'):
+            response.status = 1
+            response.affected_documents.add().CopyFrom(request.header.document)
+            entries = response.created_items if name == 'CreateItems' else response.updated_items
+            for packed in request.items:
+                entry = entries.add()
+                entry.status.code = 1
+                entry.item.CopyFrom(packed)
+        elif name == 'DeleteItems':
+            response.status = 1
+            response.affected_documents.add().CopyFrom(request.header.document)
+            for value in request.item_ids:
+                response.deleted_items.add(status=1).id.CopyFrom(value)
         elif name == 'CreateSheet':
             response.sheet.CopyFrom(request.sheet)
             response.sheet.id.value = 'created-uuid'
@@ -31,6 +44,42 @@ class ClientTest(unittest.TestCase):
         self.client = SchematicClient(transport=self.transport)
         self.doc = Document(type=1)
         self.doc.sheet_path.path.add(value='root-uuid')
+
+    def test_wire_crud_uses_nm_field_masks_and_explicit_document(self):
+        wire = self.client.add_wire((-1000000, 0), (2000000, 0), self.doc)
+        self.assertEqual(wire.start.x_nm, -1000000)
+        self.assertEqual(wire.layer, 1)
+        self.assertEqual(self.transport.commands[-1].header.document, self.doc)
+        self.assertEqual(self.client.last_affected_documents, [self.doc])
+        wire.end.y_nm = 3000000
+        result = self.client.update_items([wire], self.doc, fields=['end.y_nm'])
+        self.assertEqual(result[0], wire)
+        self.assertEqual(list(self.transport.commands[-1].header.field_mask.paths), ['end.y_nm'])
+        self.client.get_items([23], self.doc)
+        self.assertEqual(list(self.transport.commands[-1].types), [23])
+        self.client.get_items(document=self.doc, ids=[wire.id.value])
+        self.assertEqual(self.transport.commands[-1].items[0].value, wire.id.value)
+        self.client.delete_items([wire.id.value], self.doc)
+        self.assertEqual(self.transport.commands[-1].item_ids[0].value, wire.id.value)
+        bus = self.client.add_wire((0, 0), (1000000, 0), self.doc, bus=True)
+        graphic = self.client.add_wire((0, 0), (1000000, 0), self.doc, graphic=True)
+        self.assertEqual((bus.layer, graphic.layer), (2, 3))
+
+    def test_failed_item_batch_drops_enclosing_transaction(self):
+        class RejectingTransport(Transport):
+            def send(self, request, response_type):
+                result = super().send(request, response_type)
+                if request.DESCRIPTOR.name == 'CreateItems':
+                    result.created_items[0].status.code = 7
+                    result.created_items[0].status.error_message = 'invalid geometry'
+                return result
+        transport = RejectingTransport()
+        client = SchematicClient(transport=transport)
+        with self.assertRaisesRegex(RuntimeError, 'invalid geometry'):
+            with client.commit(document=self.doc):
+                client.add_wire((0, 0), (1000000, 0), self.doc)
+        self.assertEqual(transport.commands[-1].DESCRIPTOR.name, 'EndCommit')
+        self.assertEqual(transport.commands[-1].action, 2)
 
     def test_document_commands_route_every_editor_and_explicit_discard(self):
         from pathlib import Path
