@@ -290,7 +290,7 @@ Per-item failures carry explicit status. Wrap dependent batches in `commit()`:
 the adapter raises on failure, causing Drop and rollback of the transaction.
 Read-only queries remain available during a transaction; other clients cannot
 mutate it. `last_affected_documents` reports all instances of a shared screen.
-Symbol editing and library operations are still pending until later stage-2 commits.
+Symbol editing and library operations are documented in the 0.9/0.10 sections below.
 
 
 ### Labels and text (client 0.7)
@@ -393,3 +393,15 @@ normalized to/from the native repeated-endpoint file representation; polyline ar
 nodes and multiple outlines/holes are refused rather than losing data on save.
 Use separate arc or Bezier graphics for curves. Text boxes always allow multiline
 text, matching the native editor and saved file semantics.
+
+When a damaged schematic has pin UUID records but no embedded symbol definition,
+GetItems returns the symbol's known instance data with an empty pin list.
+GetSymbolDefinition/recovery refuse explicitly; placeholder pin coordinates are
+never presented as actual connection points.
+
+Explicit references accept native annotated designators including R0 and use the
+native field validator without opening validation dialogs. Automatic numbering
+starts at one. New symbols enumerate every already-loaded shared-screen instance;
+subsequent links to a populated child use native annotation or explicit instance
+reference updates. Generic Sheet/SheetPin updates are still outside item CRUD;
+use CreateSheet for hierarchy construction and the net-rename commands for ports.

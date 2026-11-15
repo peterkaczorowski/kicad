@@ -56,7 +56,10 @@ Symbol PackSchematicSymbol( const SCH_SYMBOL& symbol, const SCH_SHEET_PATH& path
         if( field.GetId() == FIELD_T::REFERENCE ) value->mutable_text()->set_text( out.reference() );
         value->set_visible( field.IsVisible() );
     }
-    for( const SCH_PIN* pin : symbol.GetPins( &path ) )
+    // Saved pin UUID records can survive a missing library definition, but
+    // those placeholder pins have no trustworthy geometry or electrical type.
+    const auto pins = symbol.IsMissingLibSymbol() ? std::vector<const SCH_PIN*>() : symbol.GetPins( &path );
+    for( const SCH_PIN* pin : pins )
     {
         auto* value = out.add_pins();
         value->mutable_id()->set_value( pin->m_Uuid.AsStdString() );

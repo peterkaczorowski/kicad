@@ -39,6 +39,7 @@
 #include <project_sch.h>
 #include <libraries/symbol_library_adapter.h>
 #include <refdes_utils.h>
+#include <validators.h>
 #include <sch_commit_flags.h>
 #include <view/view.h>
 #include <google/protobuf/util/field_mask_util.h>
@@ -711,8 +712,9 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_SCH::handleCreateUpdateItemsIntern
                         int n = 1;
                         do { ref = prefix + wxString::Format( "%d", n++ ); } while( occupied( ref, false ) );
                     }
-                    if( unit < 1 || unit > definition->GetUnitCount() || UTIL::GetRefDesNumber( ref ) < 1
-                        || UTIL::GetRefDesPrefix( ref ).empty() || ref.Contains( " " ) || occupied( ref, true ) )
+                    if( unit < 1 || unit > definition->GetUnitCount() || UTIL::GetRefDesNumber( ref ) < 0
+                        || UTIL::GetRefDesPrefix( ref ).empty()
+                        || !GetFieldValidationErrorMessage( FIELD_T::REFERENCE, ref ).empty() || occupied( ref, true ) )
                     { error = "Invalid unit or conflicting reference in schematic hierarchy"; break; }
                     symbol->SetRef( &page, ref ); symbol->SetUnitSelection( &page, unit );
                     reserved.insert( ref );

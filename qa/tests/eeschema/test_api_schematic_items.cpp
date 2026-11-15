@@ -223,6 +223,25 @@ BOOST_AUTO_TEST_CASE( SymbolPinsUseAbsoluteTransformedCoordinates )
     input.set_rotation_degrees( 0 ); input.set_unit( 2 );
     BOOST_CHECK( !UnpackSchematicSymbol( input, definition, path, nullptr, error ) );
 }
+BOOST_AUTO_TEST_CASE( MissingDefinitionNeverExposesPlaceholderPinCoordinates )
+{
+    LIB_SYMBOL definition( "Test" );
+    auto* pin = new SCH_PIN( &definition );
+    pin->SetNumber( "1" ); pin->SetName( "IN" );
+    pin->SetPosition( VECTOR2I( -10000, 20000 ) );
+    pin->SetUnit( 1 ); pin->SetBodyStyle( 1 );
+    definition.AddDrawItem( pin );
+    SCH_SHEET root;
+    SCH_SHEET_PATH path; path.push_back( &root );
+    SCH_SYMBOL symbol( definition, LIB_ID( "Test", "Test" ), &path, 1 );
+    BOOST_REQUIRE_EQUAL( PackSchematicSymbol( symbol, path ).pins_size(), 1 );
+    symbol.SetLibSymbol( nullptr );
+    BOOST_REQUIRE( symbol.IsMissingLibSymbol() );
+    const auto packed = PackSchematicSymbol( symbol, path );
+    BOOST_CHECK_EQUAL( packed.pins_size(), 0 );
+    BOOST_CHECK_EQUAL( packed.id().value(), symbol.m_Uuid.AsStdString() );
+    BOOST_CHECK_EQUAL( packed.lib_id().entry_name(), "Test" );
+}
 BOOST_AUTO_TEST_CASE( StructuredLibraryDefinitionsPreserveUnitsAndValidateBeforeMutation )
 {
     kiapi::schematic::types::LibrarySymbolDefinition input;
