@@ -1,6 +1,7 @@
 # Schematic IPC client for this KiCad fork
 
-This client supports the sheet IPC extension in this source tree. It reuses the
+This client supports live schematic item editing, connectivity, document commands
+and symbol libraries in this source tree. It reuses the
 `kicad-python` transport, but loads its protocol into an isolated descriptor
 pool. It does not depend on the unfinished `kipy.schematic` wrapper for KiCad 11
 or its missing `PageSettings`/`TitleBlockInfo` imports. The regular kipy PCB
@@ -326,3 +327,52 @@ field masks targeting pins are refused. Moving/rotating a symbol does not drag w
 `pin_position('U1', '3')` resolves an absolute endpoint; `add_wire(('U1', '3'), (x, y))`
 also accepts reference/number pairs (missing or ambiguous endpoints raise errors).
 Library writes are a separate persistence operation from schematic Undo transactions.
+
+Version 0.10 adds structured symbol libraries and embedded recovery:
+
+```python
+found = sch.search_symbol_libraries('SII8784', doc)
+for error in found.errors:  # distinguish unreadable libraries from no match
+    print(error.nickname, error.message)
+definition = sch.get_symbol_definition('Timer:NE555P', doc).definition
+sch.create_symbol_library('ProjectSymbols', 'ProjectSymbols.kicad_sym', doc)
+definition.lib_id.library_nickname = 'ProjectSymbols'
+definition.lib_id.entry_name = 'MyTimer'
+sch.save_symbol_definition(definition, doc)
+with sch.commit(document=doc):
+    placed = sch.add_symbol('ProjectSymbols:MyTimer', (100000000, 80000000), doc)
+embedded = sch.get_symbol_definition(document=doc, symbol_id=placed.id.value)
+recovered = sch.recover_schematic_symbol(placed.id.value, 'ProjectSymbols:Recovered', doc,
+                                        open_in_editor=False)
+editor_doc = sch.open_library_symbol('ProjectSymbols:Recovered', doc)
+```
+
+`LibrarySymbolDefinition`, `LibraryPin`, `SymbolField` and `LibraryGraphic` are
+public structured messages. Definitions use canonical library coordinates in nm,
+include all units/body styles, fields, pin electrical types, sizes, shapes,
+alternates, shapes/text/text boxes, native schematic fill/color (including body
+background), power/visibility/exclusion metadata and footprint filters.
+Library coordinates use KiCad model axes (positive Y downward); library pin angles are counterclockwise 0/90/180/270; unit/body zero means common.
+Overlapping duplicate pin numbers are refused. Unsupported native graphic types
+produce a clear error rather than an incomplete export. Library inheritance is
+flattened for independent reusable copies.
+
+Search resolves native global/project tables (project precedence), names and
+keywords, with full IDs and scope. It returns up to 100 results by default (1000
+maximum); use offset/total_matches for pagination. Reading by symbol UUID uses only
+its embedded definition, even when the external library is missing or different.
+A missing/dummy embedded definition is an error; no guessed replacement is used.
+
+Create/register affects only the project table; link_existing must explicitly
+select a preexisting .kicad_sym. Saving requires an explicitly selected, writable
+KiCad-format library; existing IDs require overwrite=True. Definition validation
+happens before persistence, then native KiCad serialization writes an atomic file
+replacement and refreshes the native library cache. No schematic Revert/restart
+is needed. Library changes persist independently and are refused inside pending
+schematic commits. Schematic SaveDocument remains explicit.
+
+Recovery never overwrites, relinks, copies instance rotation/reference into the
+library, or modifies source UUIDs/fields/connectivity/Undo. Headless is the default;
+open_in_editor=True opens the new library-backed copy, independently of the source
+schematic. The target symbol's dirty editor buffer, active tools and linked dirty
+symbol edits are protected with refusal. Other symbol buffers, including dirty siblings in the same library, remain intact.

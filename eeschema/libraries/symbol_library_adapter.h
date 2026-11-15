@@ -89,7 +89,8 @@ public:
     };
 
     std::vector<LIB_SYMBOL*> GetSymbols( const wxString& aNickname,
-                                         SYMBOL_TYPE aType = SYMBOL_TYPE::ALL_SYMBOLS );
+                                         SYMBOL_TYPE aType = SYMBOL_TYPE::ALL_SYMBOLS,
+                                         wxString* aError = nullptr );
 
     std::vector<wxString> GetSymbolNames( const wxString& aNickname,
                                           SYMBOL_TYPE aType = SYMBOL_TYPE::ALL_SYMBOLS );

@@ -120,6 +120,10 @@ public:
      *
      * This is a LIB_SYMBOL that I own, it is at best a copy of one in a library.
      */
+#ifdef KICAD_IPC_API
+    API_HANDLER_SYMBOL* GetSymbolApiHandler() const { return m_symbolApiHandler.get(); }
+#endif
+
     LIB_SYMBOL* GetCurSymbol() const { return m_symbol; }
 
     /**

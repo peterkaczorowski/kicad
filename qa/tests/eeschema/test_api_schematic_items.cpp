@@ -2,15 +2,34 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include <boost/test/unit_test.hpp>
+#include <google/protobuf/util/message_differencer.h>
 #include <api/api_sch_utils.h>
 #include <sch_line.h>
 #include <sch_label.h>
 #include <lib_symbol.h>
+#include <sch_field.h>
+#include <sch_shape.h>
+#include <sch_textbox.h>
 #include <sch_symbol.h>
 #include <sch_sheet.h>
 #include <sch_sheet_path.h>
 #include <api/schematic/connection_items.pb.h>
 
+namespace
+{
+bool sameItem( const google::protobuf::Any& first, const google::protobuf::Any& second )
+{
+    if( first.type_url() != second.type_url() ) return false;
+    auto name = first.type_url().substr( first.type_url().find_last_of( '/' ) + 1 );
+    const auto* descriptor = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName( name );
+    if( !descriptor ) return false;
+    const auto* prototype = google::protobuf::MessageFactory::generated_factory()->GetPrototype( descriptor );
+    if( !prototype ) return false;
+    std::unique_ptr<google::protobuf::Message> a( prototype->New() ), b( prototype->New() );
+    return first.UnpackTo( a.get() ) && second.UnpackTo( b.get() )
+           && google::protobuf::util::MessageDifferencer::Equals( *a, *b );
+}
+}
 BOOST_AUTO_TEST_SUITE( SchematicItemsApi )
 
 BOOST_AUTO_TEST_CASE( WireCoordinatesLayersAndGeneratedIds )
@@ -120,7 +139,7 @@ BOOST_AUTO_TEST_CASE( LabelsTextAndTransformValidation )
         BOOST_REQUIRE( packed );
         auto restored = UnpackSchematicItem( *packed, error );
         BOOST_REQUIRE_MESSAGE( restored, error );
-        BOOST_CHECK_EQUAL( PackSchematicItem( *restored )->SerializeAsString(), packed->SerializeAsString() );
+        BOOST_CHECK( sameItem( *PackSchematicItem( *restored ), *packed ) );
     }
     LocalLabel bad;
     bad.mutable_text()->mutable_text()->set_text( "CLK" );
@@ -156,7 +175,7 @@ BOOST_AUTO_TEST_CASE( ConnectionMarkersRoundTripAndValidation )
         BOOST_REQUIRE_MESSAGE( item, error );
         auto packed = PackSchematicItem( *item ); BOOST_REQUIRE( packed );
         auto restored = UnpackSchematicItem( *packed, error ); BOOST_REQUIRE_MESSAGE( restored, error );
-        BOOST_CHECK_EQUAL( PackSchematicItem( *restored )->SerializeAsString(), packed->SerializeAsString() );
+        BOOST_CHECK( sameItem( *PackSchematicItem( *restored ), *packed ) );
     }
     std::string error; google::protobuf::Any data;
     wireEntry.clear_size(); BOOST_REQUIRE( data.PackFrom( wireEntry ) );
@@ -202,5 +221,52 @@ BOOST_AUTO_TEST_CASE( SymbolPinsUseAbsoluteTransformedCoordinates )
     BOOST_CHECK( !UnpackSchematicSymbol( input, definition, path, nullptr, error ) );
     input.set_rotation_degrees( 0 ); input.set_unit( 2 );
     BOOST_CHECK( !UnpackSchematicSymbol( input, definition, path, nullptr, error ) );
+}
+BOOST_AUTO_TEST_CASE( StructuredLibraryDefinitionsPreserveUnitsAndValidateBeforeMutation )
+{
+    kiapi::schematic::types::LibrarySymbolDefinition input;
+    input.mutable_lib_id()->set_library_nickname( "Project" );
+    input.mutable_lib_id()->set_entry_name( "TwoUnit" );
+    input.set_unit_count( 2 ); input.set_body_style_count( 2 ); input.set_units_locked( true );
+    input.set_keywords( "timer dual" );
+    auto* reference = input.add_fields(); reference->set_name( "Reference" ); reference->mutable_text()->set_text( "U" );
+    auto* footprint = input.add_fields(); footprint->set_name( "Footprint" ); footprint->mutable_text()->set_text( "Package_QFN:Test" );
+    for( int unit = 1; unit <= 2; ++unit )
+    {
+        auto* pin = input.add_pins(); pin->set_number( "1" ); pin->set_name( "IN" ); pin->set_unit( unit ); pin->set_body_style( unit );
+        pin->set_electrical_type( kiapi::common::types::EPT_INPUT );
+        pin->mutable_position()->set_x_nm( -2540000 ); pin->set_length_nm( 1270000 ); pin->set_visible( true );
+        pin->set_name_size_nm( 1270000 ); pin->set_number_size_nm( 1270000 );
+    }
+    auto* graphic = input.add_graphics(); graphic->set_unit( 0 ); graphic->set_body_style( 0 );
+    graphic->mutable_shape()->mutable_rectangle()->mutable_top_left()->set_x_nm( -1270000 );
+    graphic->mutable_shape()->mutable_rectangle()->mutable_bottom_right()->set_x_nm( 1270000 );
+    graphic->mutable_shape()->mutable_rectangle()->mutable_bottom_right()->set_y_nm( 2540000 );
+    graphic->set_fill_mode( 3 );
+    auto* box = input.add_graphics();
+    box->set_unit( 2 ); box->set_body_style( 2 ); box->set_fill_mode( 3 );
+    box->mutable_text_box()->set_text( "Second body note" );
+    box->mutable_text_box()->mutable_bottom_right()->set_x_nm( 10000000 );
+    box->mutable_text_box()->mutable_bottom_right()->set_y_nm( 5000000 );
+    box->mutable_text_box()->mutable_margin_left()->set_value_nm( 254000 );
+    std::string error;
+    auto native = UnpackLibrarySymbol( input, error ); BOOST_REQUIRE_MESSAGE( native, error );
+    auto packed = PackLibrarySymbol( *native, error ); BOOST_REQUIRE_MESSAGE( packed, error );
+    BOOST_CHECK_EQUAL( packed->unit_count(), 2 ); BOOST_CHECK_EQUAL( packed->body_style_count(), 2 );
+    BOOST_CHECK_EQUAL( packed->pins_size(), 2 ); BOOST_CHECK_EQUAL( packed->graphics_size(), 2 );
+    BOOST_CHECK_EQUAL( packed->graphics( 0 ).fill_mode(), 3 );
+    BOOST_CHECK_EQUAL( packed->graphics( 1 ).text_box().text(), "Second body note" );
+    BOOST_CHECK_EQUAL( packed->pins( 0 ).position().x_nm(), -2540000 );
+    BOOST_CHECK_EQUAL( native->GetReferenceField().GetText(), "U" );
+    BOOST_CHECK_EQUAL( native->GetFootprintField().GetText(), "Package_QFN:Test" );
+    auto restored = UnpackLibrarySymbol( *packed, error ); BOOST_REQUIRE_MESSAGE( restored, error );
+    BOOST_CHECK( google::protobuf::util::MessageDifferencer::Equals( *PackLibrarySymbol( *restored, error ), *packed ) );
+    const std::string before = packed->SerializeAsString();
+    input.mutable_pins( 1 )->set_unit( 1 ); input.mutable_pins( 1 )->set_body_style( 0 );
+    BOOST_CHECK( !UnpackLibrarySymbol( input, error ) );
+    input.mutable_pins( 1 )->set_unit( 3 ); BOOST_CHECK( !UnpackLibrarySymbol( input, error ) );
+    input.mutable_pins( 1 )->set_unit( 2 ); input.mutable_pins( 1 )->set_electrical_type( kiapi::common::types::EPT_UNKNOWN );
+    BOOST_CHECK( !UnpackLibrarySymbol( input, error ) );
+    BOOST_CHECK_EQUAL( PackLibrarySymbol( *native, error )->SerializeAsString(), before );
 }
 BOOST_AUTO_TEST_SUITE_END()

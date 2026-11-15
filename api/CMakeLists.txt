@@ -38,6 +38,7 @@ set( KIAPI_PROTO_SRCS
 
     schematic/schematic_types.proto
     schematic/schematic_commands.proto
+    schematic/library_commands.proto
     schematic/library_types.proto
     schematic/symbol_items.proto
     schematic/connection_items.proto

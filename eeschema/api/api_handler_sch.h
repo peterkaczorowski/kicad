@@ -24,6 +24,7 @@
 #include <api/api_handler_editor.h>
 #include <api/common/commands/editor_commands.pb.h>
 #include <api/schematic/schematic_commands.pb.h>
+#include <api/schematic/library_commands.pb.h>
 #include <kiid.h>
 #include <sch_sheet_path.h>
 
@@ -81,6 +82,20 @@ protected:
                                                   const KIID& aId ) override;
 
 private:
+    void registerLibraryHandlers();
+    HANDLER_RESULT<bool> validateLibraryContext( const DocumentSpecifier&, bool write );
+    HANDLER_RESULT<kiapi::schematic::commands::SearchSymbolLibrariesResponse> handleSearchSymbolLibraries(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::SearchSymbolLibraries>& );
+    HANDLER_RESULT<kiapi::schematic::commands::SymbolDefinitionResponse> handleGetSymbolDefinition(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::GetSymbolDefinition>& );
+    HANDLER_RESULT<kiapi::schematic::commands::CreateSymbolLibraryResponse> handleCreateSymbolLibrary(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::CreateSymbolLibrary>& );
+    HANDLER_RESULT<kiapi::schematic::commands::SymbolDefinitionResponse> handleSaveSymbolDefinition(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::SaveSymbolDefinition>& );
+    HANDLER_RESULT<kiapi::schematic::commands::SymbolDefinitionResponse> handleRecoverSchematicSymbol(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::RecoverSchematicSymbol>& );
+    HANDLER_RESULT<kiapi::schematic::commands::OpenLibrarySymbolResponse> handleOpenLibrarySymbol(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::OpenLibrarySymbol>& );
     HANDLER_RESULT<kiapi::schematic::types::ConnectivitySnapshot> connectivitySnapshot(
             const DocumentSpecifier& aDocument );
     void registerConnectivityHandlers();

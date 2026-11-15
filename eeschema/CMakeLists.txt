@@ -449,6 +449,7 @@ set( EESCHEMA_SRCS
 
     api/api_sch_items.cpp
     api/api_sch_symbols.cpp
+    api/api_sch_library.cpp
     api/api_sch_utils.cpp
     api/api_sch_connectivity.cpp
     api/api_sch_net_rename.cpp
@@ -501,6 +502,7 @@ if( KICAD_IPC_API )
     set( EESCHEMA_SRCS
         ${EESCHEMA_SRCS}
         api/api_handler_sch.cpp
+        api/api_handler_sch_library.cpp
         api/api_handler_sch_connectivity.cpp
         api/api_handler_sch_net_rename.cpp
         api/api_handler_symbol.cpp

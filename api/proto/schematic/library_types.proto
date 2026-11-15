@@ -38,6 +38,11 @@ message LibraryGraphic {
     kiapi.common.types.Text text = 4;
     kiapi.common.types.TextBox text_box = 5;
   }
+  kiapi.common.types.GraphicShape box_outline = 6;
+  // Native schematic fill modes 1..7; zero uses the common shape fill.
+  uint32 fill_mode = 7;
+  kiapi.common.types.Color fill_color = 8;
+  bool exclude_from_sim = 9;
 }
 message LibrarySymbolDefinition {
   kiapi.common.types.LibraryIdentifier lib_id = 1;
@@ -58,4 +63,11 @@ message LibrarySymbolDefinition {
   repeated string footprint_filters = 16;
   repeated string body_style_names = 17;
   bool demorgan_body_styles = 18;
+  bool exclude_from_sim = 19;
+  bool exclude_from_position_files = 20;
+  bool duplicate_pin_numbers_are_jumpers = 21;
+  map<int32, string> unit_names = 22;
+  repeated JumperPinGroup jumper_groups = 23;
 }
+
+message JumperPinGroup { repeated string numbers = 1; }

@@ -65,6 +65,30 @@ class ClientTest(unittest.TestCase):
         graphic = self.client.add_wire((0, 0), (1000000, 0), self.doc, graphic=True)
         self.assertEqual((bus.layer, graphic.layer), (2, 3))
 
+    def test_symbol_library_and_embedded_recovery_commands(self):
+        from kipy_schematic import LibrarySymbolDefinition
+        self.client.search_symbol_libraries('SII8784', self.doc, library='Test', offset=10)
+        request = self.transport.commands[-1]
+        self.assertEqual((request.query, request.library_nickname, request.offset), ('SII8784', 'Test', 10))
+        self.client.get_symbol_definition('Device:R', self.doc)
+        self.assertEqual(self.transport.commands[-1].lib_id.entry_name, 'R')
+        self.client.get_symbol_definition(document=self.doc, symbol_id='instance-uuid')
+        self.assertEqual(self.transport.commands[-1].WhichOneof('source'), 'symbol_id')
+        with self.assertRaises(ValueError):
+            self.client.get_symbol_definition('Device:R', self.doc, symbol_id='ambiguous')
+        self.client.create_symbol_library('Recovered', 'Recovered.kicad_sym', self.doc)
+        self.assertFalse(self.transport.commands[-1].link_existing)
+        definition = LibrarySymbolDefinition(unit_count=1, body_style_count=1)
+        definition.lib_id.library_nickname, definition.lib_id.entry_name = 'Test', 'SII8784CNUC'
+        self.client.save_symbol_definition(definition, self.doc)
+        self.assertFalse(self.transport.commands[-1].overwrite)
+        self.assertEqual(self.transport.commands[-1].definition, definition)
+        self.client.recover_schematic_symbol('instance-uuid', 'Recovered:Saved', self.doc, open_in_editor=True)
+        self.assertEqual(self.transport.commands[-1].target_lib_id.entry_name, 'Saved')
+        self.assertTrue(self.transport.commands[-1].open_in_editor)
+        self.client.open_library_symbol('Recovered:Saved', self.doc)
+        self.assertEqual(self.transport.commands[-1].document, self.doc)
+
     def test_symbol_fields_transforms_and_pin_endpoints(self):
         symbol = self.client.add_symbol('Timer:NE555P', (10000000, 20000000), self.doc,
             reference='U1', rotation_degrees=90, mirror_x=True, fields={'Value': 'NE555'}, dnp=True)

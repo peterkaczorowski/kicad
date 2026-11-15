@@ -114,6 +114,11 @@ std::unique_ptr<SCH_SYMBOL> UnpackSchematicSymbol( const Symbol& input,
     if( input.has_dnp() ) symbol->SetDNP( input.dnp(), &path );
     if( input.has_in_bom() ) symbol->SetExcludedFromBOM( !input.in_bom(), &path );
     if( input.has_on_board() ) symbol->SetExcludedFromBoard( !input.on_board(), &path );
+    std::set<std::string> supplied;
+    for( const auto& field : input.fields() ) supplied.insert( field.name() );
+    auto& nativeFields = symbol->GetFields();
+    nativeFields.erase( std::remove_if( nativeFields.begin(), nativeFields.end(), [&]( const SCH_FIELD& field )
+        { return field.GetId() == FIELD_T::USER && !supplied.count( field.GetCanonicalName().ToStdString() ); } ), nativeFields.end() );
     std::set<std::string> names;
     for( const auto& field : input.fields() )
     {

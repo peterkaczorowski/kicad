@@ -42,6 +42,7 @@ class API_HANDLER_EDITOR : public API_HANDLER
 {
 public:
     API_HANDLER_EDITOR( EDA_BASE_FRAME* aFrame = nullptr );
+    bool HasPendingCommit() const { return !m_commits.empty(); }
 
 protected:
     /**

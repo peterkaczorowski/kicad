@@ -101,6 +101,7 @@ private:
 API_HANDLER_SCH::API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
+    registerLibraryHandlers();
     registerConnectivityHandlers();
     registerNetRenameHandlers();
     registerPageSettingsHandlers();
@@ -636,6 +637,11 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_SCH::handleCreateUpdateItemsIntern
         {
             auto* previous = dynamic_cast<SCH_SYMBOL*>( existing );
             if( existing && !previous ) { fail( ISC_INVALID_DATA, "Cannot change item type" ); continue; }
+            for( const auto& field : symbolInput.fields() )
+                if( field.name() == "Reference" && ( symbolInput.reference().empty()
+                    || ( previous && symbolInput.reference() == previous->GetRef( &*path, false ).ToStdString()
+                         && field.text().text() != symbolInput.reference() ) ) )
+                    symbolInput.set_reference( field.text().text() );
             const LIB_SYMBOL* definition = nullptr;
             LIB_ID libId = LibIdFromProto( symbolInput.lib_id() );
             if( libId.GetLibNickname().empty() || libId.GetLibItemName().empty() )
@@ -644,7 +650,14 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_SCH::handleCreateUpdateItemsIntern
                 definition = previous->GetLibSymbolRef().get();
             else
             {
-                try { definition = PROJECT_SCH::SymbolLibAdapter( &frame->Prj() )->LoadSymbol( libId ); }
+                try
+                {
+                    auto* adapter = PROJECT_SCH::SymbolLibAdapter( &frame->Prj() );
+                    auto status = adapter->LoadLibraryEntry( libId.GetLibNickname() );
+                    if( status && status->load_status == LOAD_STATUS::LOADED ) definition = adapter->LoadSymbol( libId );
+                    else if( status && status->error ) error = status->error->message.ToStdString();
+                    else error = "Symbol library is not registered or could not be loaded";
+                }
                 catch( const IO_ERROR& e ) { error = e.What().ToStdString(); }
             }
             if( !definition ) { fail( ISC_INVALID_DATA, error.empty() ? "Symbol library or entry does not exist" : error ); continue; }
@@ -682,7 +695,7 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_SCH::handleCreateUpdateItemsIntern
                     if( prefix.empty() ) prefix = "U";
                     auto occupied = [&]( const wxString& candidate, bool allowOtherUnits )
                     {
-                        if( reserved.count( candidate ) ) return true;
+                        for( const wxString& ref : reserved ) if( ref.CmpNoCase( candidate ) == 0 ) return true;
                         for( const auto& otherPage : frame->Schematic().Hierarchy() )
                             for( SCH_ITEM* other : otherPage.LastScreen()->Items() )
                                 if( auto* otherSymbol = dynamic_cast<SCH_SYMBOL*>( other ); otherSymbol && otherSymbol != existing

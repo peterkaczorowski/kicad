@@ -1,0 +1,71 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.schematic.commands;
+import "common/types/base_types.proto";
+import "schematic/library_types.proto";
+
+message LibraryInfo {
+  string nickname = 1;
+  string uri = 2;
+  string scope = 3; // project or global, after KiCad table precedence resolution
+  bool writable = 4;
+}
+message LibrarySearchMatch {
+  kiapi.common.types.LibraryIdentifier lib_id = 1;
+  LibraryInfo library = 2;
+  string description = 3;
+  string keywords = 4;
+}
+message LibraryReadError {
+  string nickname = 1;
+  string message = 2;
+}
+message SearchSymbolLibraries {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string query = 2;
+  string library_nickname = 3; // empty = all resolved global/project libraries
+  uint32 limit = 4; // default 100, maximum 1000
+  uint32 offset = 5;
+}
+message SearchSymbolLibrariesResponse {
+  repeated LibrarySearchMatch matches = 1;
+  repeated LibraryReadError errors = 2; // a failed library must never masquerade as no match
+  uint32 total_matches = 3;
+}
+message GetSymbolDefinition {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  oneof source {
+    kiapi.common.types.LibraryIdentifier lib_id = 2;
+    kiapi.common.types.KIID symbol_id = 3; // use exactly the definition embedded in this live instance
+  }
+}
+message SymbolDefinitionResponse {
+  kiapi.schematic.types.LibrarySymbolDefinition definition = 1;
+  string source = 2; // library or schematic
+  kiapi.common.types.KIID source_symbol_id = 3;
+  kiapi.common.types.DocumentSpecifier source_document = 4;
+  kiapi.common.types.DocumentSpecifier editor_document = 5; // populated only if explicitly opened
+}
+message CreateSymbolLibrary {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string nickname = 2;
+  string path = 3; // absolute or project-relative .kicad_sym
+  bool link_existing = 4; // false creates a new file and refuses an existing destination
+}
+message CreateSymbolLibraryResponse { LibraryInfo library = 1; }
+message SaveSymbolDefinition {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  kiapi.schematic.types.LibrarySymbolDefinition definition = 2;
+  bool overwrite = 3; // explicit, conflicts otherwise refused before modifying the library
+}
+message RecoverSchematicSymbol {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  kiapi.common.types.KIID symbol_id = 2;
+  kiapi.common.types.LibraryIdentifier target_lib_id = 3;
+  bool open_in_editor = 4;
+}
+message OpenLibrarySymbol {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  kiapi.common.types.LibraryIdentifier lib_id = 2;
+}
+message OpenLibrarySymbolResponse { kiapi.common.types.DocumentSpecifier document = 1; }

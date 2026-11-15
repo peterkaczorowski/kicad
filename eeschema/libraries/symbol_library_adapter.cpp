@@ -183,14 +183,15 @@ LIBRARY_RESULT<IO_BASE*> SYMBOL_LIBRARY_ADAPTER::createPlugin( const LIBRARY_TAB
 }
 
 
-std::vector<LIB_SYMBOL*> SYMBOL_LIBRARY_ADAPTER::GetSymbols( const wxString& aNickname, SYMBOL_TYPE aType )
+std::vector<LIB_SYMBOL*> SYMBOL_LIBRARY_ADAPTER::GetSymbols( const wxString& aNickname, SYMBOL_TYPE aType, wxString* aError )
 {
     std::vector<LIB_SYMBOL*> symbols;
+    if( aError ) aError->clear();
 
     std::optional<const LIB_DATA*> maybeLib = fetchIfLoaded( aNickname );
 
     if( !maybeLib )
-        return symbols;
+    { if( aError ) *aError = "Symbol library has not loaded successfully"; return symbols; }
 
     const LIB_DATA* lib = *maybeLib;
 
@@ -207,6 +208,7 @@ std::vector<LIB_SYMBOL*> SYMBOL_LIBRARY_ADAPTER::GetSymbols( const wxString& aNi
     }
     catch( IO_ERROR& e )
     {
+        if( aError ) *aError = e.What();
         wxLogTrace( traceLibraries, "Sym: Exception enumerating library %s: %s", lib->row->Nickname(), e.What() );
     }
 

@@ -45,6 +45,8 @@ SheetPin = _message('kiapi.schematic.types.SheetPin')
 Line = _message('kiapi.schematic.types.Line')
 Symbol = _message('kiapi.schematic.types.Symbol')
 SymbolField = _message('kiapi.schematic.types.SymbolField')
+LibraryPin = _message('kiapi.schematic.types.LibraryPin')
+LibraryGraphic = _message('kiapi.schematic.types.LibraryGraphic')
 LibrarySymbolDefinition = _message('kiapi.schematic.types.LibrarySymbolDefinition')
 Junction = _message('kiapi.schematic.types.Junction')
 NoConnect = _message('kiapi.schematic.types.NoConnect')
@@ -186,10 +188,66 @@ class SchematicClient:
         self.last_affected_documents = list(result.affected_documents)
         return result
 
+    @staticmethod
+    def _set_lib_id(target, value):
+        nickname, separator, name = value.partition(':')
+        if not separator or not nickname or not name:
+            raise ValueError('lib_id must be library:entry')
+        target.library_nickname, target.entry_name = nickname, name
+
+    def _library_request(self, name, document):
+        request = _message('kiapi.schematic.commands.' + name)()
+        request.document.CopyFrom(document if document is not None else self.active_document())
+        return request
+
+    def search_symbol_libraries(self, query='', document=None, *, library='', limit=100, offset=0):
+        """Return matches, total_matches and explicit per-library errors (never hide errors)."""
+        request = self._library_request('SearchSymbolLibraries', document)
+        request.query, request.library_nickname = query, library
+        request.limit, request.offset = limit, offset
+        return self._send(request, 'kiapi.schematic.commands.SearchSymbolLibrariesResponse')
+
+    def get_symbol_definition(self, lib_id=None, document=None, *, symbol_id=None):
+        """Read a library definition or exactly the cached definition of a live instance."""
+        if (lib_id is None) == (symbol_id is None):
+            raise ValueError('Select exactly one of lib_id and symbol_id')
+        request = self._library_request('GetSymbolDefinition', document)
+        if symbol_id is not None:
+            request.symbol_id.value = str(symbol_id)
+        else:
+            self._set_lib_id(request.lib_id, lib_id)
+        return self._send(request, 'kiapi.schematic.commands.SymbolDefinitionResponse')
+
+    def create_symbol_library(self, nickname, path, document=None, *, link_existing=False):
+        """Create/register a project library; global libraries are never implicitly modified."""
+        request = self._library_request('CreateSymbolLibrary', document)
+        request.nickname, request.path = nickname, os.fspath(path)
+        request.link_existing = link_existing
+        return self._send(request, 'kiapi.schematic.commands.CreateSymbolLibraryResponse').library
+
+    def save_symbol_definition(self, definition, document=None, *, overwrite=False):
+        request = self._library_request('SaveSymbolDefinition', document)
+        request.definition.CopyFrom(definition)
+        request.overwrite = overwrite
+        return self._send(request, 'kiapi.schematic.commands.SymbolDefinitionResponse')
+
+    def recover_schematic_symbol(self, symbol_id, target_lib_id, document=None, *, open_in_editor=False):
+        """Persist a detached embedded definition; never relink or modify the source instance."""
+        request = self._library_request('RecoverSchematicSymbol', document)
+        request.symbol_id.value = str(symbol_id)
+        self._set_lib_id(request.target_lib_id, target_lib_id)
+        request.open_in_editor = open_in_editor
+        return self._send(request, 'kiapi.schematic.commands.SymbolDefinitionResponse')
+
+    def open_library_symbol(self, lib_id, document=None):
+        request = self._library_request('OpenLibrarySymbol', document)
+        self._set_lib_id(request.lib_id, lib_id)
+        return self._send(request, 'kiapi.schematic.commands.OpenLibrarySymbolResponse').document
+
     def add_symbol(self, lib_id, position, document=None, *, reference='', unit=1,
                    body_style=1, rotation_degrees=0, mirror_x=False, mirror_y=False,
                    fields=None, dnp=None, in_bom=None, on_board=None, id=None):
-        item = Symbol(reference=reference, unit=unit, body_style=body_style,
+        item = Symbol(reference=reference or (fields or {}).get("Reference", ""), unit=unit, body_style=body_style,
                       rotation_degrees=rotation_degrees, mirror_x=mirror_x, mirror_y=mirror_y)
         nickname, separator, name = lib_id.partition(':')
         if not separator or not nickname or not name:

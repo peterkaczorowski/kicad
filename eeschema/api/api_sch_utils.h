@@ -60,6 +60,8 @@ std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM&,
 std::unique_ptr<SCH_ITEM> UnpackSchematicItem( const google::protobuf::Any&, std::string&,
                                              const SCH_ITEM* = nullptr,
                                              const SCH_SHEET_PATH* = nullptr );
+std::optional<kiapi::schematic::types::LibrarySymbolDefinition> PackLibrarySymbol( const LIB_SYMBOL&, std::string& );
+std::unique_ptr<LIB_SYMBOL> UnpackLibrarySymbol( const kiapi::schematic::types::LibrarySymbolDefinition&, std::string& );
 kiapi::schematic::types::Symbol PackSchematicSymbol( const SCH_SYMBOL&, const SCH_SHEET_PATH& );
 std::unique_ptr<SCH_SYMBOL> UnpackSchematicSymbol( const kiapi::schematic::types::Symbol&,
         const LIB_SYMBOL&, const SCH_SHEET_PATH&, const SCH_SYMBOL*, std::string& );
