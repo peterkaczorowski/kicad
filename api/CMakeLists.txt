@@ -41,6 +41,7 @@ set( KIAPI_PROTO_SRCS
     schematic/library_commands.proto
     schematic/library_types.proto
     schematic/symbol_items.proto
+    schematic/graphic_items.proto
     schematic/connection_items.proto
     schematic/page_settings.proto
     )

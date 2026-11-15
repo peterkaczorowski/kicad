@@ -1,0 +1,12 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.schematic.types;
+import "common/types/base_types.proto";
+import "schematic/library_types.proto";
+
+// Live sheet graphics share the validated shape/text-box representation used by
+// symbol definitions. Coordinates are absolute schematic nm. Unit/body are zero.
+message Graphic {
+  kiapi.common.types.KIID id = 1;
+  LibraryGraphic drawing = 2;
+}

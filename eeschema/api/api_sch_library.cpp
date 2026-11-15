@@ -111,6 +111,19 @@ std::optional<LibrarySymbolDefinition> PackLibrarySymbol( const LIB_SYMBOL& orig
         {
             static_cast<const SCH_SHAPE&>( item ).EDA_SHAPE::Serialize( *graphic->mutable_shape() );
             if( !ConvertSchematicUnits( *graphic->mutable_shape(), true, error ) ) return std::nullopt;
+            if( graphic->shape().has_polygon() )
+                for( auto& polygon : *graphic->mutable_shape()->mutable_polygon()->mutable_polygons() )
+                {
+                    auto* line = polygon.mutable_outline();
+                    if( line->nodes_size() > 2 && line->nodes( 0 ).has_point()
+                        && line->nodes( line->nodes_size() - 1 ).has_point() )
+                    {
+                        const auto& first = line->nodes( 0 ).point();
+                        const auto& last = line->nodes( line->nodes_size() - 1 ).point();
+                        if( first.x_nm() == last.x_nm() && first.y_nm() == last.y_nm() )
+                        { line->set_closed( true ); line->mutable_nodes()->RemoveLast(); }
+                    }
+                }
         }
         else if( item.Type() == SCH_TEXT_T ) PackSchematicText( *graphic->mutable_text(), static_cast<const SCH_TEXT&>( item ) );
         else
@@ -200,6 +213,8 @@ std::unique_ptr<LIB_SYMBOL> UnpackLibrarySymbol( const LibrarySymbolDefinition& 
     }
     for( const auto& graphic : input.graphics() )
     {
+        auto checked = graphic;
+        if( !ConvertSchematicUnits( checked, false, error ) ) return nullptr;
         if( !validUnit( graphic.unit(), graphic.body_style() ) ) return fail( "Invalid graphic unit or body style" );
         std::unique_ptr<SCH_ITEM> item;
         if( graphic.fill_mode() > 7 ) return fail( "Invalid native schematic fill mode" );
@@ -210,9 +225,13 @@ std::unique_ptr<LIB_SYMBOL> UnpackLibrarySymbol( const LibrarySymbolDefinition& 
             types::Text text; *text.mutable_attributes() = value.attributes(); text.set_text( value.text() );
             *text.mutable_position() = value.top_left();
             if( !UnpackSchematicText( text, *box, error ) ) return nullptr;
+            box->SetMultilineAllowed( true );
             types::GraphicShape outline = graphic.box_outline();
-            if( !graphic.has_box_outline() )
-            { *outline.mutable_rectangle()->mutable_top_left() = value.top_left(); *outline.mutable_rectangle()->mutable_bottom_right() = value.bottom_right(); }
+            if( graphic.has_box_outline() && !outline.has_rectangle() ) return fail( "Text box requires a rectangular outline" );
+            // TextBox coordinates are authoritative, including masked endpoint edits;
+            // the separate outline carries stroke/fill and rounded-corner styling.
+            *outline.mutable_rectangle()->mutable_top_left() = value.top_left();
+            *outline.mutable_rectangle()->mutable_bottom_right() = value.bottom_right();
             if( !ConvertSchematicUnits( outline, false, error ) || !box->EDA_SHAPE::Deserialize( outline ) ) return fail( "Invalid library text box outline" );
             int left, top, right, bottom;
             if( !dimension( value.margin_left().value_nm(), left ) || !dimension( value.margin_top().value_nm(), top )
@@ -224,6 +243,26 @@ std::unique_ptr<LIB_SYMBOL> UnpackLibrarySymbol( const LibrarySymbolDefinition& 
         else if( graphic.has_shape() )
         {
             auto shape = std::make_unique<SCH_SHAPE>(); types::GraphicShape value = graphic.shape();
+            if( value.has_polygon() )
+            {
+                auto* poly = value.mutable_polygon();
+                if( poly->polygons_size() != 1 || poly->polygons( 0 ).holes_size() )
+                    return fail( "Schematic polygon persistence supports one outline without holes" );
+                auto* line = poly->mutable_polygons( 0 )->mutable_outline();
+                if( line->nodes_size() < 2 ) return fail( "A schematic polyline needs at least two points" );
+                for( const auto& node : line->nodes() )
+                    if( !node.has_point() ) return fail( "Use separate arc graphics; schematic polyline files store point vertices" );
+                if( line->closed() )
+                {
+                    if( line->nodes_size() < 3 ) return fail( "A closed polygon needs at least three vertices" );
+                    const auto first = line->nodes( 0 );
+                    const auto last = line->nodes( line->nodes_size() - 1 );
+                    if( first.point().x_nm() != last.point().x_nm() || first.point().y_nm() != last.point().y_nm() )
+                        *line->add_nodes() = first;
+                    // Native schematic files persist closure by repeating the first vertex.
+                    line->set_closed( false );
+                }
+            }
             if( !ConvertSchematicUnits( value, false, error ) || !shape->EDA_SHAPE::Deserialize( value ) ) return fail( "Invalid library shape" );
             item = std::move( shape );
         }

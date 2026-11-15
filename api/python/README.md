@@ -376,3 +376,20 @@ library, or modifies source UUIDs/fields/connectivity/Undo. Headless is the defa
 open_in_editor=True opens the new library-backed copy, independently of the source
 schematic. The target symbol's dirty editor buffer, active tools and linked dirty
 symbol edits are protected with refusal. Other symbol buffers, including dirty siblings in the same library, remain intact.
+
+Version 0.11 completes ordinary sheet graphics: `Graphic` wraps a `LibraryGraphic`
+using absolute sheet coordinates and unit/body zero. `get_items([24, 26], doc)`
+reads shapes and text boxes. `add_graphic(drawing)`, `add_shape(GraphicShape(...))`
+and `add_text_box(text, top_left, bottom_right, margin_nm=0, border=True)` use the
+same CRUD/field-mask/Undo contract. Shapes include segments, rectangles, circles,
+arcs, polygons and Beziers. Text boxes preserve outline, margins, text style,
+fill/color and simulation exclusion. Electrical wires remain `Line` on SL_WIRE;
+these drawing shapes use the notes layer. Invalid units/body, malformed shapes,
+non-finite attributes and out-of-range coordinates are refused. Graphic changes
+do not move electrical objects or wires.
+
+Schematic polygons use a single point outline without holes. Closed outlines are
+normalized to/from the native repeated-endpoint file representation; polyline arc
+nodes and multiple outlines/holes are refused rather than losing data on save.
+Use separate arc or Bezier graphics for curves. Text boxes always allow multiline
+text, matching the native editor and saved file semantics.

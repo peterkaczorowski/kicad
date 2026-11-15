@@ -42,6 +42,8 @@ def _message(name):
 Document = _message('kiapi.common.types.DocumentSpecifier')
 Sheet = _message('kiapi.schematic.types.Sheet')
 SheetPin = _message('kiapi.schematic.types.SheetPin')
+Graphic = _message('kiapi.schematic.types.Graphic')
+GraphicShape = _message('kiapi.common.types.GraphicShape')
 Line = _message('kiapi.schematic.types.Line')
 Symbol = _message('kiapi.schematic.types.Symbol')
 SymbolField = _message('kiapi.schematic.types.SymbolField')
@@ -59,7 +61,7 @@ Text = _message('kiapi.schematic.types.Text')
 
 
 class SchematicClient:
-    """Coordinates in Sheet and SheetPin messages are integer nanometers."""
+    """Live schematic, connectivity and library commands; dimensions are nanometers."""
     def __init__(self, socket_path=None, token=None, timeout_ms=5000, *, transport=None):
         self._transport = transport or KiCadClient(
             socket_path or os.environ.get('KICAD_API_SOCKET', 'ipc:///tmp/kicad/api.sock'),
@@ -316,6 +318,29 @@ class SchematicClient:
         if properties:
             label.properties.update(properties)
         return self.create_items([label], document)[0]
+
+    def add_graphic(self, drawing, document=None, *, id=None):
+        item = Graphic()
+        item.id.value = str(id or uuid4())
+        item.drawing.CopyFrom(drawing)
+        return self.create_items([item], document)[0]
+
+    def add_shape(self, shape, document=None, *, fill_mode=0, id=None):
+        drawing = LibraryGraphic(fill_mode=fill_mode)
+        drawing.shape.CopyFrom(shape)
+        return self.add_graphic(drawing, document, id=id)
+
+    def add_text_box(self, text, top_left, bottom_right, document=None, *,
+                     size_nm=1270000, margin_nm=0, border=True, id=None):
+        drawing = LibraryGraphic()
+        box = drawing.text_box
+        box.text, box.border_enabled = text, border
+        box.top_left.x_nm, box.top_left.y_nm = top_left
+        box.bottom_right.x_nm, box.bottom_right.y_nm = bottom_right
+        box.attributes.size.x_nm = box.attributes.size.y_nm = size_nm
+        for edge in ('left', 'top', 'right', 'bottom'):
+            getattr(box, 'margin_' + edge).value_nm = margin_nm
+        return self.add_graphic(drawing, document, id=id)
 
     def add_text(self, text, position, document=None, *, size_nm=1270000, id=None):
         item = Text()

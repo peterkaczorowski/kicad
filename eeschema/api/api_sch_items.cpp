@@ -3,6 +3,8 @@
  */
 #include "api_sch_utils.h"
 #include <sch_line.h>
+#include <lib_symbol.h>
+#include <api/schematic/graphic_items.pb.h>
 #include <sch_symbol.h>
 #include <sch_label.h>
 #include <sch_junction.h>
@@ -172,7 +174,7 @@ std::set<int> SupportedSchematicApiTypes()
     return { types::KOT_SCH_LINE, types::KOT_SCH_SHEET, types::KOT_SCH_SHEET_PIN,
              types::KOT_SCH_LABEL, types::KOT_SCH_GLOBAL_LABEL, types::KOT_SCH_HIER_LABEL,
              types::KOT_SCH_DIRECTIVE_LABEL, types::KOT_SCH_TEXT, types::KOT_SCH_JUNCTION,
-             types::KOT_SCH_SYMBOL, types::KOT_SCH_NO_CONNECT, types::KOT_SCH_BUS_WIRE_ENTRY, types::KOT_SCH_BUS_BUS_ENTRY };
+             types::KOT_SCH_SHAPE, types::KOT_SCH_TEXTBOX, types::KOT_SCH_SYMBOL, types::KOT_SCH_NO_CONNECT, types::KOT_SCH_BUS_WIRE_ENTRY, types::KOT_SCH_BUS_BUS_ENTRY };
 }
 
 std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM& item,
@@ -181,6 +183,19 @@ std::optional<google::protobuf::Any> PackSchematicItem( const SCH_ITEM& item,
     google::protobuf::Any out;
     switch( item.Type() )
     {
+    case SCH_SHAPE_T:
+    case SCH_TEXTBOX_T:
+    {
+        LIB_SYMBOL library( "IPCGraphic" );
+        library.AddDrawItem( static_cast<SCH_ITEM*>( item.Clone() ) );
+        std::string error;
+        auto definition = PackLibrarySymbol( library, error );
+        if( !definition || definition->graphics_size() != 1 ) return std::nullopt;
+        Graphic value; value.mutable_id()->set_value( item.m_Uuid.AsStdString() );
+        *value.mutable_drawing() = definition->graphics( 0 );
+        value.mutable_drawing()->set_unit( 0 ); value.mutable_drawing()->set_body_style( 0 );
+        out.PackFrom( value ); break;
+    }
     case SCH_SYMBOL_T:
         if( !path ) return std::nullopt;
         out.PackFrom( PackSchematicSymbol( static_cast<const SCH_SYMBOL&>( item ), *path ) ); break;
@@ -233,6 +248,29 @@ std::unique_ptr<SCH_ITEM> UnpackSchematicItem( const google::protobuf::Any& data
         std::string& error, const SCH_ITEM* existing, const SCH_SHEET_PATH* path )
 {
     std::unique_ptr<SCH_ITEM> item;
+    if( data.Is<Graphic>() )
+    {
+        Graphic value;
+        if( !data.UnpackTo( &value ) ) { error = "Malformed schematic graphic"; return nullptr; }
+        if( ( !value.drawing().has_shape() && !value.drawing().has_text_box() )
+            || value.drawing().unit() || value.drawing().body_style() )
+        { error = "Sheet graphics require a shape or text box with unit/body zero"; return nullptr; }
+        LibrarySymbolDefinition definition;
+        definition.mutable_lib_id()->set_library_nickname( "IPC" );
+        definition.mutable_lib_id()->set_entry_name( "Graphic" );
+        definition.set_unit_count( 1 ); definition.set_body_style_count( 1 );
+        *definition.add_graphics() = value.drawing();
+        auto library = UnpackLibrarySymbol( definition, error );
+        if( !library ) return nullptr;
+        for( const SCH_ITEM& drawing : library->GetDrawItems() )
+            if( drawing.Type() == SCH_SHAPE_T || drawing.Type() == SCH_TEXTBOX_T )
+                item.reset( static_cast<SCH_ITEM*>( drawing.Clone() ) );
+        if( !item || ( existing && item->Type() != existing->Type() ) )
+        { error = "Missing graphic or attempted item-type change"; return nullptr; }
+        item->SetParent( nullptr ); item->SetLayer( LAYER_NOTES );
+        if( !applyId( value.id(), *item, error ) ) return nullptr;
+        return item;
+    }
     if( data.Is<Junction>() || data.Is<NoConnect>() || data.Is<BusEntry>() )
     {
         VECTOR2I position, size;

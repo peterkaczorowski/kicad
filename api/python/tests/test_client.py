@@ -65,6 +65,22 @@ class ClientTest(unittest.TestCase):
         graphic = self.client.add_wire((0, 0), (1000000, 0), self.doc, graphic=True)
         self.assertEqual((bus.layer, graphic.layer), (2, 3))
 
+    def test_schematic_shape_and_text_box_helpers(self):
+        from kipy_schematic import GraphicShape
+        shape = GraphicShape()
+        shape.rectangle.top_left.x_nm = 1000000
+        shape.rectangle.bottom_right.x_nm = 10000000
+        shape.rectangle.bottom_right.y_nm = 5000000
+        item = self.client.add_shape(shape, self.doc, fill_mode=3)
+        self.assertEqual(item.drawing.fill_mode, 3)
+        self.assertEqual(item.drawing.shape.rectangle.top_left.x_nm, 1000000)
+        box = self.client.add_text_box('Note', (1000000, 2000000), (10000000, 5000000), self.doc,
+                                       border=False, margin_nm=254000)
+        self.assertEqual(box.drawing.text_box.text, 'Note')
+        self.assertFalse(box.drawing.text_box.border_enabled)
+        self.assertEqual(box.drawing.text_box.margin_left.value_nm, 254000)
+        self.assertEqual(self.transport.commands[-1].header.document, self.doc)
+
     def test_symbol_library_and_embedded_recovery_commands(self):
         from kipy_schematic import LibrarySymbolDefinition
         self.client.search_symbol_libraries('SII8784', self.doc, library='Test', offset=10)

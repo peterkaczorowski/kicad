@@ -10,6 +10,7 @@
 #include <sch_field.h>
 #include <sch_shape.h>
 #include <sch_textbox.h>
+#include <api/schematic/graphic_items.pb.h>
 #include <sch_symbol.h>
 #include <sch_sheet.h>
 #include <sch_sheet_path.h>
@@ -268,5 +269,62 @@ BOOST_AUTO_TEST_CASE( StructuredLibraryDefinitionsPreserveUnitsAndValidateBefore
     input.mutable_pins( 1 )->set_unit( 2 ); input.mutable_pins( 1 )->set_electrical_type( kiapi::common::types::EPT_UNKNOWN );
     BOOST_CHECK( !UnpackLibrarySymbol( input, error ) );
     BOOST_CHECK_EQUAL( PackLibrarySymbol( *native, error )->SerializeAsString(), before );
+}
+BOOST_AUTO_TEST_CASE( LiveSheetGraphicsAndTextBoxesUseSharedValidatedCodec )
+{
+    using namespace kiapi::schematic::types;
+    Graphic input;
+    input.mutable_drawing()->set_fill_mode( 3 );
+    auto* rectangle = input.mutable_drawing()->mutable_shape()->mutable_rectangle();
+    rectangle->mutable_top_left()->set_x_nm( 10000000 );
+    rectangle->mutable_top_left()->set_y_nm( 20000000 );
+    rectangle->mutable_bottom_right()->set_x_nm( 30000000 );
+    rectangle->mutable_bottom_right()->set_y_nm( 40000000 );
+    google::protobuf::Any packed; BOOST_REQUIRE( packed.PackFrom( input ) );
+    std::string error; auto shape = UnpackSchematicItem( packed, error );
+    BOOST_REQUIRE_MESSAGE( shape, error );
+    BOOST_CHECK_EQUAL( shape->Type(), SCH_SHAPE_T );
+    BOOST_CHECK_EQUAL( shape->GetLayer(), LAYER_NOTES );
+    BOOST_CHECK_EQUAL( static_cast<SCH_SHAPE*>( shape.get() )->GetStart().x, 100000 );
+    auto data = PackSchematicItem( *shape ); BOOST_REQUIRE( data );
+    auto restored = UnpackSchematicItem( *data, error ); BOOST_REQUIRE_MESSAGE( restored, error );
+    BOOST_CHECK( sameItem( *PackSchematicItem( *restored ), *data ) );
+    Graphic box;
+    box.mutable_drawing()->mutable_text_box()->set_text( "Sheet note" );
+    box.mutable_drawing()->mutable_text_box()->mutable_top_left()->set_x_nm( 10000000 );
+    box.mutable_drawing()->mutable_text_box()->mutable_bottom_right()->set_x_nm( 30000000 );
+    box.mutable_drawing()->mutable_text_box()->mutable_bottom_right()->set_y_nm( 20000000 );
+    BOOST_REQUIRE( packed.PackFrom( box ) );
+    auto text = UnpackSchematicItem( packed, error ); BOOST_REQUIRE_MESSAGE( text, error );
+    BOOST_CHECK_EQUAL( text->Type(), SCH_TEXTBOX_T );
+    data = PackSchematicItem( *text ); BOOST_REQUIRE( data );
+    restored = UnpackSchematicItem( *data, error ); BOOST_REQUIRE_MESSAGE( restored, error );
+    BOOST_CHECK( sameItem( *PackSchematicItem( *restored ), *data ) );
+    BOOST_CHECK( !UnpackSchematicItem( packed, error, shape.get() ) );
+    Graphic resized; BOOST_REQUIRE( data->UnpackTo( &resized ) );
+    resized.mutable_drawing()->mutable_text_box()->mutable_bottom_right()->set_x_nm( 35000000 );
+    google::protobuf::Any patch, merged; BOOST_REQUIRE( patch.PackFrom( resized ) );
+    google::protobuf::FieldMask mask; mask.add_paths( "drawing.text_box.bottom_right" );
+    BOOST_REQUIRE( MergeSchematicApiItem( patch, *data, mask, merged, error ) );
+    auto updated = UnpackSchematicItem( merged, error, text.get() ); BOOST_REQUIRE_MESSAGE( updated, error );
+    BOOST_CHECK_EQUAL( static_cast<SCH_TEXTBOX*>( updated.get() )->GetEnd().x, 350000 );
+    Graphic normalizedBox; BOOST_REQUIRE( data->UnpackTo( &normalizedBox ) );
+    BOOST_CHECK( normalizedBox.drawing().text_box().attributes().multiline() );
+    Graphic polygon;
+    auto* outline = polygon.mutable_drawing()->mutable_shape()->mutable_polygon()->add_polygons()->mutable_outline();
+    outline->set_closed( true );
+    outline->add_nodes()->mutable_point()->set_x_nm( 1000000 );
+    outline->add_nodes()->mutable_point()->set_x_nm( 2000000 );
+    outline->add_nodes()->mutable_point()->set_y_nm( 2000000 );
+    BOOST_REQUIRE( packed.PackFrom( polygon ) );
+    auto polygonItem = UnpackSchematicItem( packed, error ); BOOST_REQUIRE_MESSAGE( polygonItem, error );
+    Graphic normalized; BOOST_REQUIRE( PackSchematicItem( *polygonItem )->UnpackTo( &normalized ) );
+    BOOST_CHECK( normalized.drawing().shape().polygon().polygons( 0 ).outline().closed() );
+    BOOST_CHECK_EQUAL( normalized.drawing().shape().polygon().polygons( 0 ).outline().nodes_size(), 3 );
+    input.mutable_drawing()->set_unit( 1 ); BOOST_REQUIRE( packed.PackFrom( input ) );
+    BOOST_CHECK( !UnpackSchematicItem( packed, error ) );
+    input.mutable_drawing()->set_unit( 0 );
+    input.mutable_drawing()->mutable_fill_color()->set_r( std::numeric_limits<double>::infinity() );
+    BOOST_REQUIRE( packed.PackFrom( input ) ); BOOST_CHECK( !UnpackSchematicItem( packed, error ) );
 }
 BOOST_AUTO_TEST_SUITE_END()
