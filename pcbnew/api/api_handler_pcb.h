@@ -26,6 +26,7 @@
 #include <api/api_handler_editor.h>
 #include <api/board/board_commands.pb.h>
 #include <api/board/integration_commands.pb.h>
+#include <api/board/library_commands.pb.h>
 #include <api/board/board_types.pb.h>
 #include <api/common/commands/editor_commands.pb.h>
 #include <api/common/commands/project_commands.pb.h>
@@ -56,6 +57,19 @@ public:
 
 private:
     typedef std::map<std::string, PROPERTY_BASE*> PROTO_PROPERTY_MAP;
+
+    void registerFootprintLibraryHandlers();
+    HANDLER_RESULT<bool> validateFootprintLibraryContext( const DocumentSpecifier&, bool aWrite );
+    HANDLER_RESULT<SearchFootprintLibrariesResponse> handleSearchFootprintLibraries(
+            const HANDLER_CONTEXT<SearchFootprintLibraries>& );
+    HANDLER_RESULT<FootprintDefinitionResponse> handleGetFootprintDefinition(
+            const HANDLER_CONTEXT<GetFootprintDefinition>& );
+    HANDLER_RESULT<CreateFootprintLibraryResponse> handleCreateFootprintLibrary(
+            const HANDLER_CONTEXT<CreateFootprintLibrary>& );
+    HANDLER_RESULT<FootprintDefinitionResponse> handleSaveFootprintDefinition(
+            const HANDLER_CONTEXT<SaveFootprintDefinition>& );
+    HANDLER_RESULT<FootprintDefinitionResponse> handleRecoverBoardFootprint(
+            const HANDLER_CONTEXT<RecoverBoardFootprint>& );
 
     HANDLER_RESULT<UpdatePcbFromSchematicResponse> handleUpdatePcbFromSchematic(
             const HANDLER_CONTEXT<UpdatePcbFromSchematic>& );

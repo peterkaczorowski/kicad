@@ -8,6 +8,7 @@
 #include <pad.h>
 #include <pcb_field.h>
 #include <pcb_shape.h>
+#include <zone.h>
 #include <template_fieldnames.h>
 #include <google/protobuf/dynamic_message.h>
 #include <climits>
@@ -30,6 +31,13 @@ bool bounded( const google::protobuf::Message& message, std::string& error )
         net.CopyFrom( message );
         if( !net.name().empty() || net.code().value() )
         { error = "Library definitions cannot contain board nets"; return false; }
+    }
+    if( message.GetDescriptor()->full_name() == "kiapi.common.types.GraphicShape" )
+    {
+        const auto& shape = static_cast<const common::types::GraphicShape&>( message );
+        if( shape.geometry_case() == common::types::GraphicShape::GEOMETRY_NOT_SET
+            || shape.attributes().stroke().width().value_nm() < 0 )
+        { error = "Footprint graphic needs geometry and a nonnegative stroke width"; return false; }
     }
     if( message.GetDescriptor()->full_name() == "kiapi.common.types.KIID" )
     {
@@ -149,6 +157,7 @@ types::FootprintInstance PackFootprintDefinition( const FOOTPRINT& source )
     }
     for( BOARD_ITEM* item : copy->GraphicalItems() )
         if( auto* shape = dynamic_cast<PCB_SHAPE*>( item ) ) shape->SetNetCode( 0 );
+    for( ZONE* zone : copy->Zones() ) zone->SetNetCode( 0 );
     google::protobuf::Any packed;
     copy->Serialize( packed );
     types::FootprintInstance result;
@@ -169,6 +178,10 @@ std::unique_ptr<FOOTPRINT> UnpackFootprintDefinition( const types::FootprintInst
         || !input.symbol_sheet_filename().empty() || !input.symbol_footprint_filters().empty() )
     { error = "Use a local F.Cu library definition, not a placed board instance"; return nullptr; }
     const auto& definition = input.definition();
+    auto libraryAttributes = definition.attributes();
+    libraryAttributes.clear_description(); libraryAttributes.clear_keywords();
+    if( libraryAttributes.ByteSizeLong() )
+    { error = "Use the instance header for footprint manufacturing attributes"; return nullptr; }
     if( definition.anchor().x_nm() || definition.anchor().y_nm() || definition.has_overrides()
         || definition.has_reference_field() || definition.has_value_field()
         || definition.has_datasheet_field() || definition.has_description_field() )
@@ -196,6 +209,10 @@ std::unique_ptr<FOOTPRINT> UnpackFootprintDefinition( const types::FootprintInst
     for( const auto& any : input.definition().items() )
     {
         std::string typeName = any.type_url().substr( any.type_url().find_last_of( '/' ) + 1 );
+        // Native 3D-model decoding compares the full URL, unlike Any::Is().
+        // Otherwise a custom prefix passes the probe and silently loses the model.
+        if( any.type_url() != "type.googleapis.com/" + typeName )
+        { error = "Footprint children require canonical protobuf Any type URLs"; return nullptr; }
         const auto* descriptor = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName( typeName );
         const auto* prototype = descriptor ? google::protobuf::MessageFactory::generated_factory()->GetPrototype( descriptor ) : nullptr;
         if( !prototype ) { error = "Unknown footprint child type: " + typeName; return nullptr; }
@@ -221,6 +238,9 @@ std::unique_ptr<FOOTPRINT> UnpackFootprintDefinition( const types::FootprintInst
                 || !pad.pad_stack().layers_size() || !pad.pad_stack().copper_layers_size()
                 || pad.pad_stack().type() < types::PST_NORMAL || pad.pad_stack().type() > types::PST_CUSTOM )
             { error = "Library pads require a valid padstack and no board nets"; return nullptr; }
+            if( !pad.symbol_pin().name().empty() || pad.symbol_pin().type() != common::types::EPT_UNKNOWN
+                || pad.symbol_pin().no_connect() )
+            { error = "Library pads cannot contain schematic-instance pin metadata"; return nullptr; }
             for( int layer : pad.pad_stack().layers() )
                 if( !physicalLayer( static_cast<types::BoardLayer>( layer ) ) )
                 { error = "Invalid pad layer"; return nullptr; }

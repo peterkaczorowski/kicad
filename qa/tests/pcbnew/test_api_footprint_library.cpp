@@ -107,6 +107,14 @@ BOOST_AUTO_TEST_CASE( InvalidModelsAreRefusedInsteadOfSilentlyTruncated )
     input = source; input.mutable_definition()->mutable_items( 0 )->PackFrom( pad ); refuses( input );
     pad.clear_net(); pad.mutable_pad_stack()->mutable_copper_layers( 0 )->mutable_size()->set_x_nm( -1 );
     input = source; input.mutable_definition()->mutable_items( 0 )->PackFrom( pad ); refuses( input );
+    BOOST_REQUIRE( source.definition().items( 0 ).UnpackTo( &pad ) );
+    pad.mutable_symbol_pin()->set_name( "Instance pin function" );
+    input = source; input.mutable_definition()->mutable_items( 0 )->PackFrom( pad ); refuses( input );
+    input = source; input.mutable_definition()->mutable_attributes()->set_not_in_schematic( true ); refuses( input );
+    input = source;
+    input.mutable_definition()->mutable_items( input.definition().items_size() - 1 )
+            ->set_type_url( "custom/kiapi.board.types.Footprint3DModel" );
+    refuses( input );
     types::Zone zone; zone.mutable_id()->set_value( KIID().AsStdString() );
     input = source; input.mutable_definition()->add_items()->PackFrom( zone ); refuses( input );
 }

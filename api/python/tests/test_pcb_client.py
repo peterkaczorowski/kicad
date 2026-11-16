@@ -35,6 +35,42 @@ class PCBClientTests(unittest.TestCase):
         self.client = PCBClient(transport=self.transport)
         self.doc = Document(type=3, board_filename='board.kicad_pcb')
 
+    def test_footprint_library_sources_and_project_persistence(self):
+        from pathlib import Path
+        from kipy_schematic.pcb import Footprint
+        self.client.search_footprint_libraries('qfn', self.doc, library='Local', limit=3, offset=4)
+        request = self.transport.commands[-1]
+        self.assertEqual((request.query, request.library_nickname, request.limit, request.offset),
+                         ('qfn', 'Local', 3, 4))
+        self.client.create_footprint_library('Local', Path('Local.pretty'), self.doc)
+        request = self.transport.commands[-1]
+        self.assertEqual(request.path, 'Local.pretty')
+        self.assertFalse(request.link_existing)
+        self.client.create_footprint_library('Local', 'Local.pretty', self.doc, link_existing=True)
+        self.assertTrue(self.transport.commands[-1].link_existing)
+        self.client.get_footprint_definition('Local:Part', self.doc)
+        self.assertEqual(self.transport.commands[-1].WhichOneof('source'), 'lib_id')
+        self.client.get_footprint_definition(document=self.doc, footprint_id='live-uuid')
+        self.assertEqual(self.transport.commands[-1].WhichOneof('source'), 'footprint_id')
+        count = len(self.transport.commands)
+        for args in ({}, {'lib_id': 'Local:Part', 'footprint_id': 'live-uuid'}):
+            with self.assertRaises(ValueError):
+                self.client.get_footprint_definition(document=self.doc, **args)
+        self.assertEqual(len(self.transport.commands), count)
+        definition = Footprint()
+        definition.definition.id.library_nickname, definition.definition.id.entry_name = 'Local', 'Part'
+        self.client.save_footprint_definition(definition, self.doc)
+        self.assertEqual(self.transport.commands[-1].definition, definition)
+        self.assertFalse(self.transport.commands[-1].overwrite)
+        self.client.save_footprint_definition(definition, self.doc, overwrite=True)
+        self.assertTrue(self.transport.commands[-1].overwrite)
+        self.client.recover_board_footprint('live-uuid', 'Local:Recovered', self.doc)
+        request = self.transport.commands[-1]
+        self.assertEqual(request.footprint_id.value, 'live-uuid')
+        self.assertEqual(request.target_lib_id.entry_name, 'Recovered')
+        self.assertFalse(request.overwrite)
+        self.assertTrue(all(r.document == self.doc for r in self.transport.commands))
+
     def test_item_defaults_are_top_level_and_explicit(self):
         self.client.get_items(document=self.doc)
         request = self.transport.commands[-1]

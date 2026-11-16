@@ -1,0 +1,65 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.board.commands;
+import "common/types/base_types.proto";
+import "board/board_types.proto";
+
+message FootprintLibraryInfo {
+  string nickname = 1;
+  string uri = 2;
+  string scope = 3; // project/global, after native table precedence resolution
+  bool writable = 4; // permitted by this API: writable native project libraries only
+}
+message FootprintLibraryMatch {
+  kiapi.common.types.LibraryIdentifier lib_id = 1;
+  FootprintLibraryInfo library = 2;
+  string description = 3;
+  string keywords = 4;
+}
+message FootprintLibraryError { string nickname = 1; string message = 2; }
+message SearchFootprintLibraries {
+  kiapi.common.types.DocumentSpecifier document = 1; // explicit open PCB/project
+  string query = 2;
+  string library_nickname = 3;
+  uint32 limit = 4; // default100, maximum1000
+  uint32 offset = 5;
+}
+message SearchFootprintLibrariesResponse {
+  repeated FootprintLibraryMatch matches = 1;
+  repeated FootprintLibraryError errors = 2; // never disguise load errors as no matches
+  uint32 total_matches = 3;
+}
+message GetFootprintDefinition {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  oneof source {
+    kiapi.common.types.LibraryIdentifier lib_id = 2;
+    kiapi.common.types.KIID footprint_id = 3; // exact live board model, never external library fallback
+  }
+}
+message FootprintDefinitionResponse {
+  // Reuse the full native model, including mandatory fields omitted by bare Footprint.
+  // Local zero anchor, zero rotation, F.Cu; no board nets/path/reference. Definitions
+  // have no placement UUID identity; PlaceFootprint generates independent UUIDs.
+  kiapi.board.types.FootprintInstance definition = 1;
+  string source = 2; // library/board
+  kiapi.common.types.KIID source_footprint_id = 3;
+  kiapi.common.types.DocumentSpecifier source_document = 4;
+}
+message CreateFootprintLibrary {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string nickname = 2;
+  string path = 3; // absolute or project-relative .pretty directory; parent must exist
+  bool link_existing = 4; // explicit existing directory; same project nickname+URI is idempotent
+}
+message CreateFootprintLibraryResponse { FootprintLibraryInfo library = 1; }
+message SaveFootprintDefinition {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  kiapi.board.types.FootprintInstance definition = 2; // definition.id is the explicit target lib_id
+  bool overwrite = 3; // conflict otherwise refuses before writing
+}
+message RecoverBoardFootprint {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  kiapi.common.types.KIID footprint_id = 2;
+  kiapi.common.types.LibraryIdentifier target_lib_id = 3;
+  bool overwrite = 4;
+}

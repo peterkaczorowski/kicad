@@ -64,6 +64,49 @@ class PCBClient(SchematicClient):
     def create_items(self, items, document=None, **options):
         return self._edit_pcb('CreateItems', items, document, **options)
 
+    def _footprint_library_request(self, name, document):
+        request = _message('kiapi.board.commands.' + name)()
+        request.document.CopyFrom(document if document is not None else self.active_document())
+        return request
+
+    def search_footprint_libraries(self, query='', document=None, *, library='', limit=100, offset=0):
+        request = self._footprint_library_request('SearchFootprintLibraries', document)
+        request.query, request.library_nickname = query, library
+        request.limit, request.offset = limit, offset
+        return self._send(request, 'kiapi.board.commands.SearchFootprintLibrariesResponse')
+
+    def get_footprint_definition(self, lib_id=None, document=None, *, footprint_id=None):
+        """Read an independent local library model or normalize the exact live board instance."""
+        if (lib_id is None) == (footprint_id is None):
+            raise ValueError('Choose a library identifier or a live footprint UUID')
+        request = self._footprint_library_request('GetFootprintDefinition', document)
+        if footprint_id is not None:
+            request.footprint_id.value = str(footprint_id)
+        else:
+            self._set_lib_id(request.lib_id, lib_id)
+        return self._send(request, 'kiapi.board.commands.FootprintDefinitionResponse')
+
+    def create_footprint_library(self, nickname, path, document=None, *, link_existing=False):
+        """Native project table and .pretty persistence; no editor or file dialog."""
+        request = self._footprint_library_request('CreateFootprintLibrary', document)
+        request.nickname, request.path = nickname, str(path)
+        request.link_existing = link_existing
+        return self._send(request, 'kiapi.board.commands.CreateFootprintLibraryResponse').library
+
+    def save_footprint_definition(self, definition, document=None, *, overwrite=False):
+        """Atomically save a local definition to its explicit project lib_id, outside PCB Undo."""
+        request = self._footprint_library_request('SaveFootprintDefinition', document)
+        request.definition.CopyFrom(definition)
+        request.overwrite = overwrite
+        return self._send(request, 'kiapi.board.commands.FootprintDefinitionResponse')
+
+    def recover_board_footprint(self, footprint_id, target_lib_id, document=None, *, overwrite=False):
+        request = self._footprint_library_request('RecoverBoardFootprint', document)
+        request.footprint_id.value = str(footprint_id)
+        self._set_lib_id(request.target_lib_id, target_lib_id)
+        request.overwrite = overwrite
+        return self._send(request, 'kiapi.board.commands.FootprintDefinitionResponse')
+
     def update_items(self, items, document=None, **options):
         return self._edit_pcb('UpdateItems', items, document, **options)
 

@@ -183,6 +183,7 @@ API_HANDLER_PCB::API_HANDLER_PCB( PCB_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
     registerIntegrationHandlers();
+    registerFootprintLibraryHandlers();
     registerHandler<GetOpenDocuments, GetOpenDocumentsResponse>(
             &API_HANDLER_PCB::handleGetOpenDocuments );
 

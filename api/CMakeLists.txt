@@ -34,6 +34,7 @@ set( KIAPI_PROTO_SRCS
 
     board/board.proto
     board/integration_commands.proto
+    board/library_commands.proto
     board/board_commands.proto
     board/board_types.proto
 
