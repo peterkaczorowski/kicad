@@ -22,6 +22,7 @@
 #define KICAD_API_PCB_UTLIS_H
 
 #include <map>
+#include <set>
 #include <memory>
 #include <core/typeinfo.h>
 #include <import_export.h>
@@ -33,6 +34,7 @@
 #include <api/board/board_types.pb.h>
 
 class BOARD_ITEM;
+class BOARD;
 class BOARD_ITEM_CONTAINER;
 class TEARDROP_PARAMETERS;
 
@@ -40,6 +42,11 @@ std::unique_ptr<BOARD_ITEM> CreateItemForType( KICAD_T aType, BOARD_ITEM_CONTAIN
 
 namespace kiapi::board
 {
+
+// Inspect nested protobufs (including footprint Any children) without changing the board.
+bool ValidateNetReferences( const google::protobuf::Message& aMessage, const BOARD& aBoard,
+                            bool aCreateMissing, std::set<std::string>& aMissing,
+                            std::string& aError );
 
 void PackLayerSet( google::protobuf::RepeatedField<int>& aOutput, const LSET& aLayerSet );
 

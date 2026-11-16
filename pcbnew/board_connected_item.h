@@ -96,10 +96,11 @@ public:
     }
 
     /**
-     * Assigns a net to this item from an API message.  If the net does not yet exist, it will be created.
+     * Assign an existing net from an API message. Never creates a net as a side effect.
+     * @return false for an unknown named net; the caller must reject the item.
      * @param aProto is the protobuf message to unpack a net from
      */
-    void UnpackNet( const kiapi::board::types::Net& aProto );
+    bool UnpackNet( const kiapi::board::types::Net& aProto );
     void PackNet( kiapi::board::types::Net* aProto ) const;
 
     /**

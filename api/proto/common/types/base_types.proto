@@ -164,6 +164,14 @@ message ItemHeader
 
   // Which fields on the item(s) are included with this request or response
   google.protobuf.FieldMask field_mask = 3;
+
+  // PCB writes only. Missing named nets are errors unless explicitly requested.
+  // Creation is part of the same editor commit and is undone/dropped with it.
+  bool create_net_if_missing = 4;
+
+  // PCB pad net reassignment is protected by default. Prefer schematic update;
+  // set this only when deliberately overriding the schematic connection.
+  bool allow_net_mismatch = 5;
 }
 
 /**

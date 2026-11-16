@@ -405,3 +405,26 @@ starts at one. New symbols enumerate every already-loaded shared-screen instance
 subsequent links to a populated child use native annotation or explicit instance
 reference updates. Generic Sheet/SheetPin updates are still outside item CRUD;
 use CreateSheet for hierarchy construction and the net-rename commands for ports.
+
+
+## PCB net safety (adapter 0.12)
+
+`from kipy_schematic import PCBClient` uses this fork's isolated PCB descriptors.
+`active_document()` selects one PCB; pass an explicit document for multiple boards.
+`create_items`/`update_items` accept `create_net_if_missing=False` and
+`allow_net_mismatch=False`. Unknown named nets are refused by default, including
+footprint pad messages nested inside Any. Native deserialization never creates
+a net. Explicit creation belongs to the same Begin/EndCommit and Undo/CMA_DROP
+as the item. Invalid item requests remove temporarily staged new nets.
+
+`add_track(start_nm, end_nm, width_nm, layer='F.Cu', document=doc, net='GND')`
+uses an existing named net. Deliberately request `create_net_if_missing=True`
+for a new net; a typo is otherwise an error. Pad net changes (including nested
+footprint updates) are conservatively refused by default: use schematic update,
+or explicitly allow_net_mismatch for a deliberate manual override.
+
+PCB updates accept field masks and protect UUID/parent. Top-level PCB changes
+are visible inside commit() and use native BOARD_COMMIT for grouped Undo/Redo/Drop.
+The schematic adapter and existing installed/default clients are unchanged until
+a separately approved installation. Tests: test_pcb_client.py and native
+PcbApiNetSafety; live tests require a marked disposable project.

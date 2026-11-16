@@ -428,7 +428,9 @@ bool ZONE::Deserialize( const google::protobuf::Any& aContainer )
         case types::ZHFBM_USE_HATCH_THICKNESS:    m_hatchBorderAlgorithm = 1; break;
         }
 
-        UnpackNet( cu.net() );
+        if( !UnpackNet( cu.net() ) )
+
+            return false;
         m_teardropType = FromProtoEnum<TEARDROP_TYPE>( cu.teardrop().type() );
 
         for( const auto& properties : zone.layer_properties() )

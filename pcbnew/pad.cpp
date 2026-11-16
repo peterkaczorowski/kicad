@@ -235,7 +235,8 @@ bool PAD::Deserialize( const google::protobuf::Any &aContainer )
 
     SetUuidDirect( KIID( pad.id().value() ) );
     SetPosition( kiapi::common::UnpackVector2( pad.position() ) );
-    UnpackNet( pad.net() );
+    if( !UnpackNet( pad.net() ) )
+        return false;
     SetLocked( pad.locked() == kiapi::common::types::LockedState::LS_LOCKED );
     SetAttribute( FromProtoEnum<PAD_ATTRIB>( pad.type() ) );
     SetNumber( wxString::FromUTF8( pad.number() ) );

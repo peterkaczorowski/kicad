@@ -135,7 +135,8 @@ bool PCB_SHAPE::Deserialize( const google::protobuf::Any &aContainer )
     SetUuidDirect( KIID( msg.id().value() ) );
     SetLocked( msg.locked() == types::LS_LOCKED );
     SetLayer( FromProtoEnum<PCB_LAYER_ID, BoardLayer>( msg.layer() ) );
-    UnpackNet( msg.net() );
+    if( !UnpackNet( msg.net() ) )
+        return false;
 
     EDA_SHAPE::Deserialize( msg.shape() );
 

@@ -443,7 +443,8 @@ bool PCB_TRACK::Deserialize( const google::protobuf::Any &aContainer )
     SetEnd( VECTOR2I( track.end().x_nm(), track.end().y_nm() ) );
     SetWidth( track.width().value_nm() );
     SetLayer( FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( track.layer() ) );
-    UnpackNet( track.net() );
+    if( !UnpackNet( track.net() ) )
+        return false;
     SetLocked( track.locked() == kiapi::common::types::LockedState::LS_LOCKED );
 
     if( track.has_solder_mask() )
@@ -511,7 +512,8 @@ bool PCB_ARC::Deserialize( const google::protobuf::Any &aContainer )
     SetEnd( VECTOR2I( arc.end().x_nm(), arc.end().y_nm() ) );
     SetWidth( arc.width().value_nm() );
     SetLayer( FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( arc.layer() ) );
-    UnpackNet( arc.net() );
+    if( !UnpackNet( arc.net() ) )
+        return false;
     SetLocked( arc.locked() == kiapi::common::types::LockedState::LS_LOCKED );
 
     if( arc.has_solder_mask() )
@@ -591,7 +593,8 @@ bool PCB_VIA::Deserialize( const google::protobuf::Any &aContainer )
     m_padStack.LayerSet().reset();
 
     SetViaType( FromProtoEnum<VIATYPE>( via.type() ) );
-    UnpackNet( via.net() );
+    if( !UnpackNet( via.net() ) )
+        return false;
     SetLocked( via.locked() == kiapi::common::types::LockedState::LS_LOCKED );
 
     if( via.has_teardrop() )

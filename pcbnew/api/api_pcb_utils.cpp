@@ -1,3 +1,5 @@
+#include <board.h>
+#include <google/protobuf/message.h>
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
@@ -111,6 +113,52 @@ std::unique_ptr<BOARD_ITEM> CreateItemForType( KICAD_T aType, BOARD_ITEM_CONTAIN
 
 namespace kiapi::board
 {
+
+bool ValidateNetReferences( const google::protobuf::Message& message, const BOARD& board,
+                            bool createMissing, std::set<std::string>& missing,
+                            std::string& error )
+{
+    const auto* descriptor = message.GetDescriptor();
+    const auto* reflection = message.GetReflection();
+    if( descriptor->full_name() == "kiapi.board.types.Net" )
+    {
+        std::string name = reflection->GetString( message, descriptor->FindFieldByName( "name" ) );
+        if( !name.empty() && !board.FindNet( wxString::FromUTF8( name ) ) )
+        {
+            if( !createMissing )
+            { error = "Unknown PCB net '" + name + "'; create_net_if_missing must be explicit"; return false; }
+            missing.insert( name );
+        }
+        return true;
+    }
+    if( descriptor->full_name() == "google.protobuf.Any" )
+    {
+        const std::string url = reflection->GetString( message, descriptor->FindFieldByName( "type_url" ) );
+        const auto* type = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName(
+                url.substr( url.find_last_of( '/' ) + 1 ) );
+        const auto* prototype = type ? google::protobuf::MessageFactory::generated_factory()->GetPrototype( type ) : nullptr;
+        if( !prototype ) { error = "Unknown nested PCB protobuf type"; return false; }
+        std::unique_ptr<google::protobuf::Message> item( prototype->New() );
+        if( !item->ParseFromString( reflection->GetString( message, descriptor->FindFieldByName( "value" ) ) ) )
+        { error = "Malformed nested PCB protobuf"; return false; }
+        return ValidateNetReferences( *item, board, createMissing, missing, error );
+    }
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    reflection->ListFields( message, &fields );
+    for( const auto* field : fields )
+    {
+        if( field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE ) continue;
+        const int count = field->is_repeated() ? reflection->FieldSize( message, field ) : 1;
+        for( int i = 0; i < count; ++i )
+        {
+            const auto& child = field->is_repeated() ? reflection->GetRepeatedMessage( message, field, i )
+                                                    : reflection->GetMessage( message, field );
+            if( !ValidateNetReferences( child, board, createMissing, missing, error ) ) return false;
+        }
+    }
+    return true;
+}
+
 
 void PackLayerSet( google::protobuf::RepeatedField<int>& aOutput, const LSET& aLayerSet )
 {

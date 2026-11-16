@@ -61,23 +61,20 @@ void BOARD_CONNECTED_ITEM::SetLayer( PCB_LAYER_ID aLayer )
 }
 
 
-void BOARD_CONNECTED_ITEM::UnpackNet( const kiapi::board::types::Net& aProto )
+bool BOARD_CONNECTED_ITEM::UnpackNet( const kiapi::board::types::Net& aProto )
 {
+    const wxString name = wxString::FromUTF8( aProto.name() );
     if( BOARD* board = GetBoard() )
     {
-        wxString name = wxString::FromUTF8( aProto.name() );
-
         if( NETINFO_ITEM* net = board->FindNet( name ) )
         {
             m_netinfo = net;
+            return true;
         }
-        else
-        {
-            NETINFO_ITEM* newnet = new NETINFO_ITEM( board, name, 0 );
-            board->Add( newnet );
-            m_netinfo = newnet;
-        }
+        return false;
     }
+    // Detached library objects have no board nets. Empty assignments are valid.
+    return name.empty();
 }
 
 

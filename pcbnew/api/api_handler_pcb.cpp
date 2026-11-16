@@ -19,6 +19,10 @@
  */
 
 #include <magic_enum.hpp>
+#include <google/protobuf/util/field_mask_util.h>
+#include <pcb_draw_panel_gal.h>
+#include <pcb_screen.h>
+#include <view/view.h>
 #include <properties/property.h>
 
 #include <common.h>
@@ -62,6 +66,78 @@ using namespace kiapi::common::commands;
 using types::CommandStatus;
 using types::DocumentType;
 using types::ItemRequestStatus;
+
+
+namespace
+{
+// API transactions expose staged top-level items immediately, just like GUI edits.
+// CHT_DONE lets native BOARD_COMMIT own Push/Revert/Undo without applying them twice.
+class PCB_API_COMMIT : public BOARD_COMMIT
+{
+public:
+    explicit PCB_API_COMMIT( PCB_EDIT_FRAME* frame ) : BOARD_COMMIT( frame ), m_frame( frame ),
+            m_wasModified( frame->GetScreen()->IsContentModified() ) {}
+    void Revert() override
+    {
+        BOARD_COMMIT::Revert();
+        m_frame->GetScreen()->SetContentModified( m_wasModified );
+        m_frame->Refresh();
+    }
+    COMMIT& Stage( EDA_ITEM* item, CHANGE_TYPE change, BASE_SCREEN* screen = nullptr,
+                   RECURSE_MODE recurse = RECURSE_MODE::NO_RECURSE ) override
+    {
+        auto* boardItem = dynamic_cast<BOARD_ITEM*>( item );
+        if( boardItem && !boardItem->GetParentFootprint() && !( change & CHT_DONE ) )
+        {
+            auto* board = m_frame->GetBoard();
+            auto* view = m_frame->GetCanvas()->GetView();
+            if( ( change & CHT_TYPE ) == CHT_ADD )
+            {
+                board->Add( boardItem );
+                if( boardItem->Type() != PCB_NETINFO_T ) view->Add( boardItem );
+                change = change | CHT_DONE;
+            }
+            else if( ( change & CHT_TYPE ) == CHT_REMOVE )
+            {
+                if( boardItem->Type() != PCB_NETINFO_T ) view->Remove( boardItem );
+                board->Remove( boardItem );
+                change = change | CHT_DONE;
+            }
+        }
+        return BOARD_COMMIT::Stage( item, change, screen, recurse );
+    }
+private:
+    PCB_EDIT_FRAME* m_frame;
+    bool m_wasModified;
+};
+
+// Nets are made available to native Deserialize during this synchronous request.
+// Rejected items remove them; accepted items transfer them to the native commit.
+class PENDING_API_NETS
+{
+public:
+    PENDING_API_NETS( BOARD& board, const std::set<std::string>& names ) : m_board( board )
+    {
+        for( const auto& name : names )
+        {
+            auto* net = new NETINFO_ITEM( &board, wxString::FromUTF8( name ), 0 );
+            m_nets.push_back( net ); board.Add( net );
+        }
+    }
+    ~PENDING_API_NETS()
+    {
+        for( auto* net : m_nets ) { m_board.Remove( net ); delete net; }
+    }
+    void Accept( BOARD_COMMIT& commit )
+    {
+        for( auto* net : m_nets ) commit.Added( net );
+        m_nets.clear();
+    }
+private:
+    BOARD& m_board;
+    std::vector<NETINFO_ITEM*> m_nets;
+};
+}
 
 
 API_HANDLER_PCB::API_HANDLER_PCB( PCB_EDIT_FRAME* aFrame ) :
@@ -227,7 +303,7 @@ void API_HANDLER_PCB::pushCurrentCommit( const std::string& aClientName, const w
 
 std::unique_ptr<COMMIT> API_HANDLER_PCB::createCommit()
 {
-    return std::make_unique<BOARD_COMMIT>( frame() );
+    return std::make_unique<PCB_API_COMMIT>( frame() );
 }
 
 
@@ -354,6 +430,17 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
     }
 
     BOARD_COMMIT* commit = static_cast<BOARD_COMMIT*>( getCurrentCommit( aClientName ) );
+    // An implicit batch must never strand a half-applied commit on a top-level
+    // parse/mask error. Explicit transactions remain owned by the caller/Drop.
+    struct FailureGuard
+    {
+        std::function<void()> action;
+        ~FailureGuard() { if( action ) action(); }
+    } failure{ [&]
+    {
+        if( !m_activeClients.count( aClientName ) && m_commits.count( aClientName ) )
+        { commit->Revert(); m_commits.erase( aClientName ); }
+    } };
 
     for( const google::protobuf::Any& anyItem : aItems )
     {
@@ -385,6 +472,43 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
             }
         }
 
+        google::protobuf::Any full = anyItem;
+        if( !aCreate && aHeader.field_mask().paths_size() )
+        {
+            const auto* descriptor = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName(
+                    anyItem.type_url().substr( anyItem.type_url().find_last_of( '/' ) + 1 ) );
+            const auto* prototype = descriptor ? google::protobuf::MessageFactory::generated_factory()->GetPrototype( descriptor ) : nullptr;
+            if( !prototype ) return documentError( "Unknown PCB protobuf type" );
+            std::unique_ptr<google::protobuf::Message> patch( prototype->New() ), merged( prototype->New() );
+            if( !anyItem.UnpackTo( patch.get() ) ) return documentError( "Malformed PCB update" );
+            const auto* idField = descriptor->FindFieldByName( "id" );
+            if( !idField || idField->message_type()->full_name() != "kiapi.common.types.KIID" )
+                return documentError( "PCB item requires an immutable UUID" );
+            const auto& id = patch->GetReflection()->GetMessage( *patch, idField );
+            const std::string uuid = id.GetReflection()->GetString( id, id.GetDescriptor()->FindFieldByName( "value" ) );
+            auto original = getItemById( KIID( uuid ) );
+            if( !original ) return documentError( "PCB update UUID does not exist" );
+            google::protobuf::Any old; ( *original )->Serialize( old );
+            if( !old.UnpackTo( merged.get() ) ) return documentError( "PCB update type does not match existing item" );
+            for( const auto& path : aHeader.field_mask().paths() )
+                if( path == "id" || path.rfind( "id.", 0 ) == 0 || path == "parent" || path.rfind( "parent.", 0 ) == 0 )
+                    return documentError( "PCB UUID and parent are immutable" );
+            for( const auto& path : aHeader.field_mask().paths() )
+                if( !google::protobuf::util::FieldMaskUtil::GetFieldDescriptors( descriptor, path, nullptr ) )
+                    return documentError( "Invalid PCB field mask" );
+            google::protobuf::util::FieldMaskUtil::MergeOptions options;
+            options.set_replace_repeated_fields( true );
+            google::protobuf::util::FieldMaskUtil::MergeMessageTo( *patch, aHeader.field_mask(), options, merged.get() );
+            full.PackFrom( *merged );
+        }
+        std::set<std::string> missing;
+        std::string netError;
+        if( !kiapi::board::ValidateNetReferences( full, *board, aHeader.create_net_if_missing(), missing, netError ) )
+        {
+            status.set_code( ItemStatusCode::ISC_INVALID_DATA ); status.set_error_message( netError );
+            aItemHandler( status, anyItem ); continue;
+        }
+        PENDING_API_NETS pendingNets( *board, missing );
         HANDLER_RESULT<std::unique_ptr<BOARD_ITEM>> creationResult =
                 createItemForType( *type, container );
 
@@ -398,7 +522,7 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
 
         std::unique_ptr<BOARD_ITEM> item( std::move( *creationResult ) );
 
-        if( !item->Deserialize( anyItem ) )
+        if( !item->Deserialize( full ) )
         {
             e.set_status( ApiStatusCode::AS_BAD_REQUEST );
             e.set_error_message( fmt::format( "could not unpack {} from request",
@@ -425,6 +549,21 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
             continue;
         }
 
+        const bool layerless = item->Type() == PCB_GROUP_T || item->Type() == PCB_GENERATOR_T;
+        if( ( !layerless && ( item->GetLayer() < 0 || item->GetLayer() >= PCB_LAYER_ID_COUNT ) )
+            || ( ( item->Type() == PCB_TRACE_T || item->Type() == PCB_ARC_T || item->Type() == PCB_VIA_T )
+                 && !IsCopperLayer( item->GetLayer() ) )
+            || ( item->Type() == PCB_FOOTPRINT_T && item->GetLayer() != F_Cu && item->GetLayer() != B_Cu ) )
+        {
+            status.set_code( ItemStatusCode::ISC_INVALID_DATA );
+            status.set_error_message( "Invalid PCB layer; copper items require copper and footprints require an outer side" );
+            aItemHandler( status, anyItem ); continue;
+        }
+        if( auto* track = dynamic_cast<PCB_TRACK*>( item.get() ); track && track->GetWidth() <= 0 )
+        {
+            status.set_code( ItemStatusCode::ISC_INVALID_DATA ); status.set_error_message( "Copper width must be positive" );
+            aItemHandler( status, anyItem ); continue;
+        }
         if( aCreate && !( board->GetEnabledLayers() & item->GetLayerSet() ).any() )
         {
             status.set_code( ItemStatusCode::ISC_INVALID_DATA );
@@ -434,6 +573,28 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
             continue;
         }
 
+        if( !aCreate && ( *optItem )->Type() != item->Type() )
+            return documentError( "Cannot change PCB item type" );
+        if( !aCreate && !aHeader.allow_net_mismatch() )
+        {
+            bool changedNet = false;
+            if( auto* oldPad = dynamic_cast<PAD*>( *optItem ) )
+                changedNet = oldPad->GetNetname() != static_cast<PAD*>( item.get() )->GetNetname();
+            if( auto* oldFootprint = dynamic_cast<FOOTPRINT*>( *optItem ) )
+            {
+                for( PAD* pad : static_cast<FOOTPRINT*>( item.get() )->Pads() )
+                    for( PAD* oldPad : oldFootprint->Pads() )
+                        if( oldPad->GetNumber() == pad->GetNumber() && oldPad->GetNetname() != pad->GetNetname() )
+                            changedNet = true;
+            }
+            if( changedNet )
+            {
+                status.set_code( ItemStatusCode::ISC_INVALID_DATA );
+                status.set_error_message( "Pad net reassignment is protected; update from schematic or explicitly set allow_net_mismatch" );
+                aItemHandler( status, anyItem ); continue;
+            }
+        }
+        pendingNets.Accept( *commit );
         status.set_code( ItemStatusCode::ISC_OK );
         google::protobuf::Any newItem;
 
@@ -483,6 +644,8 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
             {
                 commit->Modify( boardItem );
                 boardItem->CopyFrom( item.get() );
+                board->GetConnectivity()->Update( boardItem );
+                frame()->GetCanvas()->GetView()->Update( boardItem );
                 boardItem->Serialize( newItem );
             }
         }
@@ -497,6 +660,7 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
     }
 
 
+    failure.action = {};
     return ItemRequestStatus::IRS_OK;
 }
 

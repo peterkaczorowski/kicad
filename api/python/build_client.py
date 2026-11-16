@@ -18,17 +18,18 @@ output.mkdir(parents=True, exist_ok=True)
 package = output / 'kipy_schematic'
 package.mkdir(exist_ok=True)
 shutil.copy2(source / 'kipy_schematic' / '__init__.py', package)
+shutil.copy2(source / 'kipy_schematic' / 'pcb.py', package)
 subprocess.run([args.protoc, f'--proto_path={proto}', '--include_imports',
                 f'--descriptor_set_out={package / "_protocol.pb"}',
                 'google/protobuf/empty.proto', 'common/commands/editor_commands.proto',
-                'schematic/graphic_items.proto', 'schematic/library_commands.proto', 'schematic/symbol_items.proto', 'schematic/connection_items.proto', 'schematic/schematic_commands.proto', 'schematic/page_settings.proto'], check=True)
+                'board/board_commands.proto', 'schematic/graphic_items.proto', 'schematic/library_commands.proto', 'schematic/symbol_items.proto', 'schematic/connection_items.proto', 'schematic/schematic_commands.proto', 'schematic/page_settings.proto'], check=True)
 (output / 'pyproject.toml').write_text('''[build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "kipy-schematic"
-version = "0.11.0"
+version = "0.12.0"
 requires-python = ">=3.10"
 dependencies = ["kicad-python>=0.8,<0.9", "protobuf>=5.29,<8"]
 

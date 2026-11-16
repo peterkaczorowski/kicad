@@ -527,3 +527,6 @@ class SchematicClient:
             self._send(end, 'kiapi.common.commands.EndCommitResponse')
         finally:
             self._in_commit = False
+
+
+from .pcb import PCBClient  # matched PCB protocol, isolated from upstream descriptors
