@@ -1537,8 +1537,9 @@ void FOOTPRINT::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode, bool aSkipConnectiv
     aBoardItem->ClearEditFlags();
     aBoardItem->SetParent( this );
 
-    // If this footprint is on a board, update the board's item-by-id cache
-    if( BOARD* board = GetBoard() )
+    // Undo images and library copies retain a board parent, but are not live
+    // board items. Never let their cloned children replace the live UUID lookup.
+    if( BOARD* board = GetBoard(); board && board->IsItemIndexedById( this ) )
         board->CacheItemSubtreeById( aBoardItem );
 
     InvalidateGeometryCaches();

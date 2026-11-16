@@ -237,4 +237,27 @@ BOOST_AUTO_TEST_CASE( RemovingResolvedChildEvictsCacheOnFootprintHolder )
 }
 
 
+BOOST_AUTO_TEST_CASE( FootprintUndoImagesNeverReplaceLivePadLookup )
+{
+    BOARD board;
+    auto* footprint = new FOOTPRINT( &board );
+    auto* pad = new PAD( footprint );
+    footprint->Add( pad );
+    board.Add( footprint );
+    const KIID id = pad->m_Uuid;
+    BOOST_REQUIRE_EQUAL( board.ResolveItem( id, true ), pad );
+
+    auto image = std::unique_ptr<FOOTPRINT>( static_cast<FOOTPRINT*>( footprint->Clone() ) );
+    BOOST_CHECK_EQUAL( board.ResolveItem( id, true ), pad );
+    auto* detachedPad = new PAD( image.get() );
+    image->Add( detachedPad );
+    BOOST_CHECK( board.ResolveItem( detachedPad->m_Uuid, true ) == nullptr );
+
+    auto* livePad = new PAD( footprint );
+    footprint->Add( livePad );
+    BOOST_CHECK_EQUAL( board.ResolveItem( livePad->m_Uuid, true ), livePad );
+    image.reset();
+    BOOST_CHECK_EQUAL( board.ResolveItem( id, true ), pad );
+}
+
 BOOST_AUTO_TEST_SUITE_END()
