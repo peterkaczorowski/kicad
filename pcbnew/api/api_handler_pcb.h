@@ -57,7 +57,10 @@ public:
 private:
     typedef std::map<std::string, PROPERTY_BASE*> PROTO_PROPERTY_MAP;
 
+    HANDLER_RESULT<UpdatePcbFromSchematicResponse> handleUpdatePcbFromSchematic(
+            const HANDLER_CONTEXT<UpdatePcbFromSchematic>& );
     void registerIntegrationHandlers();
+    void deferCurrentCommit( const std::string& client, bool deferred );
     HANDLER_RESULT<FootprintPlacementResponse> handlePlaceFootprint( const HANDLER_CONTEXT<PlaceFootprint>& );
     HANDLER_RESULT<FootprintPlacementResponse> handleGetFootprintPads( const HANDLER_CONTEXT<GetFootprintPads>& );
     HANDLER_RESULT<RatsnestResponse> handleGetRatsnest( const HANDLER_CONTEXT<GetRatsnest>& );

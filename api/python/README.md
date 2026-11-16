@@ -456,8 +456,74 @@ edges including hidden edges, with net, endpoint UUIDs and positions.
 `add_via(position, net, doc, diameter_nm=800000, drill_nm=400000)` creates a
 through via within the same commit; new-net flags remain explicit.
 
+
+## Native schematic-to-PCB update (adapter 0.14)
+
+`sch.export_schematic_for_pcb(doc)` exports the full live hierarchy through KiCad's
+native netlist exporter after non-destructive connectivity refresh. The snapshot
+identifies explicit project/sheet, source filename, editor session/revision and
+unsaved state. Finish schematic commits first. No schematic save or temporary
+client-generated file is involved.
+
+`pcb.update_pcb_from_schematic(board_doc, schematic_document=sheet_doc,
+schematic_client=sch, dry_run=True)` returns component/net counts, footprint and
+pad-net changes, native messages/errors, can_apply and source provenance. Pass
+a separate schematic_client for a separate editor socket; omission reuses the
+PCB socket. A live failure never silently falls back to saved data.
+
+To deliberately use disk state, pass `schematic_file='/absolute/project/root.kicad_sch'`
+instead. KiCad loads a separate native schematic model through its schematic
+KIFACE, even with no schematic window, and reports PNS_SAVED. It never substitutes
+an open unsaved model. The file must be inside the explicitly selected board project.
+
+Options mirror native updater controls: lookup_by_uuid/replace_footprints/update_fields
+default true, delete_unused_footprints/remove_extra_fields/override_locks/transfer_groups
+default false. A dry run does not modify board, dirty state or Undo. Apply first
+repeats native preflight, refuses errors, then uses the native BOARD_NETLIST_UPDATER
+and caller's BOARD_COMMIT. New footprints are visible to pad/placement/routing
+queries immediately; no placement dialog, drag tool or automatic save is launched.
+
+```python
+preview = pcb.update_pcb_from_schematic(board_doc, schematic_document=sheet_doc,
+                                      schematic_client=sch, dry_run=True)
+with pcb.commit('Schematic update, placement and routing', board_doc):
+    report = pcb.update_pcb_from_schematic(board_doc, schematic_document=sheet_doc,
+                                          schematic_client=sch)
+    # update_items for placement; add_track/add_via for actual copper
+# One Undo/Redo for the whole PCB transaction; CMA_DROP cancels it.
+pcb.save_document(board_doc)
+```
+
+A standalone update creates one native Undo step. Library/netlist read failures
+produce explicit errors; no modal dialogs. Source export and PCB application are
+separate requests: the live snapshot represents the source at its reported
+session/revision, not a lock against subsequent user edits. Re-export for a fresh
+preview/apply. The client transports native netlist data without parsing/editing it.
+
+Native F8's assembly-variant catalogue changes are not undoable through
+BOARD_COMMIT; this API explicitly refuses projects containing assembly variants
+to preserve atomic Undo/Drop. It does not start asynchronous zone refills; use
+the existing RefillZones operation explicitly after a completed transaction.
+The reported revision is the schematic connectivity revision, not a lock or
+full-file version; each normal preview/apply wrapper call re-exports live data.
+
 For placement without reloading a library, `update_items([footprint], doc,
 fields=['position', 'orientation', 'layer'])` applies native transforms in place.
 Pad and field positions follow the footprint; child UUIDs and nets stay stable.
 PCB get_items() defaults to explicit top-level types, excluding pads/fields so
 a footprint and its children are not accidentally submitted for deletion twice.
+
+Verification: build a matching descriptor package with build_client.py, then run
+`python -m unittest discover -s api/python/tests -p 'test_*client.py'` with that
+package on PYTHONPATH. Native QA suites: `PcbApiNetSafety`, `BoardItemIndex`.
+The live scripts `live_pcb_items.py` and `live_schematic_pcb_integration.py`
+require an explicit marked project, explicit owned editor sockets and an artifact
+directory; neither discovers a global socket or accepts the real CodexTest2 or
+Codex800XL project. The integration script uses a previously IPC-built NE555 and
+its reference JSON, and the adjacent acceptance-only `route_ne555.py` fixture.
+It covers live versus saved source, dry-run immutability, standalone and grouped
+Undo/Redo, native save/reload and external-change Revert in both editors. Run
+native CLI ERC and DRC (including schematic parity) on the saved test files;
+read-only board UUIDs are session identifiers, while all item/child UUIDs are
+checked across Undo/Redo and reload. Footprint child ordering is canonicalized
+when comparing native save round trips.

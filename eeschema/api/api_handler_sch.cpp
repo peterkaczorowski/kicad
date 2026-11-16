@@ -103,6 +103,7 @@ API_HANDLER_SCH::API_HANDLER_SCH( SCH_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
     registerLibraryHandlers();
+    registerPcbExportHandler();
     registerConnectivityHandlers();
     registerNetRenameHandlers();
     registerPageSettingsHandlers();

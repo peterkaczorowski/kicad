@@ -85,32 +85,69 @@ public:
         m_frame->GetScreen()->SetContentModified( m_wasModified );
         m_frame->Refresh();
     }
+    void Push( const wxString& message, int flags = 0 ) override
+    {
+        // Undo runs in reverse order. Remove dependent copper/footprints before
+        // their newly created NETINFOs; removing a net clears live pad pointers.
+        // Redo then attaches the nets before restoring dependent items.
+        std::stable_partition( m_entries.begin(), m_entries.end(), []( const COMMIT_LINE& entry )
+        {
+            return entry.m_item && entry.m_item->Type() == PCB_NETINFO_T
+                   && ( entry.m_type & CHT_TYPE ) == CHT_ADD;
+        } );
+        BOARD_COMMIT::Push( message, flags | m_commitFlags );
+    }
+    void SetDeferred( bool deferred )
+    {
+        // Headless netlist updates must not start asynchronous zone refills.
+        if( deferred ) m_commitFlags |= ZONE_FILL_OP;
+        m_deferred = deferred;
+        if( !deferred )
+            for( auto& entry : m_entries )
+            {
+                auto* item = dynamic_cast<BOARD_ITEM*>( entry.m_item );
+                if( !item ) continue;
+                entry.m_type = apply( item, entry.m_type );
+                if( ( entry.m_type & CHT_TYPE ) == CHT_MODIFY )
+                {
+                    m_frame->GetBoard()->GetConnectivity()->Update( item );
+                    if( item->Type() != PCB_NETINFO_T ) m_frame->GetCanvas()->GetView()->Update( item );
+                }
+            }
+    }
     COMMIT& Stage( EDA_ITEM* item, CHANGE_TYPE change, BASE_SCREEN* screen = nullptr,
                    RECURSE_MODE recurse = RECURSE_MODE::NO_RECURSE ) override
     {
-        auto* boardItem = dynamic_cast<BOARD_ITEM*>( item );
-        if( boardItem && !boardItem->GetParentFootprint() && !( change & CHT_DONE ) )
-        {
-            auto* board = m_frame->GetBoard();
-            auto* view = m_frame->GetCanvas()->GetView();
-            if( ( change & CHT_TYPE ) == CHT_ADD )
-            {
-                board->Add( boardItem );
-                if( boardItem->Type() != PCB_NETINFO_T ) view->Add( boardItem );
-                change = change | CHT_DONE;
-            }
-            else if( ( change & CHT_TYPE ) == CHT_REMOVE )
-            {
-                if( boardItem->Type() != PCB_NETINFO_T ) view->Remove( boardItem );
-                board->Remove( boardItem );
-                change = change | CHT_DONE;
-            }
-        }
+        if( auto* boardItem = dynamic_cast<BOARD_ITEM*>( item ); boardItem && !m_deferred )
+            change = apply( boardItem, change );
         return BOARD_COMMIT::Stage( item, change, screen, recurse );
     }
 private:
+    CHANGE_TYPE apply( BOARD_ITEM* item, CHANGE_TYPE change )
+    {
+        if( item->GetParentFootprint() || ( change & CHT_DONE ) ) return change;
+        auto* board = m_frame->GetBoard();
+        auto* view = m_frame->GetCanvas()->GetView();
+        if( ( change & CHT_TYPE ) == CHT_ADD )
+        {
+            board->Add( item );
+            if( item->Type() != PCB_NETINFO_T ) view->Add( item );
+            return change | CHT_DONE;
+        }
+        if( ( change & CHT_TYPE ) == CHT_REMOVE )
+        {
+            if( item->Type() != PCB_NETINFO_T ) view->Remove( item );
+            board->Remove( item );
+            return change | CHT_DONE;
+        }
+        return change;
+    }
+
+private:
     PCB_EDIT_FRAME* m_frame;
     bool m_wasModified;
+    bool m_deferred = false;
+    int m_commitFlags = 0;
 };
 
 // Nets are made available to native Deserialize during this synchronous request.
@@ -301,6 +338,12 @@ void API_HANDLER_PCB::pushCurrentCommit( const std::string& aClientName, const w
 {
     API_HANDLER_EDITOR::pushCurrentCommit( aClientName, aMessage );
     frame()->Refresh();
+}
+
+
+void API_HANDLER_PCB::deferCurrentCommit( const std::string& client, bool deferred )
+{
+    static_cast<PCB_API_COMMIT*>( getCurrentCommit( client ) )->SetDeferred( deferred );
 }
 
 

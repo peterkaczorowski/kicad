@@ -69,7 +69,7 @@ class PCB_GROUP;
 class BOARD_NETLIST_UPDATER
 {
 public:
-    BOARD_NETLIST_UPDATER( PCB_EDIT_FRAME* aFrame, BOARD* aBoard );
+    BOARD_NETLIST_UPDATER( PCB_EDIT_FRAME* aFrame, BOARD* aBoard, BOARD_COMMIT* aCommit = nullptr );
     ~BOARD_NETLIST_UPDATER();
 
     /**
@@ -90,6 +90,9 @@ public:
      * non-base variant (which gets flagged 'Do not place').
      */
     static bool fpidsEquivalent( const LIB_ID& aBoardFpid, const LIB_ID& aSchematicFpid );
+
+    int GetErrorCount() const { return m_errorCount; }
+    int GetWarningCount() const { return m_warningCount; }
 
     void SetReporter( REPORTER* aReporter ) { m_reporter = aReporter; }
 
@@ -154,7 +157,9 @@ private:
     bool testConnectivity( NETLIST& aNetlist, std::map<COMPONENT*, FOOTPRINT*>& aFootprintMap );
 
     PCB_EDIT_FRAME* m_frame;
-    BOARD_COMMIT    m_commit;
+    BOARD_COMMIT    m_ownedCommit;
+    BOARD_COMMIT&   m_commit;
+    bool            m_externalCommit;
     BOARD*          m_board;
     REPORTER*       m_reporter;
 

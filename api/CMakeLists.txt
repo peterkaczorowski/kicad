@@ -44,6 +44,7 @@ set( KIAPI_PROTO_SRCS
     schematic/symbol_items.proto
     schematic/graphic_items.proto
     schematic/connection_items.proto
+    schematic/pcb_export.proto
     schematic/page_settings.proto
     )
 

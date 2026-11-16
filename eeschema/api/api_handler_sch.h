@@ -25,6 +25,7 @@
 #include <api/common/commands/editor_commands.pb.h>
 #include <api/schematic/schematic_commands.pb.h>
 #include <api/schematic/library_commands.pb.h>
+#include <api/schematic/pcb_export.pb.h>
 #include <kiid.h>
 #include <sch_sheet_path.h>
 
@@ -83,6 +84,10 @@ protected:
 
 private:
     void registerLibraryHandlers();
+    void registerPcbExportHandler();
+    HANDLER_RESULT<kiapi::schematic::commands::PcbNetlistSnapshot> handleExportSchematicForPcb(
+            const HANDLER_CONTEXT<kiapi::schematic::commands::ExportSchematicForPcb>& );
+
     HANDLER_RESULT<bool> validateLibraryContext( const DocumentSpecifier&, bool write );
     HANDLER_RESULT<kiapi::schematic::commands::SearchSymbolLibrariesResponse> handleSearchSymbolLibraries(
             const HANDLER_CONTEXT<kiapi::schematic::commands::SearchSymbolLibraries>& );

@@ -51,9 +51,11 @@
 #include "board_netlist_updater.h"
 
 
-BOARD_NETLIST_UPDATER::BOARD_NETLIST_UPDATER( PCB_EDIT_FRAME* aFrame, BOARD* aBoard ) :
+BOARD_NETLIST_UPDATER::BOARD_NETLIST_UPDATER( PCB_EDIT_FRAME* aFrame, BOARD* aBoard, BOARD_COMMIT* aCommit ) :
     m_frame( aFrame ),
-    m_commit( aFrame ),
+    m_ownedCommit( aFrame ),
+    m_commit( aCommit ? *aCommit : m_ownedCommit ),
+    m_externalCommit( aCommit != nullptr ),
     m_board( aBoard )
 {
     m_reporter = &NULL_REPORTER::GetInstance();
@@ -2526,16 +2528,22 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
         // * it creates crashes when calculating dynamic ratsnests if auto refill is enabled.
         // (the auto refills rebuild the connectivity with incomplete data)
         // * it is useless because zones will be refilled after placing new footprints
-        m_commit.Push( _( "Update Netlist" ), m_newFootprintsCount ? ZONE_FILL_OP  : 0 );
+        // IPC can borrow the caller's commit, grouping update, placement and routing
+        // in one Undo step. The caller applies staged model changes and synchronizes
+        // after this updater has finished its snapshot-based board iteration.
+        if( !m_externalCommit )
+        {
+            m_commit.Push( _( "Update Netlist" ), m_newFootprintsCount ? ZONE_FILL_OP  : 0 );
 
-        // Update net, netcode and netclass data after commiting the netlist
-        m_board->SynchronizeNetsAndNetClasses( true );
-        m_board->GetConnectivity()->RefreshNetcodeMap( m_board );
+            // Update net, netcode and netclass data after commiting the netlist
+            m_board->SynchronizeNetsAndNetClasses( true );
+            m_board->GetConnectivity()->RefreshNetcodeMap( m_board );
 
-        // Although m_commit will probably also set this, it's not guaranteed, and we need to make
-        // sure any modification to netclasses gets persisted to project settings through a save.
-        if( m_frame )
-            m_frame->OnModify();
+            // Although m_commit will probably also set this, it's not guaranteed, and we need to make
+            // sure any modification to netclasses gets persisted to project settings through a save.
+            if( m_frame )
+                m_frame->OnModify();
+        }
     }
 
     if( m_isDryRun )

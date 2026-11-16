@@ -3,6 +3,7 @@ syntax = "proto3";
 package kiapi.board.commands;
 import "common/types/base_types.proto";
 import "board/board_types.proto";
+import "schematic/pcb_export.proto";
 
 message PadPosition {
   kiapi.common.types.KIID id = 1;
@@ -47,3 +48,54 @@ message RatsnestEdge {
   kiapi.common.types.KIID target_id = 5;
 }
 message RatsnestResponse { repeated RatsnestEdge edges = 1; }
+
+message PcbUpdateOptions {
+  optional bool lookup_by_uuid = 1;       // default true; false relinks by reference
+  optional bool replace_footprints = 2;   // default true
+  bool delete_unused_footprints = 3;
+  optional bool update_fields = 4;        // default true
+  bool remove_extra_fields = 5;
+  bool override_locks = 6;
+  bool transfer_groups = 7;
+}
+message UpdatePcbFromSchematic {
+  kiapi.common.types.ItemHeader header = 1;
+  oneof source {
+    // Obtained from the native schematic ExportSchematicForPcb, including unsaved edits.
+    kiapi.schematic.commands.PcbNetlistSnapshot live_snapshot = 2;
+    // Explicit saved root file; native KiCad reads it without opening a window.
+    string schematic_file = 3;
+  }
+  bool dry_run = 4;
+  PcbUpdateOptions options = 5;
+}
+message PadNetChange {
+  string number = 1;
+  string previous_net = 2;
+  string new_net = 3;
+}
+enum FootprintChangeKind { FCK_UNKNOWN = 0; FCK_ADDED = 1; FCK_UPDATED = 2; FCK_REMOVED = 3; }
+message FootprintChange {
+  FootprintChangeKind kind = 1;
+  string reference = 2;
+  kiapi.common.types.KIID previous_id = 3;
+  string previous_lib_id = 4;
+  string new_lib_id = 5;
+  repeated PadNetChange pad_nets = 6;
+}
+message PcbUpdateMessage { int32 severity = 1; string message = 2; }
+message UpdatePcbFromSchematicResponse {
+  // Provenance; native_netlist omitted in the response to avoid echoing a large snapshot.
+  kiapi.schematic.commands.PcbNetlistSnapshot source = 1;
+  bool dry_run = 2;
+  bool can_apply = 3;
+  bool applied = 4;
+  uint32 component_count = 5;
+  uint32 net_count = 6;
+  repeated string net_names = 7;
+  repeated FootprintChange footprints = 8;
+  repeated PcbUpdateMessage messages = 9;
+  uint32 error_count = 10;
+  uint32 warning_count = 11;
+  repeated kiapi.board.types.FootprintInstance added_footprints = 12;
+}

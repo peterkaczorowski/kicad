@@ -67,6 +67,39 @@ class PCBClient(SchematicClient):
     def update_items(self, items, document=None, **options):
         return self._edit_pcb('UpdateItems', items, document, **options)
 
+    def update_pcb_from_schematic(self, document=None, *, dry_run=False,
+                                  schematic_document=None, schematic_client=None, schematic_file=None,
+                                  lookup_by_uuid=True, replace_footprints=True,
+                                  delete_unused_footprints=False, update_fields=True,
+                                  remove_extra_fields=False, override_locks=False, transfer_groups=False):
+        """Native F8 update without dialogs; live export or an explicit saved root file.
+
+        Pass schematic_client for a separate schematic editor socket. No automatic
+        fallback to saved files; provenance is returned by the server. Can be grouped
+        with placement/routing in this PCB client's commit().
+        """
+        request = _message('kiapi.board.commands.UpdatePcbFromSchematic')(dry_run=dry_run)
+        request.header.document.CopyFrom(document if document is not None else self.active_document())
+        if schematic_file is not None:
+            if schematic_document is not None or schematic_client is not None:
+                raise ValueError('Choose a live schematic or an explicit saved file')
+            request.schematic_file = str(schematic_file)
+        else:
+            sch = schematic_client or SchematicClient(transport=self._transport)
+            request.live_snapshot.CopyFrom(sch.export_schematic_for_pcb(schematic_document))
+        request.options.lookup_by_uuid = lookup_by_uuid
+        request.options.replace_footprints = replace_footprints
+        request.options.delete_unused_footprints = delete_unused_footprints
+        request.options.update_fields = update_fields
+        request.options.remove_extra_fields = remove_extra_fields
+        request.options.override_locks = override_locks
+        request.options.transfer_groups = transfer_groups
+        reply = self._send(request, 'kiapi.board.commands.UpdatePcbFromSchematicResponse')
+        self.last_update_report = reply
+        if not dry_run and not reply.applied:
+            raise RuntimeError('PCB update refused: ' + '; '.join(m.message for m in reply.messages))
+        return reply
+
     def place_footprint(self, lib_id, position=None, document=None, *, rotation_degrees=None,
                         side=None, reference=None, value=None, replace_id=None, override_locks=False):
         request = _message('kiapi.board.commands.PlaceFootprint')()

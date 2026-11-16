@@ -1,0 +1,17 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.schematic.commands;
+import "common/types/base_types.proto";
+
+enum PcbNetlistSource { PNS_UNKNOWN = 0; PNS_LIVE = 1; PNS_SAVED = 2; }
+// Native export of the entire live project hierarchy; never edits or saves it.
+message ExportSchematicForPcb { kiapi.common.types.DocumentSpecifier document = 1; }
+message PcbNetlistSnapshot {
+  kiapi.common.types.DocumentSpecifier source_document = 1;
+  PcbNetlistSource source = 2;
+  string native_netlist = 3;
+  string source_filename = 4;
+  string session_id = 5;
+  uint64 revision = 6;
+  bool source_modified = 7;
+}

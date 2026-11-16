@@ -87,6 +87,12 @@ class SchematicClient:
             raise RuntimeError('Several schematic projects are open; select a document explicitly')
         return documents[0]
 
+    def export_schematic_for_pcb(self, document=None):
+        """Native full-hierarchy netlist snapshot of committed live edits, without saving."""
+        request = _message('kiapi.schematic.commands.ExportSchematicForPcb')()
+        request.document.CopyFrom(document if document is not None else self.active_document())
+        return self._send(request, 'kiapi.schematic.commands.PcbNetlistSnapshot')
+
     def _document_command(self, name, document, **fields):
         if self._in_commit:
             raise RuntimeError('Finish commit() before running document commands')

@@ -503,6 +503,7 @@ if( KICAD_IPC_API )
         ${EESCHEMA_SRCS}
         api/api_handler_sch.cpp
         api/api_handler_sch_library.cpp
+        api/api_handler_sch_pcb_export.cpp
         api/api_handler_sch_connectivity.cpp
         api/api_handler_sch_net_rename.cpp
         api/api_handler_symbol.cpp

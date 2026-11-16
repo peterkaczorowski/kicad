@@ -46,7 +46,11 @@ enum KIFACE_ADDR_ID : int
     KIFACE_TEST_FOOTPRINT_LINK,
     KIFACE_TEST_FOOTPRINT_LINK_NO_LIBRARY,
     KIFACE_TEST_FOOTPRINT_LINK_LIBRARY_NOT_ENABLED,
-    KIFACE_TEST_FOOTPRINT_LINK_NO_FOOTPRINT
+    KIFACE_TEST_FOOTPRINT_LINK_NO_FOOTPRINT,
+
+    // bool (*)(const wxString& filename, PROJECT*, std::string& netlist, std::string& error)
+    // Always reads the saved native schematic; never substitutes an open editor model.
+    KIFACE_EXPORT_PCB_NETLIST_SAVED
 };
 
 #endif // KIFACE_IDS

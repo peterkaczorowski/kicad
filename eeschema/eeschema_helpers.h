@@ -45,12 +45,14 @@ public:
     static SCHEMATIC*        LoadSchematic( const wxString& aFileName, bool aSetActive,
                                             bool aForceDefaultProject,
                                             PROJECT* aProject = nullptr,
-                                            bool aCalculateConnectivity = true );
+                                            bool aCalculateConnectivity = true,
+                                            bool aUseLiveModel = true );
     static SCHEMATIC*        LoadSchematic( const wxString& aFileName,
                                             SCH_IO_MGR::SCH_FILE_T aFormat,
                                             bool aSetActive, bool aForceDefaultProject,
                                             PROJECT* aProject = nullptr,
-                                            bool aCalculateConnectivity = true );
+                                            bool aCalculateConnectivity = true,
+                                            bool aUseLiveModel = true );
 
 private:
     static SCH_EDIT_FRAME*   s_SchEditFrame;

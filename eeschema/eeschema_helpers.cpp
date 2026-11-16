@@ -50,18 +50,18 @@ void EESCHEMA_HELPERS::SetSchEditFrame( SCH_EDIT_FRAME* aSchEditFrame )
 
 
 SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( const wxString& aFileName, bool aSetActive,
-                                            bool aForceDefaultProject, PROJECT* aProject, bool aCalculateConnectivity )
+                                            bool aForceDefaultProject, PROJECT* aProject, bool aCalculateConnectivity, bool aUseLiveModel )
 {
     if( aFileName.EndsWith( FILEEXT::KiCadSchematicFileExtension ) )
         return LoadSchematic( aFileName, SCH_IO_MGR::SCH_KICAD, aSetActive, aForceDefaultProject,
-                              aProject, aCalculateConnectivity );
+                              aProject, aCalculateConnectivity, aUseLiveModel );
     else if( aFileName.EndsWith( FILEEXT::LegacySchematicFileExtension ) )
         return LoadSchematic( aFileName, SCH_IO_MGR::SCH_LEGACY, aSetActive, aForceDefaultProject,
-                              aProject, aCalculateConnectivity );
+                              aProject, aCalculateConnectivity, aUseLiveModel );
 
     // as fall back for any other kind use the legacy format
     return LoadSchematic( aFileName, SCH_IO_MGR::SCH_LEGACY, aSetActive, aForceDefaultProject, aProject,
-                          aCalculateConnectivity );
+                          aCalculateConnectivity, aUseLiveModel );
 }
 
 
@@ -87,7 +87,7 @@ SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( const wxString& aFileName,
                                             bool aSetActive,
                                             bool aForceDefaultProject,
                                             PROJECT* aProject,
-                                            bool aCalculateConnectivity )
+                                            bool aCalculateConnectivity, bool aUseLiveModel )
 {
     wxFileName pro = aFileName;
     pro.SetExt( FILEEXT::ProjectFileExtension );
@@ -116,7 +116,7 @@ SCHEMATIC* EESCHEMA_HELPERS::LoadSchematic( const wxString& aFileName,
                 project = mgr.GetProject( projectPath );
             }
         }
-        else if( s_SchEditFrame && project == &mgr.Prj() )
+        else if( aUseLiveModel && s_SchEditFrame && project == &mgr.Prj() )
         {
             // Project is already loaded?  Then so is the board
             return &s_SchEditFrame->Schematic();

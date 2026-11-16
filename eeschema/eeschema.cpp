@@ -54,6 +54,7 @@
 #include <trace_helpers.h>
 #include <thread_pool.h>
 #include <kiface_ids.h>
+#include <eeschema_helpers.h>
 #include <widgets/kistatusbar.h>
 #include <netlist_exporters/netlist_exporter_kicad.h>
 #include <wx/ffile.h>
@@ -165,6 +166,23 @@ bool generateSchematicNetlist( const wxString& aFilename, std::string& aNetlist 
     aNetlist = formatter.GetString();
 
     return true;
+}
+
+
+bool exportSavedPcbNetlist( const wxString& filename, PROJECT* project, std::string& netlist, std::string& error )
+{
+    try
+    {
+        std::unique_ptr<SCHEMATIC> schematic( EESCHEMA_HELPERS::LoadSchematic(
+                filename, false, false, project, true, false ) );
+        if( !schematic ) { error = "Could not read saved schematic hierarchy"; return false; }
+        NETLIST_EXPORTER_KICAD exporter( schematic.get() );
+        STRING_FORMATTER formatter;
+        exporter.Format( &formatter, GNL_ALL | GNL_OPT_KICAD );
+        netlist = formatter.GetString();
+        return true;
+    }
+    catch( const IO_ERROR& exception ) { error = exception.What().ToStdString(); return false; }
 }
 
 
@@ -398,6 +416,9 @@ static struct IFACE : public KIFACE_BASE, public UNITS_PROVIDER
     {
         switch( aDataId )
         {
+            case KIFACE_EXPORT_PCB_NETLIST_SAVED:
+                return (void*) &exportSavedPcbNetlist;
+
             case KIFACE_NETLIST_SCHEMATIC:
                 return (void*) generateSchematicNetlist;
         }

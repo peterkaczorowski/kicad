@@ -102,7 +102,29 @@ class PCBClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.client.add_track(from_pad=('R3','2'), to_pad=('D2','1'), document=self.doc, net='WRONG')
 
+    def test_live_export_and_dry_run_pipeline(self):
+        schdoc = Document(type=1)
+        schdoc.project.path = '/project'
+        schdoc.sheet_path.path.add(value='root')
+        sch = SchematicClient(transport=self.transport)
+        reply = self.client.update_pcb_from_schematic(self.doc, dry_run=True,
+                        schematic_document=schdoc, schematic_client=sch)
+        self.assertTrue(reply.can_apply)
+        self.assertFalse(reply.applied)
+        request = self.transport.commands[-1]
+        self.assertTrue(request.dry_run)
+        self.assertEqual(request.live_snapshot.source_document, schdoc)
+        self.assertEqual(request.live_snapshot.session_id, 'test-session')
+        self.assertTrue(request.options.lookup_by_uuid)
+        self.assertFalse(request.options.delete_unused_footprints)
 
+    def test_saved_source_does_not_query_live_editor(self):
+        self.client.update_pcb_from_schematic(self.doc, schematic_file='/project/design.kicad_sch')
+        self.assertEqual(len(self.transport.commands), 1)
+        self.assertEqual(self.transport.commands[-1].schematic_file, '/project/design.kicad_sch')
+        with self.assertRaises(ValueError):
+            self.client.update_pcb_from_schematic(self.doc, schematic_file='/p/s.kicad_sch',
+                                                  schematic_document=Document(type=1))
 
     def test_via_preserves_explicit_geometry_and_net(self):
         via = self.client.add_via((10000000,20000000), 'GND', self.doc)
