@@ -428,3 +428,36 @@ are visible inside commit() and use native BOARD_COMMIT for grouped Undo/Redo/Dr
 The schematic adapter and existing installed/default clients are unchanged until
 a separately approved installation. Tests: test_pcb_client.py and native
 PcbApiNetSafety; live tests require a marked disposable project.
+
+
+## Library footprints, pad endpoints and ratsnest (adapter 0.13)
+
+`pcb.place_footprint('LED_THT:LED_D5.0mm', (x_nm, y_nm), doc,
+reference='D2', value='LED', rotation_degrees=90, side='B.Cu')` loads the native
+project/global library entry without a dialog. It returns `footprint` plus `pads`
+with UUIDs, absolute board positions, enabled copper layers and net names.
+Invalid library/entry/side/ref/position are refused before changing the board.
+
+Use `replace_id=existing_uuid` to reload or replace from a library, preserving
+reference, schematic path, position/angle/side and pad nets unless explicitly
+overridden. It refuses a replacement that would remove a connected pad and
+protects locked footprints unless override_locks=True. Pad nets are preserved by
+pad number across different geometries; conflicting nets on duplicate numbers
+are refused. Native ExchangeFootprint
+and BOARD_COMMIT implement replacement/Undo; no library files are generated.
+
+`get_footprint_pads('R3', doc)` or `footprint_id=` reads live absolute pad data.
+`get_pad('R3', '2', doc)` refuses missing/ambiguous pads.
+`add_track(from_pad=('R3','2'), to_pad=('D2','2'), width_nm=250000,
+layer='F.Cu', document=doc)` validates shared net and pad/layer compatibility.
+`get_ratsnest(net_name='', document=doc, pad_id=None)` returns native airwire
+edges including hidden edges, with net, endpoint UUIDs and positions.
+`get_nets` and `get_connected_items` expose the native board queries.
+`add_via(position, net, doc, diameter_nm=800000, drill_nm=400000)` creates a
+through via within the same commit; new-net flags remain explicit.
+
+For placement without reloading a library, `update_items([footprint], doc,
+fields=['position', 'orientation', 'layer'])` applies native transforms in place.
+Pad and field positions follow the footprint; child UUIDs and nets stay stable.
+PCB get_items() defaults to explicit top-level types, excluding pads/fields so
+a footprint and its children are not accidentally submitted for deletion twice.

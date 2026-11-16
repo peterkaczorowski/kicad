@@ -33,6 +33,7 @@ set( KIAPI_PROTO_SRCS
     common/commands/variant_commands.proto
 
     board/board.proto
+    board/integration_commands.proto
     board/board_commands.proto
     board/board_types.proto
 

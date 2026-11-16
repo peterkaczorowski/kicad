@@ -25,6 +25,7 @@
 
 #include <api/api_handler_editor.h>
 #include <api/board/board_commands.pb.h>
+#include <api/board/integration_commands.pb.h>
 #include <api/board/board_types.pb.h>
 #include <api/common/commands/editor_commands.pb.h>
 #include <api/common/commands/project_commands.pb.h>
@@ -55,6 +56,12 @@ public:
 
 private:
     typedef std::map<std::string, PROPERTY_BASE*> PROTO_PROPERTY_MAP;
+
+    void registerIntegrationHandlers();
+    HANDLER_RESULT<FootprintPlacementResponse> handlePlaceFootprint( const HANDLER_CONTEXT<PlaceFootprint>& );
+    HANDLER_RESULT<FootprintPlacementResponse> handleGetFootprintPads( const HANDLER_CONTEXT<GetFootprintPads>& );
+    HANDLER_RESULT<RatsnestResponse> handleGetRatsnest( const HANDLER_CONTEXT<GetRatsnest>& );
+
 
     static HANDLER_RESULT<std::unique_ptr<BOARD_ITEM>> createItemForType( KICAD_T aType,
                                                           BOARD_ITEM_CONTAINER* aContainer );

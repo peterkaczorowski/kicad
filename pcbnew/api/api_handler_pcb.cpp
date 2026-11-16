@@ -19,6 +19,8 @@
  */
 
 #include <magic_enum.hpp>
+#include <cmath>
+#include <algorithm>
 #include <google/protobuf/util/field_mask_util.h>
 #include <pcb_draw_panel_gal.h>
 #include <pcb_screen.h>
@@ -143,6 +145,7 @@ private:
 API_HANDLER_PCB::API_HANDLER_PCB( PCB_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
+    registerIntegrationHandlers();
     registerHandler<GetOpenDocuments, GetOpenDocumentsResponse>(
             &API_HANDLER_PCB::handleGetOpenDocuments );
 
@@ -500,6 +503,41 @@ HANDLER_RESULT<ItemRequestStatus> API_HANDLER_PCB::handleCreateUpdateItemsIntern
             options.set_replace_repeated_fields( true );
             google::protobuf::util::FieldMaskUtil::MergeMessageTo( *patch, aHeader.field_mask(), options, merged.get() );
             full.PackFrom( *merged );
+        }
+        // Footprint protobuf children use absolute coordinates. A masked transform
+        // must move the native footprint, not deserialize its old child positions
+        // into a new anchor (which would leave the pads and fields behind).
+        if( !aCreate && aHeader.field_mask().paths_size() && full.Is<kiapi::board::types::FootprintInstance>() )
+        {
+            bool transformOnly = true;
+            for( const auto& path : aHeader.field_mask().paths() )
+            {
+                const auto root = path.substr( 0, path.find( '.' ) );
+                if( root != "position" && root != "orientation" && root != "layer" && root != "locked" ) transformOnly = false;
+            }
+            if( transformOnly )
+            {
+                kiapi::board::types::FootprintInstance value;
+                if( !full.UnpackTo( &value ) ) return documentError( "Malformed footprint transform" );
+                auto found = getItemById( KIID( value.id().value() ) );
+                auto* footprint = found ? dynamic_cast<FOOTPRINT*>( *found ) : nullptr;
+                const auto side = FromProtoEnum<PCB_LAYER_ID, kiapi::board::types::BoardLayer>( value.layer() );
+                if( !footprint || container != board || ( side != F_Cu && side != B_Cu )
+                    || !board->GetEnabledLayers().test( side ) || !std::isfinite( value.orientation().value_degrees() )
+                    || value.position().x_nm() < -INT_MAX / 4 || value.position().x_nm() > INT_MAX / 4
+                    || value.position().y_nm() < -INT_MAX / 4 || value.position().y_nm() > INT_MAX / 4 )
+                    return documentError( "Invalid footprint transform" );
+                commit->Modify( footprint );
+                footprint->SetPosition( UnpackVector2( value.position() ) );
+                footprint->SetLayerAndFlip( side );
+                footprint->SetOrientation( EDA_ANGLE( value.orientation().value_degrees(), DEGREES_T ) );
+                footprint->SetLocked( value.locked() == kiapi::common::types::LS_LOCKED );
+                board->GetConnectivity()->Update( footprint );
+                frame()->GetCanvas()->GetView()->Update( footprint );
+                google::protobuf::Any transformed; footprint->Serialize( transformed );
+                status.set_code( ItemStatusCode::ISC_OK ); aItemHandler( status, transformed );
+                continue;
+            }
         }
         std::set<std::string> missing;
         std::string netError;
