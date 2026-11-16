@@ -38,6 +38,7 @@ set( QA_PCBNEW_SRCS
     test_array_pad_name_provider.cpp
     test_barcode_load_save.cpp
     test_api_pcb_nets.cpp
+    test_api_footprint_library.cpp
     test_board_connected_items.cpp
     test_board_design_settings.cpp
     test_board_item_index.cpp
