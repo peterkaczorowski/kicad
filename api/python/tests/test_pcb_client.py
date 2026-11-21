@@ -13,6 +13,10 @@ class PCBTransport(Transport):
             result.documents[0].type = 3
             result.documents[0].board_filename = 'board.kicad_pcb'
         name = request.DESCRIPTOR.name
+        if name == 'GetProjectSettings':
+            result.revision = 'current-revision'
+            result.settings.net_settings.update({'classes': [{'name': 'Default'}]})
+            result.settings.board_design_settings.update({'rules': {'min_track_width': .2}})
         if name == 'ExportSchematicForPcb':
             result.source = 1
             result.source_document.CopyFrom(request.document)
@@ -34,6 +38,43 @@ class PCBClientTests(unittest.TestCase):
         self.transport = PCBTransport()
         self.client = PCBClient(transport=self.transport)
         self.doc = Document(type=3, board_filename='board.kicad_pcb')
+
+    def test_project_settings_are_atomic_revision_checked_and_deferred(self):
+        from google.protobuf.json_format import MessageToDict
+        before = self.client.get_project_settings(self.doc)
+        settings = MessageToDict(before.settings, preserving_proto_field_name=True)
+        settings['board_design_settings']['rules']['min_track_width'] = .127
+        self.client.set_project_settings(settings, self.doc, expected_revision=before.revision,
+                                        fields=['board_design_settings.rules.min_track_width'])
+        request = self.transport.commands[-1]
+        self.assertEqual(request.expected_revision, 'current-revision')
+        self.assertEqual(list(request.field_mask.paths), ['board_design_settings.rules.min_track_width'])
+        self.assertEqual(request.settings.board_design_settings['rules']['min_track_width'], .127)
+        with self.client.edit_project_settings(self.doc) as data:
+            data['custom_rules'] = '(version 1)'
+        self.assertEqual(self.transport.commands[-1].settings.custom_rules, '(version 1)')
+        count = len(self.transport.commands)
+        with self.assertRaises(RuntimeError):
+            with self.client.edit_project_settings(self.doc) as data:
+                raise RuntimeError('cancel edit')
+        self.assertEqual(len(self.transport.commands), count + 1) # read only, no write
+        with self.assertRaises(ValueError):
+            self.client.set_project_settings(settings, self.doc, expected_revision='', fields=['net_settings'])
+        self.assertFalse(any(c.DESCRIPTOR.name == 'SaveDocument' for c in self.transport.commands))
+
+    def test_reload_settings_explicit_discard_and_document_revert(self):
+        self.client.reload_project_settings(self.doc)
+        self.assertFalse(self.transport.commands[-1].discard_unsaved)
+        self.client.reload_project_settings(self.doc, discard_unsaved=True)
+        self.assertTrue(self.transport.commands[-1].discard_unsaved)
+        self.client.revert_document(self.doc, discard_unsaved=True)
+        self.assertTrue(self.transport.commands[-1].discard_unsaved)
+        self.client.get_nets_by_netclass('VIDEO_CLASS', self.doc)
+        self.assertEqual(self.transport.commands[-1].netclass, 'VIDEO_CLASS')
+        self.assertEqual(self.transport.commands[-1].document, self.doc)
+        with self.client.commit('items', self.doc):
+            with self.assertRaises(RuntimeError):
+                self.client.reload_project_settings(self.doc, discard_unsaved=True)
 
     def test_footprint_library_sources_and_project_persistence(self):
         from pathlib import Path

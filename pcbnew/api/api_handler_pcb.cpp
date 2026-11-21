@@ -53,6 +53,9 @@
 #include <drc/drc_item.h>
 #include <layer_ids.h>
 #include <project.h>
+#include <project/project_file.h>
+#include <project/net_settings.h>
+#include <wx/log.h>
 #include <string_utils.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
@@ -183,6 +186,7 @@ API_HANDLER_PCB::API_HANDLER_PCB( PCB_EDIT_FRAME* aFrame ) :
         API_HANDLER_EDITOR( aFrame )
 {
     registerIntegrationHandlers();
+    registerProjectSettingsHandlers();
     registerFootprintLibraryHandlers();
     registerHandler<GetOpenDocuments, GetOpenDocumentsResponse>(
             &API_HANDLER_PCB::handleGetOpenDocuments );
@@ -300,6 +304,14 @@ HANDLER_RESULT<Empty> API_HANDLER_PCB::saveDocumentInternal( const DocumentSpeci
         || ( path.FileExists() && !path.IsFileWritable() ) )
         return documentError( "Board needs an existing writable native save path" );
     // The native writer propagates IO_ERROR rather than showing a dialog.
+    auto& project = frame()->Prj().GetProjectFile();
+    if( project.NetSettings()->HasUnsavedChanges()
+        || frame()->GetBoard()->GetDesignSettings().HasUnsavedChanges() || project.PendingBoardRules() )
+    {
+        wxLogNull noDialogs;
+        if( frame()->Prj().IsReadOnly() || !project.SaveToFile( frame()->Prj().GetProjectPath(), true ) )
+            return documentError( "Project settings/rules could not be saved; board remains modified" );
+    }
     PCB_IO_KICAD_SEXPR io;
     io.SaveBoard( path.GetFullPath(), frame()->GetBoard() );
     frame()->GetScreen()->SetContentModified( false );

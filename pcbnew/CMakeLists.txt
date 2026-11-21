@@ -536,6 +536,7 @@ if( KICAD_IPC_API )
         api/api_handler_pcb.cpp
         api/api_handler_pcb_integration.cpp
         api/api_handler_pcb_library.cpp
+        api/api_handler_pcb_settings.cpp
         api/api_handler_footprint.cpp
         )
 endif()

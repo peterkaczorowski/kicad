@@ -1076,6 +1076,7 @@ set( PCB_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/pcbnew/api/api_pcb_enums.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/api/api_pcb_utils.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/api/api_pcb_library_utils.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/api/api_pcb_settings_utils.cpp
 )
 
 add_library( pcbcommon STATIC ${PCB_COMMON_SRCS} )

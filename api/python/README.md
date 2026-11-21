@@ -1,5 +1,87 @@
 # Schematic IPC client for this KiCad fork
 
+## Project design settings (adapter 0.16.0)
+
+`PCBClient` supports explicit-document `GetProjectSettings`, `SetProjectSettings`,
+`ReloadProjectSettings`, and `GetNetsByNetClass`. These operate on the native project
+model, without editing a project file externally or opening Board Setup. Install a
+client built from this checkout; the separate upstream `kipy` package does not
+automatically acquire this fork's commands.
+
+```python
+from kipy_schematic import PCBClient
+
+pcb = PCBClient(timeout_ms=30000)  # select the intended socket if several processes run
+doc = pcb.active_document()
+state = pcb.get_project_settings(doc)
+print(state.revision, state.modified)
+
+# The dict follows the native settings schema returned by GetProjectSettings.
+# PCB lengths use mm; schematic wire/bus widths in netclasses use mil.
+with pcb.edit_project_settings(doc) as settings:
+    settings['board_design_settings']['rules']['min_track_width'] = 0.127
+    settings['board_design_settings']['rule_severities']['track_width'] = 'error'
+    settings['net_settings']['classes'].append({
+        'name': 'VIDEO_CLASS', 'priority': 0, 'track_width': 0.127,
+        'clearance': 0.2, 'via_diameter': 0.6, 'via_drill': 0.3,
+        'diff_pair_width': 0.127, 'diff_pair_gap': 0.2,
+    })
+    settings['net_settings']['netclass_patterns'].append({
+        'pattern': 'Net-(IC2-*', 'netclass': 'VIDEO_CLASS',
+    })
+    settings['custom_rules'] = '''(version 1)
+(rule "Video clearance" (condition "A.NetClass == 'VIDEO_CLASS'")
+    (constraint clearance (min 0.2mm)))
+'''
+
+print([net.name for net in pcb.get_nets_by_netclass('VIDEO_CLASS', doc)])
+pcb.save_document(doc)  # saves the board and dirty native project settings/rules
+
+# After an external .kicad_pro/.kicad_dru change, explicitly reload its settings.
+pcb.reload_project_settings(doc)  # refuses unsaved in-memory project settings
+# Only when intentionally discarding those settings:
+pcb.reload_project_settings(doc, discard_unsaved=True)
+```
+
+Classes preserve optional values, priorities, schematic attributes, vias and
+microvias; assignments include native patterns and explicit net-to-class lists.
+`get_nets_by_netclass` uses native effective membership, including composite
+classes. Parentheses in patterns use KiCad's matcher, not Python regular expressions.
+The board settings expose the native schema; writes cover `rules`,
+`rule_severities`, `track_widths`, `via_dimensions`, and `diff_pair_dimensions`.
+Other returned board settings are read-only in this operation. Severity values
+are `error`, `warning`, or `ignore`. Netclass tuning profile references may be
+preserved; profile catalogue editing is not part of this command.
+
+Advanced callers can use `set_project_settings(settings, doc,
+expected_revision=state.revision, fields=[...])` with explicit, non-overlapping
+field paths, for example `board_design_settings.rules.min_track_width`.
+Lists/maps selected by a field path are replaced. The whole candidate is
+validated before application: malformed data, unknown keys, new undefined netclass references,
+invalid rule syntax/conditions, missing Default class and stale revisions refuse
+the entire operation. Read the state again after a refusal or a GUI edit.
+The context manager submits once on successful exit and never writes on an
+exception. Project settings form one atomic operation, separate from board-item
+`commit()` and geometry Undo, as in native Board Setup; there is no project-settings
+Undo entry. Finish pending item transactions before using these commands.
+
+Reload retains board geometry, board Undo and the board's existing dirty flag;
+only project design settings are discarded. It reassigns netclasses, recompiles
+live DRC rules and refreshes the UI, invalidating stale nonexcluded DRC markers.
+Board Revert preserves unsaved project settings and their separate save point;
+it does not authorize discarding them on a later settings reload. A fresh
+`save_copy_of_document(..., include_project=True)` snapshots the live project
+and its staged rules without consuming the source's unsaved changes.
+Existing implicit class references from native schematic labels are preserved and
+can be queried; they are not silently added to the explicit class catalogue.
+Settings commands refuse modal dialogs, active tools and running DRC. Library
+definitions and other editors' project settings are not reloaded.
+
+`revert_document(doc, discard_unsaved=True)` has been available since adapter
+0.5.0 and works in 0.15.0/0.16.0. Use the `kipy_schematic` adapter instead of
+appending raw protobuf bytes to an older upstream `kipy` request. Document Revert
+and project-settings reload have independent, explicit discard flags.
+
 This client supports live schematic item editing, connectivity, document commands
 and symbol libraries in this source tree. It reuses the
 `kicad-python` transport, but loads its protocol into an isolated descriptor

@@ -1,0 +1,37 @@
+/* Copyright The KiCad Developers, see AUTHORS.txt. SPDX-License-Identifier: GPL-3.0-or-later */
+syntax = "proto3";
+package kiapi.board.commands;
+import "common/types/base_types.proto";
+import "board/board_types.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/field_mask.proto";
+
+// Structured native settings, never a path or a replacement project file. Distances use the
+// native settings units: mm for PCB values, mil for schematic wire/bus widths. Unknown keys,
+// invalid values and references are rejected. Read first to obtain the complete current schema.
+message ProjectDesignSettings {
+  google.protobuf.Struct net_settings = 1;
+  google.protobuf.Struct board_design_settings = 2;
+  string custom_rules = 3;
+}
+message GetProjectSettings { kiapi.common.types.DocumentSpecifier document = 1; }
+message ProjectSettingsResponse {
+  ProjectDesignSettings settings = 1;
+  string revision = 2; // Opaque current-model token; changes also when settings are edited in GUI.
+  bool modified = 3; // Project settings only, independent of unsaved board geometry.
+}
+message SetProjectSettings {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  ProjectDesignSettings settings = 2;
+  google.protobuf.FieldMask field_mask = 3;
+  string expected_revision = 4; // Required; stale snapshots refuse the entire operation.
+}
+message ReloadProjectSettings {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  bool discard_unsaved = 2;
+}
+message GetNetsByNetClass {
+  kiapi.common.types.DocumentSpecifier document = 1;
+  string netclass = 2; // Explicit or existing implicit class; includes composite membership.
+}
+message NetsByNetClassResponse { repeated kiapi.board.types.Net nets = 1; }

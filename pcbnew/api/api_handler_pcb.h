@@ -27,6 +27,7 @@
 #include <api/board/board_commands.pb.h>
 #include <api/board/integration_commands.pb.h>
 #include <api/board/library_commands.pb.h>
+#include <api/board/project_settings.pb.h>
 #include <api/board/board_types.pb.h>
 #include <api/common/commands/editor_commands.pb.h>
 #include <api/common/commands/project_commands.pb.h>
@@ -59,6 +60,16 @@ private:
     typedef std::map<std::string, PROPERTY_BASE*> PROTO_PROPERTY_MAP;
 
     void registerFootprintLibraryHandlers();
+    void registerProjectSettingsHandlers();
+    HANDLER_RESULT<bool> validateProjectSettingsContext( const DocumentSpecifier& );
+    HANDLER_RESULT<ProjectSettingsResponse> handleGetProjectSettings( const HANDLER_CONTEXT<GetProjectSettings>& );
+    HANDLER_RESULT<ProjectSettingsResponse> handleSetProjectSettings( const HANDLER_CONTEXT<SetProjectSettings>& );
+    HANDLER_RESULT<ProjectSettingsResponse> handleReloadProjectSettings( const HANDLER_CONTEXT<ReloadProjectSettings>& );
+    HANDLER_RESULT<NetsByNetClassResponse> handleGetNetsByNetClass( const HANDLER_CONTEXT<GetNetsByNetClass>& );
+    void refreshProjectSettings();
+    ProjectSettingsResponse projectSettingsResponse();
+    std::string m_projectSettingsSnapshot;
+    std::string m_projectSettingsRevision;
     HANDLER_RESULT<bool> validateFootprintLibraryContext( const DocumentSpecifier&, bool aWrite );
     HANDLER_RESULT<SearchFootprintLibrariesResponse> handleSearchFootprintLibraries(
             const HANDLER_CONTEXT<SearchFootprintLibraries>& );

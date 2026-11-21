@@ -1,5 +1,7 @@
 """PCB operations using the exact schema of this KiCad fork."""
 from uuid import uuid4
+from contextlib import contextmanager
+from google.protobuf.json_format import MessageToDict, ParseDict
 from . import SchematicClient, _message, _pool
 
 Track = _message('kiapi.board.types.Track')
@@ -30,6 +32,60 @@ class PCBClient(SchematicClient):
         if len(docs) != 1:
             raise RuntimeError('Select an explicit PCB document; expected exactly one open board')
         return docs[0]
+
+    def get_project_settings(self, document=None):
+        """Read native model, revision and project-only modified flag (PCB distances in mm)."""
+        request = self._project_settings_request('GetProjectSettings', document)
+        return self._send(request, 'kiapi.board.commands.ProjectSettingsResponse')
+
+    def _project_settings_request(self, name, document):
+        if self._in_commit:
+            raise RuntimeError('Finish commit() before changing project settings')
+        request = _message('kiapi.board.commands.' + name)()
+        request.document.CopyFrom(document if document is not None else self.active_document())
+        return request
+
+    def set_project_settings(self, settings, document=None, *, expected_revision, fields):
+        """One atomic project transaction, separate from board-item Undo/commit().
+
+        Supply the revision from get_project_settings() and explicit field paths.
+        Changes stay in KiCad memory until save_document() or native project save.
+        """
+        if not expected_revision or not fields:
+            raise ValueError('A current revision and nonempty field mask are required')
+        request = self._project_settings_request('SetProjectSettings', document)
+        if isinstance(settings, dict):
+            ParseDict(settings, request.settings)
+        else:
+            request.settings.CopyFrom(settings)
+        request.expected_revision = expected_revision
+        request.field_mask.paths.extend(fields)
+        return self._send(request, 'kiapi.board.commands.ProjectSettingsResponse')
+
+    @contextmanager
+    def edit_project_settings(self, document=None):
+        """Edit a detached dict; submit all changes once on successful context exit."""
+        document = document if document is not None else self.active_document()
+        before = self.get_project_settings(document)
+        data = MessageToDict(before.settings, preserving_proto_field_name=True,
+                             always_print_fields_with_no_presence=True)
+        yield data
+        self.set_project_settings(data, document, expected_revision=before.revision,
+                                  fields=['net_settings', 'board_design_settings', 'custom_rules'])
+
+    def reload_project_settings(self, document=None, *, discard_unsaved=False):
+        """Reload .kicad_pro/.kicad_dru; preserve board geometry/Undo and refuse dirty settings."""
+        request = self._project_settings_request('ReloadProjectSettings', document)
+        request.discard_unsaved = discard_unsaved
+        return self._send(request, 'kiapi.board.commands.ProjectSettingsResponse')
+
+    def get_nets_by_netclass(self, netclass, document=None):
+        """Use native effective membership, including composite classes and literal parentheses."""
+        if not netclass:
+            raise ValueError('A netclass name is required')
+        request = self._project_settings_request('GetNetsByNetClass', document)
+        request.netclass = netclass
+        return list(self._send(request, 'kiapi.board.commands.NetsByNetClassResponse').nets)
 
     def get_items(self, types=None, document=None, *, ids=None):
         # PCB's native GetItems requires explicit types. Default to top-level
