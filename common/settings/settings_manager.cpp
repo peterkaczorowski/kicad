@@ -24,6 +24,7 @@
 #include <wx/debug.h>
 #include <wx/dir.h>
 #include <wx/filename.h>
+#include <wx/ffile.h>
 #include <wx/snglinst.h>
 #include <wx/stdpaths.h>
 #include <wx/utils.h>
@@ -38,6 +39,7 @@
 #include <macros.h>
 #include <pgm_base.h>
 #include <paths.h>
+#include <richio.h>
 #include <picosha2.h>
 
 #include <algorithm>
@@ -1303,23 +1305,43 @@ void SETTINGS_MANAGER::SaveProjectCopy( const wxString& aFullPath, PROJECT* aPro
         aProject = &Prj();
 
     PROJECT_FILE* project = m_project_files.at( aProject->GetProjectFullName() );
-    wxString      oldName = project->GetFilename();
     wxFileName    fn( aFullPath );
 
-    bool readOnly = project->IsReadOnly();
-    project->SetReadOnly( false );
-
-    project->SetFilename( fn.GetName() );
-    project->SaveToFile( fn.GetPath() );
-    project->SetFilename( oldName );
+    // SaveToFile advances source save points and consumes staged rules. A copy is a snapshot,
+    // so use native serialization and edit only the detached copy's filename metadata.
+    const std::string serialized = project->SerializeToString();
+    if( serialized.empty() ) THROW_IO_ERROR( "Could not serialize project copy" );
+    auto document = nlohmann::json::parse( serialized );
+    document["meta"]["filename"] = fn.GetFullName().ToStdString();
+    const std::string payload = document.dump( 2 ) + '\n';
+    auto rules = project->PendingBoardRules();
+    if( !rules ) rules = project->Internals()->m_loadedBoardRules;
+    wxFileName sourceRules( aProject->GetProjectFullName() );
+    sourceRules.SetExt( FILEEXT::DesignRulesFileExtension );
+    if( !rules && sourceRules.FileExists() )
+    {
+        wxFFile input( sourceRules.GetFullPath(), "rb" );
+        wxString text;
+        if( !input.IsOpened() || !input.ReadAll( &text, wxConvUTF8 ) )
+            THROW_IO_ERROR( "Could not read project rules for copy" );
+        rules = text.ToStdString( wxConvUTF8 );
+    }
+    wxString error;
+    if( !KIPLATFORM::IO::AtomicWriteFile( aFullPath, payload.data(), payload.size(), &error ) )
+        THROW_IO_ERROR( error );
+    wxFileName rulesCopy( fn );
+    rulesCopy.SetExt( FILEEXT::DesignRulesFileExtension );
+    if( rules && !rulesCopy.FileExists()
+        && !KIPLATFORM::IO::AtomicWriteFile( rulesCopy.GetFullPath(), rules->data(), rules->size(), &error ) )
+        THROW_IO_ERROR( error );
 
     PROJECT_LOCAL_SETTINGS& localSettings = aProject->GetLocalSettings();
+    const wxString oldName = localSettings.GetFilename();
 
     localSettings.SetFilename( fn.GetName() );
     localSettings.SaveToFile( fn.GetPath() );
     localSettings.SetFilename( oldName );
 
-    project->SetReadOnly( readOnly );
 }
 
 

@@ -22,6 +22,7 @@
 #define KICAD_JSON_SETTINGS_INTERNALS_H
 
 #include <json_common.h>
+#include <optional>
 
 class KICOMMON_API JSON_SETTINGS_INTERNALS : public nlohmann::json
 {
@@ -77,6 +78,14 @@ public:
 private:
 
     nlohmann::json m_original;
+
+public:
+    std::string m_savedParams;
+
+    // Kept in the existing pimpl so editor modules retain the public settings ABI.
+    std::optional<std::string> m_pendingBoardRules;
+    std::optional<std::string> m_loadedBoardRules;
+    std::optional<std::string> m_savedBoardDesignParams;
 };
 
 #endif // KICAD_JSON_SETTINGS_INTERNALS_H

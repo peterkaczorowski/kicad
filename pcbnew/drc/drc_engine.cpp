@@ -26,6 +26,7 @@
 #include <atomic>
 #include <set>
 #include <wx/log.h>
+#include <wx/ffile.h>
 #include <reporter.h>
 #include <common.h>
 #include <progress_reporter.h>
@@ -51,6 +52,8 @@
 #include <thread_pool.h>
 #include <zone.h>
 #include <project/project_file.h>
+#include <project.h>
+#include <settings/json_settings_internals.h>
 #include <project/tuning_profiles.h>
 #include <connectivity/connectivity_data.h>
 #include <connectivity/from_to_cache.h>
@@ -669,36 +672,34 @@ void DRC_ENGINE::loadImplicitRules()
 
 void DRC_ENGINE::loadRules( const wxFileName& aPath )
 {
-    if( m_board && aPath.FileExists() )
+    PROJECT_FILE* project = m_board && m_board->GetProject()
+                                    ? &m_board->GetProject()->GetProjectFile() : nullptr;
+    const auto pending = project ? project->PendingBoardRules() : std::optional<std::string>();
+    if( m_board && ( pending || aPath.FileExists() ) )
     {
         std::vector<std::shared_ptr<DRC_RULE>> rules;
+        wxString rulesText;
 
-        if( FILE* fp = wxFopen( aPath.GetFullPath(), wxT( "rt" ) ) )
+        if( pending )
+            rulesText = wxString::FromUTF8( *pending );
+        else
         {
-            FILE_LINE_READER lineReader( fp, aPath.GetFullPath() );  // Will close rules file
-            wxString         rulesText;
-
-            std::function<bool( wxString* )> resolver =
-                    [&]( wxString* token ) -> bool
-                    {
-                        if( IsComponentClassSelector( *token ) )
-                            return false;
-
-                        return m_board->ResolveTextVar( token, 0 );
-                    };
-
-            while( char* line = lineReader.ReadLine() )
-            {
-                wxString str( line );
-                str = m_board->ConvertCrossReferencesToKIIDs( str );
-                str = ExpandTextVars( str, &resolver );
-
-                rulesText << str << '\n';
-            }
-
-            DRC_RULES_PARSER parser( rulesText, aPath.GetFullPath() );
-            parser.Parse( rules, m_logReporter );
+            wxFFile input( aPath.GetFullPath(), "rb" );
+            if( !input.IsOpened() || !input.ReadAll( &rulesText, wxConvUTF8 ) )
+                THROW_IO_ERROR( "Could not read design rules" );
         }
+        const auto originalText = rulesText.ToStdString( wxConvUTF8 );
+
+        std::function<bool( wxString* )> resolver = [&]( wxString* token ) -> bool
+        {
+            return !IsComponentClassSelector( *token ) && m_board->ResolveTextVar( token, 0 );
+        };
+        rulesText = m_board->ConvertCrossReferencesToKIIDs( rulesText );
+        rulesText = ExpandTextVars( rulesText, &resolver );
+        DRC_RULES_PARSER parser( rulesText, aPath.GetFullPath() );
+        parser.Parse( rules, m_logReporter );
+        if( project )
+            project->Internals()->m_loadedBoardRules = originalText;
 
         // Copy the rules into the member variable afterwards so that if Parse() throws then
         // the possibly malformed rules won't contaminate the current ruleset.
@@ -706,6 +707,8 @@ void DRC_ENGINE::loadRules( const wxFileName& aPath )
         for( std::shared_ptr<DRC_RULE>& rule : rules )
             m_rules.push_back( rule );
     }
+    else if( project )
+        project->Internals()->m_loadedBoardRules = std::string();
 }
 
 

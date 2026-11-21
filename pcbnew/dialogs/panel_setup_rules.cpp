@@ -34,6 +34,7 @@
 #include <project/net_settings.h>
 #include <settings/common_settings.h>
 #include <project.h>
+#include <project/project_file.h>
 #include <string_utils.h>
 #include <tool/tool_manager.h>
 #include <panel_setup_rules.h>
@@ -1084,7 +1085,14 @@ bool PANEL_SETUP_RULES::TransferDataToWindow()
 {
     wxFileName rulesFile( m_frame->GetDesignRulesPath() );
 
-    if( rulesFile.FileExists() )
+    if( const auto& pending = m_frame->Prj().GetProjectFile().PendingBoardRules(); pending )
+    {
+        m_textEditor->AddText( wxString::FromUTF8( *pending ) );
+        m_textEditor->EmptyUndoBuffer();
+        wxCommandEvent dummy;
+        OnCompile( dummy );
+    }
+    else if( rulesFile.FileExists() )
     {
         wxTextFile file( rulesFile.GetFullPath() );
 
@@ -1139,6 +1147,7 @@ bool PANEL_SETUP_RULES::TransferDataFromWindow()
 
     try
     {
+        m_frame->Prj().GetProjectFile().SetPendingBoardRules( std::nullopt );
         m_frame->GetBoard()->GetDesignSettings().m_DRCEngine->InitEngine( rulesFilepath );
         return true;
     }

@@ -1432,6 +1432,14 @@ bool BOARD_DESIGN_SETTINGS::LoadFromFile( const wxString& aDirectory )
     if( migrated )
         Load();
 
+    MarkSaved();
+
+    auto& baseline = project->Internals()->m_savedBoardDesignParams;
+    if( baseline )
+        Internals()->m_savedParams = *baseline;
+    else
+        baseline = GetCurrentParams().dump();
+
     return ret;
 }
 

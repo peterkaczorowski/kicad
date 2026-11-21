@@ -135,6 +135,20 @@ JSON_SETTINGS_INTERNALS* JSON_SETTINGS::Internals()
 }
 
 
+const JSON_SETTINGS_INTERNALS* JSON_SETTINGS::Internals() const
+{
+    return m_internals.get();
+}
+
+
+void JSON_SETTINGS::AdoptFileScope( const std::string& aPath, const nlohmann::json& aValue )
+{
+    const auto pointer = JSON_SETTINGS_INTERNALS::PointerFromString( aPath );
+    ( *m_internals )[pointer] = aValue;
+    m_internals->m_original[pointer] = aValue;
+}
+
+
 void JSON_SETTINGS::Load()
 {
     for( PARAM_BASE* param : m_params )
@@ -361,6 +375,8 @@ bool JSON_SETTINGS::LoadFromFile( const wxString& aDirectory )
 
     m_modified = false;
 
+    MarkSaved();
+
     // If we migrated, clean up the legacy file (with no extension). Save the migrated
     // contents FIRST so that if the save fails we still have the legacy file on disk to
     // fall back to -- otherwise a crash mid-migration leaves the user with neither copy.
@@ -405,6 +421,41 @@ bool JSON_SETTINGS::Store()
     }
 
     return m_modified;
+}
+
+
+nlohmann::json JSON_SETTINGS::GetCurrentParams() const
+{
+    JSON_SETTINGS snapshot( wxEmptyString, SETTINGS_LOC::NESTED, m_schemaVersion );
+    snapshot.m_internals->clear();
+    for( const PARAM_BASE* param : m_params )
+        param->Store( &snapshot );
+    return static_cast<const nlohmann::json&>( *snapshot.m_internals );
+}
+
+
+bool JSON_SETTINGS::HasUnsavedChanges() const
+{
+    return m_internals->m_savedParams.empty()
+           || GetCurrentParams().dump() != m_internals->m_savedParams;
+}
+
+
+void JSON_SETTINGS::MarkSaved()
+{
+    // Some derived settings finish normalizing their parameters after the base loader returns.
+    // Snapshot failure must not break application startup or incorrectly authorize a discard.
+    try
+    {
+        m_internals->m_savedParams = GetCurrentParams().dump();
+    }
+    catch( const std::exception& error )
+    {
+        m_internals->m_savedParams.clear();
+        wxLogTrace( traceSettings, "Cannot snapshot %s: %s", GetFilename(), error.what() );
+    }
+    for( NESTED_SETTINGS* nested : m_nested_settings )
+        nested->MarkSaved();
 }
 
 
@@ -523,6 +574,8 @@ bool JSON_SETTINGS::SaveToFile( const wxString& aDirectory, bool aForce )
 
                     m_modified = false;
 
+                    MarkSaved();
+
                     return false;
                 }
             }
@@ -549,7 +602,10 @@ bool JSON_SETTINGS::SaveToFile( const wxString& aDirectory, bool aForce )
     }
 
     if( success )
+    {
         m_modified = false;
+        MarkSaved();
+    }
 
     return success;
 }

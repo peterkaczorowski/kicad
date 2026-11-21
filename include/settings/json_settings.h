@@ -122,6 +122,11 @@ public:
     bool Contains( const std::string& aPath ) const;
 
     JSON_SETTINGS_INTERNALS* Internals();
+    const JSON_SETTINGS_INTERNALS* Internals() const;
+
+    /// Replace a reloaded file subtree in both the loaded baseline and backing store.
+    /// Other editors' settings and unknown project keys remain untouched.
+    void AdoptFileScope( const std::string& aPath, const nlohmann::json& aValue );
 
     /**
      * Updates the parameters of this object based on the current JSON document contents
@@ -134,6 +139,13 @@ public:
      * @return true if any part of the JSON document has been updated since the last save to disk
      */
     virtual bool Store();
+
+    /// Registered parameters, without mutating the backing store or dirty flags.
+    nlohmann::json GetCurrentParams() const;
+
+    /// Compare with the last successful load/save, including edits materialized by Store().
+    bool HasUnsavedChanges() const;
+    void MarkSaved();
 
     /**
      * Loads the backing file from disk and then calls Load()
@@ -365,6 +377,7 @@ protected:
 
     /// True if the JSON data store has been written to since the last file write
     bool m_modified;
+
 
     /// Whether or not to delete legacy file after migration
     bool m_deleteLegacyAfterMigration;

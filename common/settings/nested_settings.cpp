@@ -122,6 +122,8 @@ bool NESTED_SETTINGS::LoadFromFile( const wxString& aDirectory )
 
     Load();
 
+    MarkSaved();
+
     return success;
 }
 

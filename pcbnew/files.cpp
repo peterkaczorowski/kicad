@@ -1120,9 +1120,8 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
         return false;
     }
 
-    // Save various DRC parameters, such as violation severities (which may have been
-    // edited via the DRC dialog as well as the Board Setup dialog), DRC exclusions, etc.
-    SaveProjectLocalSettings();
+    // A copy must not save the active project's settings or consume its staged rules.
+    // Project settings are serialized separately below when explicitly requested.
 
     GetBoard()->SynchronizeNetsAndNetClasses( false );
     GetBoard()->SynchronizeProperties();
@@ -1160,7 +1159,14 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
     rulesFile.SetExt( FILEEXT::DesignRulesFileExtension );
 
     if( aCreateProject && !projectFile.FileExists() )
-        GetSettingsManager()->SaveProjectCopy( projectFile.GetFullPath() );
+    {
+        try { GetSettingsManager()->SaveProjectCopy( projectFile.GetFullPath() ); }
+        catch( const IO_ERROR& error )
+        {
+            if( !aHeadless ) DisplayError( this, error.What() );
+            return false;
+        }
+    }
 
     wxFileName currentRules( GetDesignRulesPath() );
 

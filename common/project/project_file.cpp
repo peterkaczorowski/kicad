@@ -33,6 +33,8 @@
 #include <wx/config.h>
 #include <wx/filename.h>
 #include <wx/log.h>
+#include <wx/ffile.h>
+#include <kiplatform/io.h>
 
 
 ///! Update the schema version whenever a migration is required
@@ -691,6 +693,7 @@ bool PROJECT_FILE::MigrateFromLegacy( wxConfigBase* aCfg )
 
 bool PROJECT_FILE::LoadFromFile( const wxString& aDirectory )
 {
+    Internals()->m_savedBoardDesignParams.reset();
     bool success = JSON_SETTINGS::LoadFromFile( aDirectory );
 
     if( success )
@@ -755,6 +758,18 @@ bool PROJECT_FILE::LoadFromFile( const wxString& aDirectory )
 }
 
 
+const std::optional<std::string>& PROJECT_FILE::PendingBoardRules() const
+{
+    return Internals()->m_pendingBoardRules;
+}
+
+
+void PROJECT_FILE::SetPendingBoardRules( std::optional<std::string> aRules )
+{
+    Internals()->m_pendingBoardRules = std::move( aRules );
+}
+
+
 bool PROJECT_FILE::SaveToFile( const wxString& aDirectory, bool aForce )
 {
     wxASSERT( m_project );
@@ -768,7 +783,64 @@ bool PROJECT_FILE::SaveToFile( const wxString& aDirectory, bool aForce )
     // save should be cleared at this.
     m_wasMigrated = false;
 
-    return JSON_SETTINGS::SaveToFile( aDirectory, force );
+    auto rememberBoardBaseline = [this]()
+    {
+        // A board can be destroyed/recreated while its project and unsaved settings survive.
+        // Only a real save (not serialization for SaveCopy) advances this project-level baseline.
+        for( const NESTED_SETTINGS* nested : m_nested_settings )
+            if( nested->GetFilename() == "board_design_settings" )
+            {
+                if( !nested->HasUnsavedChanges() )
+                    Internals()->m_savedBoardDesignParams = nested->GetCurrentParams().dump();
+                return;
+            }
+        Internals()->m_savedBoardDesignParams.reset();
+    };
+
+    const auto& pendingRules = PendingBoardRules();
+    if( !pendingRules )
+    {
+        const bool saved = JSON_SETTINGS::SaveToFile( aDirectory, force );
+        rememberBoardBaseline();
+        return saved;
+    }
+
+    // Keep staged rules until both native files have been saved successfully. No dialogs, and
+    // never leave new rules paired with old project constraints after a failed project write.
+    if( IsReadOnly() )
+        return false;
+
+    wxFileName rules( m_project->GetProjectFullName() );
+    if( !aDirectory.empty() )
+        rules.SetPath( aDirectory );
+    rules.SetExt( FILEEXT::DesignRulesFileExtension );
+    const bool existed = rules.FileExists();
+    wxString previous;
+    if( existed )
+    {
+        wxFFile input( rules.GetFullPath(), "rb" );
+        if( !input.IsOpened() || !input.ReadAll( &previous, wxConvUTF8 ) )
+            return false;
+    }
+    wxString error;
+    if( !KIPLATFORM::IO::AtomicWriteFile( rules.GetFullPath(), pendingRules->data(),
+                                        pendingRules->size(), &error ) )
+        return false;
+
+    if( !JSON_SETTINGS::SaveToFile( aDirectory, true ) )
+    {
+        if( existed )
+        {
+            const std::string bytes = previous.ToStdString( wxConvUTF8 );
+            KIPLATFORM::IO::AtomicWriteFile( rules.GetFullPath(), bytes.data(), bytes.size(), &error );
+        }
+        else
+            wxRemoveFile( rules.GetFullPath() );
+        return false;
+    }
+    SetPendingBoardRules( std::nullopt );
+    rememberBoardBaseline();
+    return true;
 }
 
 

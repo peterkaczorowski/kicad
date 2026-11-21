@@ -114,6 +114,10 @@ public:
      */
     std::string SerializeToString();
 
+    /// Staged native custom rules are shared with Board Setup and the live DRC engine.
+    const std::optional<std::string>& PendingBoardRules() const;
+    void SetPendingBoardRules( std::optional<std::string> aRules );
+
     bool SaveAs( const wxString& aDirectory, const wxString& aFile );
 
     void SetProject( PROJECT* aProject )
@@ -150,6 +154,7 @@ public:
     {
         return m_NetSettings;
     }
+
 
     std::shared_ptr<COMPONENT_CLASS_SETTINGS>& ComponentClassSettings()
     {
