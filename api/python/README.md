@@ -1,5 +1,11 @@
 # Schematic IPC client for this KiCad fork
 
+For the current capability map, transaction rules, build/test guidance and source
+entry points, start with [AI-extended KiCad IPC](../../AI-Extended-IPC-README.md).
+This guide provides detailed usage for adapter **0.16.0**. Earlier version labels
+identify feature introductions; the documented schematic and PCB stages are
+implemented, subject to the limitations below.
+
 ## Project design settings (adapter 0.16.0)
 
 `PCBClient` supports explicit-document `GetProjectSettings`, `SetProjectSettings`,
@@ -144,7 +150,7 @@ The selected page disambiguates item UUIDs and reused sheet instances; returned
 net members cover the entire loaded hierarchy, including unsaved changes.
 
 ```python
-snapshot = client.get_pin_net('U8', 39, document=page)
+snapshot = client.get_pin_net('U1', 3, document=page)
 for net in snapshot.nets:
     print(net.id, net.name, list(net.aliases))
     for member in net.members:
@@ -160,7 +166,7 @@ client.highlight_net(clear=True, document=page)
 full = client.get_schematic_netlist(page)
 selected = client.get_item_net(use_selection=True, document=page)
 # client.get_item_net(['wire-uuid'], document=page)
-pin_table = client.get_symbol_connections('U8', document=page)
+pin_table = client.get_symbol_connections('U1', document=page)
 diagnostics = client.get_connectivity_issues(page)
 
 # Structured full netlist export; no temporary GUI export is necessary:
@@ -191,15 +197,16 @@ local naming-driver conflicts, and informational aliases. They do not run full
 ERC, add markers, infer electrical types or repair the schematic. The canonical
 pin type returned is the value actually stored in the model. Highlighting uses
 the normal GUI net navigator; the returned members identify other sheets.
-Generic symbol/wire/label item creation and editing remain outside this API.
+Generic symbol/wire/label editing is documented in the live schematic items
+section below; connectivity diagnostics do not perform those edits.
 
 ## Rename a net (client 0.3)
 
 Renaming has two explicit stages. Both use the live, unsaved hierarchy:
 
 ```python
-snapshot = client.get_pin_net('U8', 39, document=page)
-plan = client.plan_net_rename(snapshot.nets[0].id, 'PHI2_RENAMED', snapshot=snapshot)
+snapshot = client.get_pin_net('U1', 3, document=page)
+plan = client.plan_net_rename(snapshot.nets[0].id, 'DATA_RENAMED', snapshot=snapshot)
 print('Can apply:', plan.can_apply)
 print('Refusals:', list(plan.blockers))
 print('Existing nets:', [net.name for net in plan.collisions])
@@ -214,7 +221,7 @@ for change in plan.changes:
 
 An existing target name anywhere in the loaded hierarchy causes refusal, even
 when its current sheet scope would keep it separate. There is **no merge
-option**. `PHI2_SALLY -> PHI2` is refused if PHI2 exists. Matching is case
+option**. `DATA_OLD -> DATA` is refused if DATA exists. Matching is case
 sensitive, as in KiCad. Collision previews return `can_apply=False`, `collisions`
 and `blockers`; they receive no executable plan ID.
 
@@ -244,7 +251,7 @@ the applied plan and a fresh full connectivity snapshot. Read the net again
 after editing or undoing; previous IDs/revisions are stale.
 
 The real-editor acceptance test is `api/python/tests/test_live_net_rename.py`.
-It requires an explicitly marked disposable copy of Codex800XL and the PID of
+It requires its prepared, explicitly marked disposable fixture and the PID of
 its isolated test editor, and exercises GUI Undo/Redo only on that process.
 
 ## Schematic paper format (client 0.4)
@@ -279,8 +286,8 @@ sheet contents and title block; the current drawing frame updates without
 switching sheets or reloading. Save normally in the editor to persist the result.
 
 The live test `api/python/tests/test_live_page_settings.py` takes a marked,
-disposable HyperSpeed copy and an isolated configuration with IPC enabled. It
-starts its own editor and verifies A4 to A3, orientation, grouped Undo/Redo,
+prepared disposable hierarchical fixture and an isolated configuration with IPC
+enabled. It starts its own editor and verifies A4 to A3, orientation, grouped Undo/Redo,
 shared files and save/reopen. `--capture` records the test editor's page frame
 before and after the batch on macOS.
 
@@ -322,8 +329,10 @@ Wait for the expected live state before issuing dependent edits or saves after
 an action; an immediate read can precede the queued action.
 
 Save writes the complete schematic hierarchy once per screen, including
-non-active sheets. It does not implicitly save project settings. Library Save
-writes only the current item through global/project library tables and refuses
+non-active sheets. Schematic save does not implicitly save project settings;
+PCB SaveDocument also persists dirty project design settings and pending custom
+rules as documented for adapter 0.16 above. Library Save writes only the current
+item through global/project library tables and refuses
 read-only libraries. Schematic-linked symbols and board-linked footprints must
 be saved through their parent editor; explicit SaveCopy remains available.
 
@@ -346,7 +355,7 @@ Never pass a working user document to mutation tests. Modal and viewport checks
 must additionally be performed against the private test app.
 
 
-## Live schematic items (client 0.6, stage 2 in progress)
+## Live schematic items (introduced in clients 0.6–0.11)
 
 Wire/bus/graphical `Line` CRUD is available through `get_items`, `create_items`,
 `update_items(fields=[...])`, `delete_items` and `add_wire(start_nm, end_nm)`.
@@ -507,8 +516,8 @@ or explicitly allow_net_mismatch for a deliberate manual override.
 
 PCB updates accept field masks and protect UUID/parent. Top-level PCB changes
 are visible inside commit() and use native BOARD_COMMIT for grouped Undo/Redo/Drop.
-The schematic adapter and existing installed/default clients are unchanged until
-a separately approved installation. Tests: test_pcb_client.py and native
+Use a matching native build and descriptor package for these commands.
+Tests: test_pcb_client.py and native
 PcbApiNetSafety; live tests require a marked disposable project.
 
 
@@ -600,8 +609,8 @@ Verification: build a matching descriptor package with build_client.py, then run
 package on PYTHONPATH. Native QA suites: `PcbApiNetSafety`, `BoardItemIndex`.
 The live scripts `live_pcb_items.py` and `live_schematic_pcb_integration.py`
 require an explicit marked project, explicit owned editor sockets and an artifact
-directory; neither discovers a global socket or accepts the real CodexTest2 or
-Codex800XL project. The integration script uses a previously IPC-built NE555 and
+directory; they do not discover a global socket and must never target working
+user projects. The integration script uses a previously IPC-built NE555 and
 its reference JSON, and the adjacent acceptance-only `route_ne555.py` fixture.
 It covers live versus saved source, dry-run immutability, standalone and grouped
 Undo/Redo, native save/reload and external-change Revert in both editors. Run
@@ -670,4 +679,4 @@ inspect unsaved buffers in other application processes.
 
 Verification: `FootprintLibraryApi` native QA, the matching Python transport
 tests, and `live_footprint_libraries.py` on an explicitly marked disposable project.
-No live mutation test may target CodexTest2 or Codex800XL.
+No live mutation test may target a working user project.

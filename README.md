@@ -1,5 +1,13 @@
 # KiCad README
 
+## AI and automation extensions in this fork
+
+See [AI-extended KiCad IPC](AI-Extended-IPC-README.md) for the capability map,
+client setup, native transaction and persistence rules, limitations, tests and
+implementation entry points. It also summarizes the reference-image and macOS
+compatibility changes. Detailed Python examples are in the
+[Python API guide](api/python/README.md).
+
 For specific documentation about [building KiCad](https://dev-docs.kicad.org/en/build/), policies
 and guidelines, and source code documentation see the
 [Developer Documentation](https://dev-docs.kicad.org) website.
